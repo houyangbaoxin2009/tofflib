@@ -1,0 +1,360 @@
+type tie<class>
+// ============================================================================
+// officeutil.tie：tofflib——用 tie 办公的工具库 / 日常办公小工具
+//
+// 本模块提供与具体文件格式无关的纯文本办公工具：
+//   - 日期时间：fmt_date() / fmt_datetime() / pad2()（含补零落位格式化）
+//   - 表格/CSV：csv_line() / csv_text() / render_table()（列对齐文本表格）
+//   - 待办清单：todo() / todo_done() / list_items()（MK 复选框/数字列表）
+//
+// 纯函数、零 unsafe、无外部依赖，只依赖底座原语（str_len/str_char/len/table
+// + StringBuilder）。中日韩等多字节字符的列宽按码点数（str_len）计，不按字节。
+// 调用方式（class 库，编译为 officeutil.a）：
+//   import "./officeutil.tie" as ou
+//   var d = ou.fmt_date(2026, 8, 30)
+//   var t = ou.todo("本周", ["写报告", "评审"])
+//
+// 错误约定：非法值（如月 0/13、日 0/32）不恐慌，按"补零后原样输出"宽容处理。
+// ============================================================================
+
+namespace officeutil {
+
+// 月份/日/小时等补两 位零（0..99 → "00".."99"；超出则整段输出数字）。
+pub func pad2(v: i64) -> string {
+    if v < 0 {
+        return "00"
+    }
+    if v < 10 {
+        var sb = string_builder()
+        sb_append(sb, "0")
+        sb_append_byte(sb, 48 + v)
+        return sb_build(sb)
+    }
+    if v < 100 {
+        var sb = string_builder()
+        sb_append_byte(sb, 48 + v / 10)
+        sb_append_byte(sb, 48 + v % 10)
+        return sb_build(sb)
+    }
+    return i2s(v)
+}
+
+// 日期字符串：YYYY-MM-DD。
+pub func fmt_date(y: i64, m: i64, d: i64) -> string {
+    var sb = string_builder()
+    sb_append(sb, pad4(y))
+    sb_append(sb, "-")
+    sb_append(sb, pad2(m))
+    sb_append(sb, "-")
+    sb_append(sb, pad2(d))
+    return sb_build(sb)
+}
+
+// 日期时间字符串：YYYY-MM-DD HH:MM:SS（HH 24 小时制）。
+pub func fmt_datetime(y: i64, m: i64, d: i64, h: i64, mi: i64, s: i64) -> string {
+    var sb = string_builder()
+    sb_append(sb, fmt_date(y, m, d))
+    sb_append(sb, " ")
+    sb_append(sb, pad2(h))
+    sb_append(sb, ":")
+    sb_append(sb, pad2(mi))
+    sb_append(sb, ":")
+    sb_append(sb, pad2(s))
+    return sb_build(sb)
+}
+
+// ---- 表格 / CSV ----
+
+// 单个单元格 CSV 转义：含分隔符/引号/换行时用双引号包裹并把内部 " 翻倍。
+pub func csv_cell(c: string, sep: string) -> string {
+    var need = false
+    if contains(c, sep) || contains(c, "\"") || contains(c, "\n") || contains(c, "\r") {
+        need = true
+    }
+    if !need {
+        return c
+    }
+    var sb = string_builder()
+    sb_append(sb, "\"")
+    var n: i64 = str_len(c)
+    var i: i64 = 0
+    while i < n {
+        var ch = str_char(c, i)
+        if ch == "\"" {
+            sb_append(sb, "\"\"")
+        } else {
+            sb_append(sb, ch)
+        }
+        i = i + 1
+    }
+    sb_append(sb, "\"")
+    return sb_build(sb)
+}
+
+// 一行 → CSV 文本（以 sep 连接各单元格，含转义）。
+pub func csv_line(cells: table<string>, sep: string) -> string {
+    var sb = string_builder()
+    var i: i64 = 0
+    while i < len(cells) {
+        if i > 0 {
+            sb_append(sb, sep)
+        }
+        sb_append(sb, csv_cell(cells[i], sep))
+        i = i + 1
+    }
+    return sb_build(sb)
+}
+
+// 二维表 → CSV 全文（每行以 sep 连接，行间 \n）。
+pub func csv_text(rows: table<table<string>>, sep: string) -> string {
+    var sb = string_builder()
+    var r: i64 = 0
+    while r < len(rows) {
+        if r > 0 {
+            sb_append(sb, "\n")
+        }
+        sb_append(sb, csv_line(rows[r], sep))
+        r = r + 1
+    }
+    return sb_build(sb)
+}
+
+// 对齐文本表格：headers 列名 + rows 二维数据，每列按内容最大宽度左对齐填充 pad 空格。
+// col_sep 为列分隔符（如 "  " 或 " | "）。返回不含开头/结尾空行的纯文本块。
+pub func render_table(headers: table<string>, rows: table<table<string>>, col_sep: string, pad: i64) -> string {
+    var ncols: i64 = len(headers)
+    var r: i64 = 0
+    while r < len(rows) {
+        var rc: i64 = len(rows[r])
+        if rc > ncols {
+            ncols = rc
+        }
+        r = r + 1
+    }
+    if ncols == 0 {
+        return ""
+    }
+    // 各列最大码点宽度
+    var widths = table_new_i64()
+    var c: i64 = 0
+    while c < ncols {
+        table_push(widths, 0)
+        c = c + 1
+    }
+    c = 0
+    while c < ncols {
+        if c < len(headers) {
+            table_push_repl(widths, c, max2(widths[c], str_len(headers[c])))
+        }
+        r = 0
+        while r < len(rows) {
+            if c < len(rows[r]) {
+                table_push_repl(widths, c, max2(widths[c], str_len(rows[r][c])))
+            }
+            r = r + 1
+        }
+        c = c + 1
+    }
+    // 组装输出
+    var sb = string_builder()
+    append_row_text(sb, headers, widths, col_sep, pad)
+    // 表头分隔行（虚线）
+    var total: i64 = 0
+    c = 0
+    while c < ncols {
+        total = total + widths[c] + pad
+        c = c + 1
+    }
+    total = total + (ncols - 1) * str_len(col_sep)
+    repeat_dash(sb, total)
+    sb_append(sb, "\n")
+    r = 0
+    while r < len(rows) {
+        append_row_text(sb, rows[r], widths, col_sep, pad)
+        r = r + 1
+    }
+    return sb_build(sb)
+}
+
+// ---- 待办清单 ----
+
+// Markdown 复选框清单：title 为标题行（可为空），items 各一行 "- [ ] 事项"。
+pub func todo(title: string, items: table<string>) -> string {
+    return todo_with(title, items, " ")
+}
+
+// 勾选版清单："- [x] 事项"。
+pub func todo_done(title: string, items: table<string>) -> string {
+    return todo_with(title, items, "x")
+}
+
+// 数字编号列表：title 为标题行，items 依次为 "1. 事项"。
+pub func list_items(title: string, items: table<string>) -> string {
+    var sb = string_builder()
+    if title != "" {
+        sb_append(sb, title)
+        sb_append(sb, "\n")
+    }
+    var i: i64 = 0
+    while i < len(items) {
+        sb_append(sb, i2s(i + 1))
+        sb_append(sb, ". ")
+        sb_append(sb, items[i])
+        sb_append(sb, "\n")
+        i = i + 1
+    }
+    return sb_build(sb)
+}
+
+// ---- 内部私有辅助 ----
+
+// checkbox 版清单（mark 为 " " 或 "x"）。
+func todo_with(title: string, items: table<string>, mark: string) -> string {
+    var sb = string_builder()
+    if title != "" {
+        sb_append(sb, title)
+        sb_append(sb, "\n")
+    }
+    var i: i64 = 0
+    while i < len(items) {
+        sb_append(sb, "- [")
+        sb_append(sb, mark)
+        sb_append(sb, "] ")
+        sb_append(sb, items[i])
+        sb_append(sb, "\n")
+        i = i + 1
+    }
+    return sb_build(sb)
+}
+
+// 字符串 c 的码点序列是否包含子串 sub（简单逐位比较；空 sub 恒 true）。
+func contains(s: string, sub: string) -> bool {
+    var n: i64 = str_len(s)
+    var m: i64 = str_len(sub)
+    if m == 0 {
+        return true
+    }
+    if m > n {
+        return false
+    }
+    var i: i64 = 0
+    while i + m <= n {
+        var j: i64 = 0
+        var ok = true
+        while j < m {
+            if str_char(s, i + j) != str_char(sub, j) {
+                ok = false
+                j = m
+            } else {
+                j = j + 1
+            }
+        }
+        if ok {
+            return true
+        }
+        i = i + 1
+    }
+    return false
+}
+
+// 把一行单元格（含表头行）按 widths 对齐追加进 sb。
+func append_row_text(sb: i64, cells: table<string>, widths: table<i64>, col_sep: string, pad: i64) -> void {
+    var c: i64 = 0
+    while c < len(widths) {
+        if c > 0 {
+            sb_append(sb, col_sep)
+        }
+        var cell: string = ""
+        if c < len(cells) {
+            cell = cells[c]
+        }
+        sb_append(sb, cell)
+        var fill: i64 = (widths[c] + pad) - str_len(cell)
+        var k: i64 = 0
+        while k < fill {
+            sb_append(sb, " ")
+            k = k + 1
+        }
+        c = c + 1
+    }
+    sb_append(sb, "\n")
+}
+
+// 追加 total 个 '-'（表头分隔虚线）。
+func repeat_dash(sb: i64, total: i64) -> void {
+    var i: i64 = 0
+    while i < total {
+        sb_append(sb, "-")
+        i = i + 1
+    }
+}
+
+// 年份 4 位（可能 >9999 时按全数字补；0..9999 补零到至少 4 位）。
+func pad4(v: i64) -> string {
+    if v < 10000 {
+        var sb = string_builder()
+        var digs = table_new_i64()
+        var x: i64 = v
+        if x == 0 {
+            table_push(digs, 0)
+        } else {
+            while x > 0 {
+                table_push(digs, x % 10)
+                x = x / 10
+            }
+        }
+        while len(digs) < 4 {
+            table_push(digs, 0)
+        }
+        var i: i64 = len(digs) - 1
+        while i >= 0 {
+            sb_append_byte(sb, 48 + digs[i])
+            i = i - 1
+        }
+        return sb_build(sb)
+    }
+    return i2s(v)
+}
+
+// 就地更新 widths 的第 idx 处为 val（table 下标写，长度不变）。
+func table_push_repl(t: ref table<i64>, idx: i64, val: i64) -> void {
+    t[idx] = val
+}
+
+// 最大值（供 render_table 算列宽）。
+func max2(a: i64, b: i64) -> i64 {
+    if a > b {
+        return a
+    }
+    return b
+}
+
+// i64 → 十进制字符串（模块自包含）。
+func i2s(v: i64) -> string {
+    if v == 0 {
+        return "0"
+    }
+    var sb = string_builder()
+    var neg = false
+    var x: i64 = v
+    if x < 0 {
+        neg = true
+        x = 0 - x
+    }
+    var digs = table_new_i64()
+    while x > 0 {
+        table_push(digs, x % 10)
+        x = x / 10
+    }
+    if neg {
+        sb_append(sb, "-")
+    }
+    var i: i64 = len(digs) - 1
+    while i >= 0 {
+        sb_append_byte(sb, 48 + digs[i])
+        i = i - 1
+    }
+    return sb_build(sb)
+}
+
+}   // namespace officeutil

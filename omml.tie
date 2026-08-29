@@ -1,0 +1,160 @@
+type tie<class>
+// ============================================================================
+// omml.tie：tofflib——用 tie 办公的工具库 / Word 公式 OMML 生成
+//
+// 本模块生成 OfficeMath (OMML) 结构 XML 片段，供嵌入 word/document.xml 的
+// <w:p> 段落中显示公式。命名空间：
+//   m: http://schemas.openxmlformats.org/officeDocument/2006/math
+//   w: 同上（w:r 用于公式内文本 run，实际 OMML 支持 m:r）——本模块统一 m:r。
+//
+// 提供基础数学结构生成器（所有结构接受"已组装的子片段字符串"，可无限嵌套）：
+//   - 文本/标识 run：r()；行内公式：inline()；整段公式：omath_para()
+//   - 下标/上标：ssub() / ssup()；分数：frac()
+//   - 定界符：delimit()（括号包裹）；求和/积分等：nary()
+//   - 文本净化：escape()（& < >）——OMML 沿用通用 XML 转义。
+//
+// 纯函数、零 unsafe、无外部依赖，只依赖底座原语 + StringBuilder。
+// 调用方式（class 库，编译为 omml.a）：
+//   import "./omml.tie" as mm
+//   var e = mm.frac(mm.r("a") + mm.r("b"), mm.r("c"))
+//   var s = mm.delimit(mm.ssup(mm.r("x"), mm.r("2")), "(", ")")
+//
+// 错误约定：escape 对非法/超界字符安静跳过。
+// ============================================================================
+
+namespace omml {
+
+// XML 安全转义（& < >）——OMML 内容文本沿用通用 XML 规则。
+pub func escape(txt: string) -> string {
+    var sb = string_builder()
+    var n: i64 = str_len(txt)
+    var i: i64 = 0
+    while i < n {
+        var c = str_char(txt, i)
+        if c == "&" {
+            sb_append(sb, "&amp;")
+        } else if c == "<" {
+            sb_append(sb, "&lt;")
+        } else if c == ">" {
+            sb_append(sb, "&gt;")
+        } else {
+            sb_append(sb, c)
+        }
+        i = i + 1
+    }
+    return sb_build(sb)
+}
+
+// 数学文本 run：<m:r><m:t>text</m:t></m:r>（文本经 escape）。
+pub func r(txt: string) -> string {
+    return "<m:r><m:t>" + escape(txt) + "</m:t></m:r>"
+}
+
+// 在数学上下文中插入普通片段（不转义，供已组装的子结构拼接）；等价 ID。
+pub func raw(frag: string) -> string {
+    return frag
+}
+
+// 行内公式：<m:oMath>parts</m:oMath>（将一组 run/结构片段包成一个公式）。
+pub func inline(parts: table<string>) -> string {
+    var sb = string_builder()
+    sb_append(sb, "<m:oMath>")
+    append_all(sb, parts)
+    sb_append(sb, "</m:oMath>")
+    return sb_build(sb)
+}
+
+// 整段（显示）公式：<m:oMathPara><m:oMath>…</m:oMath></m:oMathPara>。
+pub func omath_para(parts: table<string>) -> string {
+    return "<m:oMathPara>" + inline(parts) + "</m:oMathPara>"
+}
+
+// 分数 a/b：<m:f><m:num>a</m:num><m:den>b</m:den></m:f>。
+pub func frac(numerator: string, den: string) -> string {
+    var sb = string_builder()
+    sb_append(sb, "<m:f>")
+    sb_append(sb, "<m:num>")
+    sb_append(sb, numerator)
+    sb_append(sb, "</m:num>")
+    sb_append(sb, "<m:den>")
+    sb_append(sb, den)
+    sb_append(sb, "</m:den>")
+    sb_append(sb, "</m:f>")
+    return sb_build(sb)
+}
+
+// 下标 base_sub：<m:sSub><m:e>base</m:e><m:sub>sub</m:sub></m:sSub>。
+pub func ssub(base: string, sub: string) -> string {
+    return "<m:sSub>" + math_e(base) + math_sub(sub) + "</m:sSub>"
+}
+
+// 上标 base^sup：<m:sSup><m:e>base</m:e><m:sup>sup</m:sup></m:sSup>。
+pub func ssup(base: string, sup: string) -> string {
+    return "<m:sSup>" + math_e(base) + math_sup(sup) + "</m:sSup>"
+}
+
+// 定界符（括号包裹）inner，beg/end 为左右括号字符（默认圆括号）。
+pub func delimit(inner: string, beg: string, end: string) -> string {
+    var sb = string_builder()
+    sb_append(sb, "<m:d>")
+    sb_append(sb, "<m:dPr>")
+    sb_append(sb, "<m:begChr m:val=\"")
+    sb_append(sb, beg)
+    sb_append(sb, "\"/>")
+    sb_append(sb, "<m:endChr m:val=\"")
+    sb_append(sb, end)
+    sb_append(sb, "\"/>")
+    sb_append(sb, "</m:dPr>")
+    sb_append(sb, math_e(inner))
+    sb_append(sb, "</m:d>")
+    return sb_build(sb)
+}
+
+// 求和/积分/累加等 n-ary 算子：<m:nary>+<m:naryPr><m:chr m:val="op"/></m:naryPr>
+// +<m:sub>sub</m:sub><m:sup>sup</m:sup><m:e>inner</m:e></m:nary>。
+// op 为算子字符（如 "∑" "∫" "∏"）。
+pub func nary(op: string, sub: string, sup: string, inner: string) -> string {
+    var sb = string_builder()
+    sb_append(sb, "<m:nary>")
+    sb_append(sb, "<m:naryPr>")
+    sb_append(sb, "<m:chr m:val=\"")
+    sb_append(sb, op)
+    sb_append(sb, "\"/>")
+    sb_append(sb, "<m:limLoc m:val=\"undOvr\"/>")
+    sb_append(sb, "</m:naryPr>")
+    if sub != "" {
+        sb_append(sb, math_sub(sub))
+    }
+    if sup != "" {
+        sb_append(sb, math_sup(sup))
+    }
+    sb_append(sb, math_e(inner))
+    sb_append(sb, "</m:nary>")
+    return sb_build(sb)
+}
+
+// ---- 内部私有辅助 ----
+
+// <m:e> 基础元素包裹（分数/上下标/定界符的"主体"）。
+func math_e(frag: string) -> string {
+    return "<m:e>" + frag + "</m:e>"
+}
+
+func math_sub(frag: string) -> string {
+    return "<m:sub>" + frag + "</m:sub>"
+}
+
+func math_sup(frag: string) -> string {
+    return "<m:sup>" + frag + "</m:sup>"
+}
+
+// 把多个片段（子结构）顺序 sb_append 进去。
+func append_all(sb: i64, parts: table<string>) -> void {
+    var i: i64 = 0
+    while i < len(parts) {
+        sb_append(sb, parts[i])
+        i = i + 1
+    }
+}
+
+}   // namespace omml

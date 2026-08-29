@@ -1,0 +1,176 @@
+type tie<class>
+// ============================================================================
+// vml.tie：tofflib——用 tie 办公的工具库 / Word 原生绘图 VML 生成
+//
+// 本模块生成 VML（Vector Markup Language）XML 片段，供在 word/document.xml 的
+// <w:p> 内以浮动对象 / 文本组合实现"原生绘图"（形状、文本框、带箭头直线）。
+// 命名空间：
+//   v: urn:schemas-microsoft-com:vml
+//   o: urn:schemas-microsoft-com:office:office
+//   w: http://schemas.openxmlformats.org/wordprocessingml/2006/main
+//   r: …/officeDocument/2006/relationships（可选）
+//
+// 提供：
+//   - group()      形状组（拼装多个子形状 + 文本）
+//   - rect()       矩形 + 文本（含 v:textbox → w:txbxContent 的 Word 文本承载）
+//   - line()       直线（支持 endarrow 终端箭头）
+//   - textbox()    独立文本框（Word 文本框形状）
+//   - escape()     文本净化
+//
+// 坐标单位为 VML 的源像素（width/height 可带 "pt"/"%"，对齐/定位用 absolute）。
+// 纯函数、零 unsafe、无外部依赖，只依赖底座原语 + StringBuilder。
+// 调用方式（class 库，编译为 vml.a）：
+//   import "./vml.tie" as vm
+//   var s = vm.group([vm.rect(10,10,120,40,"标题"), vm.line(10,60,130,60,"classic",2)], 200, 100)
+//
+// 错误约定：escape 对非法/超界字符安静跳过。
+// ============================================================================
+
+namespace vml {
+
+// XML 安全转义（& < >）。
+pub func escape(txt: string) -> string {
+    var sb = string_builder()
+    var n: i64 = str_len(txt)
+    var i: i64 = 0
+    while i < n {
+        var c = str_char(txt, i)
+        if c == "&" {
+            sb_append(sb, "&amp;")
+        } else if c == "<" {
+            sb_append(sb, "&lt;")
+        } else if c == ">" {
+            sb_append(sb, "&gt;")
+        } else {
+            sb_append(sb, c)
+        }
+        i = i + 1
+    }
+    return sb_build(sb)
+}
+
+// 形状组：把多个子形状/文本（已组装片段）放进一个 <v:group>。
+// w/h 为组的宽高（源像素）；coordorigin/coordsize 定义组内坐标空间。
+pub func group(children: table<string>, w: i64, h: i64) -> string {
+    var sb = string_builder()
+    sb_append(sb, "<v:group style=\"position:relative;width:pt(")
+    sb_append(sb, i2s(w))
+    sb_append(sb, ");height:pt(")
+    sb_append(sb, i2s(h))
+    sb_append(sb, ")\" coordorigin=\"0,0\" coordsize=\"")
+    sb_append(sb, i2s(w))
+    sb_append(sb, ",")
+    sb_append(sb, i2s(h))
+    sb_append(sb, "\">")
+    var i = 0
+    while i < len(children) {
+        sb_append(sb, children[i])
+        i = i + 1
+    }
+    sb_append(sb, "</v:group>")
+    return sb_build(sb)
+}
+
+// 矩形 + 居中文本：<v:rect> 内部放 v:textbox（Word 文本承载 w:txbxContent）。
+// x/y = 左上角，w/h = 宽高；fillcolor 填充色（如 "#FFFFFF"），text 过 escape。
+pub func rect(x: i64, y: i64, w: i64, h: i64, txt: string) -> string {
+    var sb = string_builder()
+    sb_append(sb, "<v:rect style=\"position:absolute;left:pt(")
+    sb_append(sb, i2s(x))
+    sb_append(sb, ");top:pt(")
+    sb_append(sb, i2s(y))
+    sb_append(sb, ");width:pt(")
+    sb_append(sb, i2s(w))
+    sb_append(sb, ");height:pt(")
+    sb_append(sb, i2s(h))
+    sb_append(sb, ")\" fillcolor=\"#FFFFFF\" strokecolor=\"#000000\">")
+    sb_append(sb, textbox_body(txt))
+    sb_append(sb, "</v:rect>")
+    return sb_build(sb)
+}
+
+// 直线（可带终端箭头）：x1/y1 起点，x2/y2 终点；arrow 为端箭头样式
+// （"" 表示无箭头，"classic"/"open"/"block" 之一），stroke_w 为线宽（pt）。
+pub func line(x1: i64, y1: i64, x2: i64, y2: i64, arrow: string, stroke_w: i64) -> string {
+    var sb = string_builder()
+    sb_append(sb, "<v:line style=\"position:absolute;\" from=\"")
+    sb_append(sb, i2s(x1))
+    sb_append(sb, ",")
+    sb_append(sb, i2s(y1))
+    sb_append(sb, "\" to=\"")
+    sb_append(sb, i2s(x2))
+    sb_append(sb, ",")
+    sb_append(sb, i2s(y2))
+    sb_append(sb, "\" strokecolor=\"#000000\"")
+    if stroke_w > 0 {
+        sb_append(sb, " strokeweight=\"")
+        sb_append(sb, i2s(stroke_w))
+        sb_append(sb, "pt\"")
+    }
+    sb_append(sb, ">")
+    if arrow != "" {
+        sb_append(sb, "<v:stroke endarrow=\"")
+        sb_append(sb, arrow)
+        sb_append(sb, "\"/>")
+    }
+    sb_append(sb, "</v:line>")
+    return sb_build(sb)
+}
+
+// 独立文本框（Word 自定义文本框形状）：外部矩形 + 文本承载。
+pub func textbox(x: i64, y: i64, w: i64, h: i64, txt: string) -> string {
+    var sb = string_builder()
+    sb_append(sb, "<v:rect style=\"position:absolute;left:pt(")
+    sb_append(sb, i2s(x))
+    sb_append(sb, ");top:pt(")
+    sb_append(sb, i2s(y))
+    sb_append(sb, ");width:pt(")
+    sb_append(sb, i2s(w))
+    sb_append(sb, ");height:pt(")
+    sb_append(sb, i2s(h))
+    sb_append(sb, ")\" fill=\"f\"/>")
+    sb_append(sb, textbox_body(txt))
+    return sb_build(sb)
+}
+
+// ---- 内部私有辅助 ----
+
+// Word 文本框文本承载：<v:textbox><w:txbxContent><w:p><w:r><w:t>…</w:t></w:r></w:p>
+// …</w:txbxContent></v:textbox>。多行自动换行（Word 支持）。嵌套 w 命名空间标签。
+func textbox_body(txt: string) -> string {
+    var sb = string_builder()
+    sb_append(sb, "<v:textbox><w:txbxContent><w:p><w:r><w:t>")
+    sb_append(sb, escape(txt))
+    sb_append(sb, "</w:t></w:r></w:p></w:txbxContent></v:textbox>")
+    return sb_build(sb)
+}
+
+// i64 → 十进制字符串（同 docx 内部实现；模块自包含不跨命名空间调用）。
+func i2s(v: i64) -> string {
+    if v == 0 {
+        return "0"
+    }
+    var sb = string_builder()
+    var neg = false
+    var x: i64 = v
+    if x < 0 {
+        neg = true
+        x = 0 - x
+    }
+    var digs = table_new_i64()
+    while x > 0 {
+        table_push(digs, x % 10)
+        x = x / 10
+    }
+    if neg {
+        sb_append(sb, "-")
+    }
+    var i: i64 = len(digs) - 1
+    while i >= 0 {
+        sb_append_byte(sb, 48 + digs[i])
+        i = i - 1
+    }
+    return sb_build(sb)
+}
+
+}   // namespace vml

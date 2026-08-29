@@ -1,0 +1,101 @@
+type tie<logic>
+// ============================================================================
+// probe.tie：tofflib 冒烟验证（logic 可执行入口，仅本地验证用，不入库语义核心）
+// 导入全部 4 个模块并调用各模块代表性 pub 接口，做输入/输出抽查。
+// 运行：tiec probe.tie && probe.exe；任一断言不符即 panic（非零退出）。
+// ============================================================================
+
+import "../docx.tie" as dx
+import "../omml.tie" as mm
+import "../vml.tie" as vm
+import "../officeutil.tie" as ou
+
+// 断言 helper：got != want 时 panic 并指出模块/用例。
+func check(name: string, got: string, want: string) {
+    if got != want {
+        panic("FAIL " + name + ": got <" + got + "> want <" + want + ">")
+    }
+    println("OK " + name)
+}
+
+func main() {
+    // ---- docx：转义 / 段落 / run_font / 表格 ----
+    check("dx.escape", dx.escape("a&b<c>d"), "a&amp;b&lt;c&gt;d")
+    check("dx.run", dx.run("你好"), "<w:r><w:t xml:space=\"preserve\">你好</w:t></w:r>")
+    check("dx.paragraph", dx.paragraph("z"), "<w:p><w:r><w:t xml:space=\"preserve\">z</w:t></w:r></w:p>")
+    check("dx.root_close", dx.root_close(), "</w:body></w:document>")
+
+    var h = table_new_string()
+    table_push(h, "列A")
+    table_push(h, "列B")
+    var r1 = table_new_string()
+    table_push(r1, "1")
+    table_push(r1, "甲")
+    var r2 = table_new_string()
+    table_push(r2, "2")
+    table_push(r2, "乙")
+    var rows = [r1, r2]
+    var txml = dx.tbl(rows, h, 100)
+    check("dx.tbl-header", has(txml, "<w:tblW w:w=\"100\""), "true")
+    check("dx.tbl-boldheader", has(txml, "<w:b/>"), "true")
+
+    // ---- omml：分数 / 上下标 / 公式段落 ----
+    var formula = mm.omath_para([mm.frac(mm.r("a") + mm.r("b"), mm.r("c")), mm.ssup(mm.r("x"), mm.r("2"))])
+    check("mm.frac", has(formula, "<m:f><m:num>"), "true")
+    check("mm.ssup", has(formula, "<m:sSup>"), "true")
+
+    // ---- vml：矩形/直线/组 ----
+    var shape = vm.group([vm.rect(10, 10, 120, 40, "标题"), vm.line(10, 60, 130, 60, "classic", 2)], 200, 100)
+    check("vm.rect", has(shape, "<v:rect"), "true")
+    check("vm.rect-textbox", has(shape, "<w:txbxContent>"), "true")
+    check("vm.line-arrow", has(shape, "endarrow=\"classic\""), "true")
+
+    // ---- officeutil：日期 / CSV / 待办 / 对齐表格 ----
+    check("ou.fmt_date", ou.fmt_date(2026, 8, 5), "2026-08-05")
+    check("ou.pad2", ou.pad2(7), "07")
+    check("ou.fmt_datetime", ou.fmt_datetime(2026, 8, 30, 9, 5, 7), "2026-08-30 09:05:07")
+    var l1 = table_new_string()
+    table_push(l1, "a")
+    table_push(l1, "b,c")
+    table_push(l1, "x")
+    check("ou.csv_line-quote", ou.csv_line(l1, ","), "a,\"b,c\",x")
+    check("ou.todo", ou.todo("", ["写报告"]), "- [ ] 写报告\n")
+    check("ou.list_items", ou.list_items("", ["准备"]), "1. 准备\n")
+    var hd = table_new_string()
+    table_push(hd, "姓名")
+    table_push(hd, "分")
+    var tbl = ou.render_table(hd, rows, " | ", 1)
+    check("ou.render_table", has(tbl, "姓名"), "true")
+
+    // 打印组装出的整段 docx 文档片段，供人工核对
+    println("---- 组装示例 ----")
+    println(dx.root_open() + dx.paragraph("你好，tie 办公") + txml + formula + shape + dx.root_close())
+    println("---- 结束 ----")
+}
+
+// 子串包含判断（供 probe 断言；模块内部不含此 helper）。
+func has(s: string, sub: string) -> string {
+    var n: i64 = str_len(s)
+    var m: i64 = str_len(sub)
+    if m > n {
+        return "false"
+    }
+    var i: i64 = 0
+    while i + m <= n {
+        var j: i64 = 0
+        var ok = true
+        while j < m {
+            if str_char(s, i + j) != str_char(sub, j) {
+                ok = false
+                j = m
+            } else {
+                j = j + 1
+            }
+        }
+        if ok {
+            return "true"
+        }
+        i = i + 1
+    }
+    return "false"
+}

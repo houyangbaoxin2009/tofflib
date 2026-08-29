@@ -1,0 +1,199 @@
+type tie<class>
+// ============================================================================
+// docx.tie：tofflib——用 tie 办公的工具库 / Word 文档（docx/OOXML）骨架生成
+//
+// 本模块生成 WordprocessingML（OOXML）文档正文 XML 片段，供组装成
+// word/document.xml：
+//   - 文档根骨架：root_open() / root_close() 包裹 <w:document><w:body>…
+//   - 段落：paragraph() / paragraph_runs()（含 run 属性 run() / run_font()）
+//   - 表格：table() 由嵌套字符串表组装 <w:tbl>/<w:tr>/<w:tc>
+//   - 文本净化：escape() 转义 & < > 等 XML 特殊字符
+//
+// 命名空间：http://schemas.openxmlformats.org/wordprocessingml/2006/main（w:）
+//            http://schemas.openxmlformats.org/officeDocument/2006/relationships（r:）
+//
+// 纯函数、零 unsafe、无外部依赖，只依赖底座原语（str_len/str_char/len/table
+// + string_builder/sb_append/sb_build）。循环拼接统一用 StringBuilder（O(n)），
+// 串联已知数量短串（片段拼装）用 "+" 无碍。
+//
+// 调用方式（class 库，编译为 docx.a）：
+//   import "./docx.tie" as dx
+//   var out = dx.root_open() + dx.paragraph("你好，tie 办公") + dx.root_close()
+//
+// 错误约定：escape 对非法/超界字符安静跳过（str_char 越界返回空串）。
+// ============================================================================
+
+namespace docx {
+
+// XML 安全转义：把 & < > 替换为实体；单引号/双引号按注（属性用双引号则无须转义 *，
+// 为保证 gb18030 文本安全仍对 " 无效——结构片段里属性值由本库构造时已安全）。
+// 实现：逐码点扫描，把需转义字符改用对应实体，其余原样 sb_append。
+pub func escape(txt: string) -> string {
+    var sb = string_builder()
+    var n: i64 = str_len(txt)
+    var i: i64 = 0
+    while i < n {
+        var c = str_char(txt, i)
+        if c == "&" {
+            sb_append(sb, "&amp;")
+        } else if c == "<" {
+            sb_append(sb, "&lt;")
+        } else if c == ">" {
+            sb_append(sb, "&gt;")
+        } else {
+            sb_append(sb, c)
+        }
+        i = i + 1
+    }
+    return sb_build(sb)
+}
+
+// 单个 w:r run：文本已 escape 处理（内容安全）。
+pub func run(txt: string) -> string {
+    return "<w:r>" + run_text(txt) + "</w:r>"
+}
+
+// run 内联文本（w:t），xml:space=preserve 保空格。
+func run_text(txt: string) -> string {
+    return "<w:t xml:space=\"preserve\">" + escape(txt) + "</w:t>"
+}
+
+// 带格式 run：字号（半磅单位，word: 5→5 号约 21）、加粗、字体名。
+// size_half_points：字号半磅值（如 11pt=22，5 号=21）；<=0 时不输出 <w:sz>。
+// bold：true 输出 <w:b/>；font 非空输出 <w:rFonts w:ascii=… w:hAnsi=… w:eastAsia=…>。
+pub func run_font(txt: string, font: string, size_half_points: i64, bold: bool) -> string {
+    var sb = string_builder()
+    sb_append(sb, "<w:r>")
+    sb_append(sb, "<w:rPr>")
+    if font != "" {
+        sb_append(sb, "<w:rFonts w:ascii=\"")
+        sb_append(sb, font)
+        sb_append(sb, "\" w:hAnsi=\"")
+        sb_append(sb, font)
+        sb_append(sb, "\" w:eastAsia=\"")
+        sb_append(sb, font)
+        sb_append(sb, "\"/>")
+    }
+    if size_half_points > 0 {
+        sb_append(sb, "<w:sz w:val=\"")
+        sb_append(sb, i2s(size_half_points))
+        sb_append(sb, "\"/>")
+    }
+    if bold {
+        sb_append(sb, "<w:b/>")
+    }
+    sb_append(sb, "</w:rPr>")
+    sb_append(sb, run_text(txt))
+    sb_append(sb, "</w:r>")
+    return sb_build(sb)
+}
+
+// 文本框段落：单 run 段落。
+pub func paragraph(txt: string) -> string {
+    return "<w:p>" + run(txt) + "</w:p>"
+}
+
+// 由多个 run 片段（已含 <w:r>…</w:r>）组装成一个段落。
+pub func paragraph_runs(runs_table: table<string>) -> string {
+    var sb = string_builder()
+    sb_append(sb, "<w:p>")
+    var i: i64 = 0
+    while i < len(runs_table) {
+        sb_append(sb, runs_table[i])
+        i = i + 1
+    }
+    sb_append(sb, "</w:p>")
+    return sb_build(sb)
+}
+
+// 文档根 XMl 声明 + <w:document> 打开 + <w:body> 打开（含命名空间）。
+pub func root_open() -> string {
+    return "<?xml version=\"1.0\" encoding=\"UTF-8\"?>" +
+        "<w:document xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" " +
+        "xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\">" +
+        "<w:body>"
+}
+
+// 文档根关闭：</w:body></w:document>。
+pub func root_close() -> string {
+    return "</w:body></w:document>"
+}
+
+// 组装表格 XML：rows 为二维字符串表（行内列）。
+// 结构：<w:tbl><w:tblPr><w:tblW …/><w:tblBorders/></w:tblPr>
+//       <w:tr><w:tc><w:p>…</w:p></w:tc></w:tr>…
+// header 非空时插为第一行前的表头行（加粗）。
+pub func tbl(rows: table<table<string>>, header: table<string>, col_width_twips: i64) -> string {
+    var sb = string_builder()
+    sb_append(sb, "<w:tbl>")
+    sb_append(sb, "<w:tblPr>")
+    var w: i64 = col_width_twips
+    if w <= 0 {
+        w = 9360
+    }
+    sb_append(sb, "<w:tblW w:w=\"")
+    sb_append(sb, i2s(w))
+    sb_append(sb, "\" w:type=\"dxa\"/>")
+    sb_append(sb, "<w:tblBorders/>")
+    sb_append(sb, "</w:tblPr>")
+    if len(header) > 0 {
+        table_append_row(sb, header, true)
+    }
+    var r: i64 = 0
+    while r < len(rows) {
+        table_append_row(sb, rows[r], false)
+        r = r + 1
+    }
+    sb_append(sb, "</w:tbl>")
+    return sb_build(sb)
+}
+
+// 追加一行表格（内存格 w:tc 内装一个带文本的段落，可加粗）
+func table_append_row(sb: i64, cells: table<string>, bold: bool) -> void {
+    sb_append(sb, "<w:tr>")
+    var c: i64 = 0
+    while c < len(cells) {
+        sb_append(sb, "<w:tc>")
+        sb_append(sb, "<w:p>")
+        if bold {
+            sb_append(sb, run_font(cells[c], "", 0, true))
+        } else {
+            sb_append(sb, run(cells[c]))
+        }
+        sb_append(sb, "</w:p>")
+        sb_append(sb, "</w:tc>")
+        c = c + 1
+    }
+    sb_append(sb, "</w:tr>")
+}
+
+// i64 → 十进制字符串（非负；负数前缀 '-'）。零返回 "0"。供字号/宽度等拼装。
+func i2s(v: i64) -> string {
+    if v == 0 {
+        return "0"
+    }
+    var sb = string_builder()
+    var neg = false
+    var x: i64 = v
+    if x < 0 {
+        neg = true
+        x = 0 - x
+    }
+    // 最多 20 位十进制；先收集到临时表再倒序（i64 槽，48+v 直接给 sb_append_byte）
+    var digs = table_new_i64()
+    while x > 0 {
+        table_push(digs, x % 10)
+        x = x / 10
+    }
+    if neg {
+        sb_append(sb, "-")
+    }
+    var i: i64 = len(digs) - 1
+    while i >= 0 {
+        sb_append_byte(sb, 48 + digs[i])
+        i = i - 1
+    }
+    return sb_build(sb)
+}
+
+}   // namespace docx
