@@ -95,6 +95,11 @@ func main() {
 | `tc`         | `tc(txt: string, span: i64, shade: string, align: string) -> string`         | 单元格（合并 span / 底纹 shade / 水平对齐）  |
 | `tchead`     | `tchead(txt: string, span: i64, shade: string, align: string) -> string`     | 加粗单元格（表头常用）                   |
 | `tc_w`       | `tc_w(txt: string, w_twips: i64) -> string`                                  | 定宽单元格（tcW，精确列宽）              |
+| `toc`        | `toc(levels_from, levels_to: i64, placeholder: string) -> string`           | 自动目录（fldSimple TOC 域，收录 Heading 层级） |
+| `caption`    | `caption(txt, seq_label: string) -> string`                                 | 题注（文本 + SEQ 自动编号域）           |
+| `xref`       | `xref(bookmark_name, placeholder: string) -> string`                        | 交叉引用域（REF，指向书签）             |
+| `bookmark_start` | `bookmark_start(name: string, id: i64) -> string`                        | 书签开始（锚点供 xref 引用）            |
+| `bookmark_end`   | `bookmark_end(id: i64) -> string`                                        | 书签结束                        |
 | `root_open`  | `root_open() -> string`                                                       | 文档根打开（`<w:document><w:body>`） |
 | `root_close` | `root_close() -> string`                                                      | 文档根关闭                        |
 

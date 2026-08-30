@@ -123,6 +123,16 @@ func main() {
     check("dx.tbl_full-repeat", has(ftbl, "<w:trPr><w:tblHeader/>"), "true")
     check("dx.tbl_full-cells", has(ftbl, "<w:tc><w:tcPr><w:gridSpan w:val=\"2\"/>"), "true")
 
+    // ---- docx 域：目录 / 题注 / 交叉引用 / 书签 ----
+    check("dx.toc-instr", has(dx.toc(1, 3, ""), " TOC \\o &quot;1-3&quot; \\h \\z \\u "), "true")
+    check("dx.toc-fld", has(dx.toc(1, 1, "占位"), "<w:fldSimple w:instr=\""), "true")
+    check("dx.toc-placeholder", has(dx.toc(1, 2, "占位"), "占位"), "true")
+    check("dx.caption-seq", has(dx.caption("图例", "图"), " SEQ 图 \\* ARABIC "), "true")
+    check("dx.caption-para", has(dx.caption("图例", "图"), "<w:p>"), "true")
+    check("dx.xref-instr", has(dx.xref("fig1", "第1章"), " REF fig1 \\h "), "true")
+    check("dx.bookmark", dx.bookmark_start("fig1", 1) + dx.bookmark_end(1),
+        "<w:bookmarkStart w:id=\"1\" w:name=\"fig1\"/><w:bookmarkEnd w:id=\"1\"/>")
+
     // ================= omml：全部 10 个 pub 接口 =================
     check("mm.escape", mm.escape("a&b<c"), "a&amp;b&lt;c")
     check("mm.r", mm.r("x"), "<m:r><m:t>x</m:t></m:r>")

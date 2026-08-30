@@ -186,6 +186,87 @@ pub func page_field() -> string {
         "<w:r><w:fldChar w:fldCharType=\"end\"/></w:r>"
 }
 
+// ---- 域：目录 / 题注 / 交叉引用 / 书签 ----
+
+// 自动目录：fldSimple TOC 域（Word 打开后右键→更新域 或按 F9 刷新）。
+// levels_from..levels_to 为目录收录的标题层级（对应 HeadingN，1..9，自动钳位）。
+// 反斜杠以字节拼接（92），规避 tie 字符串转义歧义。
+pub func toc(levels_from: i64, levels_to: i64, placeholder: string) -> string {
+    var lo: i64 = levels_from
+    var hi: i64 = levels_to
+    if lo < 1 {
+        lo = 1
+    }
+    if hi > 9 {
+        hi = 9
+    }
+    if hi < lo {
+        hi = lo
+    }
+    var p: string = placeholder
+    if p == "" {
+        p = "目录（在 Word 中右键→更新域）"
+    }
+    var sb = string_builder()
+    sb_append(sb, "<w:p><w:fldSimple w:instr=\" TOC ")
+    sb_append(sb, bs())
+    sb_append(sb, "o &quot;")
+    sb_append(sb, i2s(lo))
+    sb_append(sb, "-")
+    sb_append(sb, i2s(hi))
+    sb_append(sb, "&quot; ")
+    sb_append(sb, bs())
+    sb_append(sb, "h ")
+    sb_append(sb, bs())
+    sb_append(sb, "z ")
+    sb_append(sb, bs())
+    sb_append(sb, "u \">")
+    sb_append(sb, run_text(p))
+    sb_append(sb, "</w:fldSimple></w:p>")
+    return sb_build(sb)
+}
+
+// 题注：文本 + SEQ 自动编号域（seq_label 如 "图"/"表"/"式"，跨文档连续编号）。
+pub func caption(txt: string, seq_label: string) -> string {
+    var sb = string_builder()
+    sb_append(sb, "<w:p>")
+    sb_append(sb, run_text(prefix_space(txt)))
+    sb_append(sb, "<w:fldSimple w:instr=\" SEQ ")
+    sb_append(sb, seq_label)
+    sb_append(sb, " ")
+    sb_append(sb, bs())
+    sb_append(sb, "* ARABIC \"><w:r><w:t>1</w:t></w:r></w:fldSimple></w:p>")
+    return sb_build(sb)
+}
+
+// 交叉引用域：引用书签（bookmark_start/end 锚定）指向的编号或文本，Word 打开后刷新。
+pub func xref(bookmark_name: string, placeholder: string) -> string {
+    return "<w:fldSimple w:instr=\" REF " + bookmark_name + " " + bs() +
+        "h \"><w:r><w:t>" + escape(placeholder) + "</w:t></w:r></w:fldSimple>"
+}
+
+// 书签开始（name 供 REF 域引用；id 须与 bookmark_end 一致且文档内唯一）。
+pub func bookmark_start(name: string, id: i64) -> string {
+    return "<w:bookmarkStart w:id=\"" + i2s(id) + "\" w:name=\"" + name + "\"/>"
+}
+
+// 书签结束。
+pub func bookmark_end(id: i64) -> string {
+    return "<w:bookmarkEnd w:id=\"" + i2s(id) + "\"/>"
+}
+
+// 反斜杠字符（字节 92 构造，规避 tie 字符串转义歧义）。
+func bs() -> string {
+    var sb = string_builder()
+    sb_append_byte(sb, 92)
+    return sb_build(sb)
+}
+
+// 文本后加空格（题注惯用：内容与编号域之间留空）。
+func prefix_space(txt: string) -> string {
+    return txt + " "
+}
+
 // ---- 段落对齐 ----
 
 // 居中对齐段落：children 为已组装的 run/结构片段（如页码域）。
