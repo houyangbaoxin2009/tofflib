@@ -104,8 +104,18 @@ func main() {
 | `frac`     | `frac(numerator: string, den: string) -> string`                          | 分数 `<m:f><m:num><m:den>`        |
 | `ssub`     | `ssub(base: string, sub: string) -> string`                                 | 下标 `<m:sSub>`                  |
 | `ssup`     | `ssup(base: string, sup: string) -> string`                                 | 上标 `<m:sSup>`                  |
+| `ssubsup`  | `ssubsup(base, sub, sup: string) -> string`                               | 同时上下标 `<m:sSubSup>`           |
 | `delimit`  | `delimit(inner: string, beg: string, end: string) -> string`               | 定界符（括号包裹）`<m:d>`              |
-| `nary`     | `nary(op, sub, sup, inner: string) -> string`                             | 求和/积分等 `∑ ∫ ∏` 算子 `<m:nary>`    |
+| `nary`     | `nary(op, sub, sup, inner: string) -> string`                             | 通用 n-ary 算子（∑ ∫ ∏ 等）          |
+| `sum`      | `sum(sub, sup, inner: string) -> string`                                  | 求和快捷 `∑`                       |
+| `prod`     | `prod(sub, sup, inner: string) -> string`                                 | 连乘快捷 `∏`                       |
+| `integral` | `integral(sub, sup, inner: string) -> string`                             | 积分快捷 `∫`                       |
+| `lim`      | `lim(sub: string, inner: string) -> string`                               | 极限 `lim`（下标在算子下方）              |
+| `sqrt`     | `sqrt(inner: string) -> string`                                           | 平方根（度数隐藏）                     |
+| `root`     | `root(deg: string, inner: string) -> string`                              | n 次根 `<m:rad>`                 |
+| `binom`    | `binom(top: string, bottom: string) -> string`                            | 组合数（无横线堆叠，配合 `delimit` 加括号）   |
+| `matrix`   | `matrix(rows: table<table<string>>) -> string`                            | 矩阵 `<m:m>`（列居中，自动列数）          |
+| `bar`      | `bar(inner: string) -> string`                                            | 上划线（共轭/均值）`<m:bar>`          |
 
 ### vml（`vml.tie`）
 

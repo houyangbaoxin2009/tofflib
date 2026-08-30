@@ -133,6 +133,124 @@ pub func nary(op: string, sub: string, sup: string, inner: string) -> string {
     return sb_build(sb)
 }
 
+// ---- 扩展数学结构（矩阵/根号/组合/快捷算子/上下标/上划线）----
+
+// 求和快捷：∑_{sub}^{sup} inner。
+pub func sum(sub: string, sup: string, inner: string) -> string {
+    return nary("∑", sub, sup, inner)
+}
+
+// 连乘快捷：∏_{sub}^{sup} inner。
+pub func prod(sub: string, sup: string, inner: string) -> string {
+    return nary("∏", sub, sup, inner)
+}
+
+// 积分快捷：∫_{sub}^{sup} inner。
+pub func integral(sub: string, sup: string, inner: string) -> string {
+    return nary("∫", sub, sup, inner)
+}
+
+// 极限：lim_{sub} inner（lim 下标位于算子正下方）。
+pub func lim(sub: string, inner: string) -> string {
+    return nary("lim", sub, "", inner)
+}
+
+// 平方根：√inner（度数隐藏）。
+pub func sqrt(inner: string) -> string {
+    var sb = string_builder()
+    sb_append(sb, "<m:rad><m:radPr><m:degHide m:val=\"on\"/></m:radPr><m:deg/>")
+    sb_append(sb, math_e(inner))
+    sb_append(sb, "</m:rad>")
+    return sb_build(sb)
+}
+
+// n 次根：root(deg, inner)（如 cube root）。
+pub func root(deg: string, inner: string) -> string {
+    var sb = string_builder()
+    sb_append(sb, "<m:rad>")
+    sb_append(sb, "<m:deg>")
+    sb_append(sb, deg)
+    sb_append(sb, "</m:deg>")
+    sb_append(sb, math_e(inner))
+    sb_append(sb, "</m:rad>")
+    return sb_build(sb)
+}
+
+// 组合数 (n¦k)：无横线堆叠（frac type=noBar），配合 delimit() 加括号。
+pub func binom(top: string, bottom: string) -> string {
+    var sb = string_builder()
+    sb_append(sb, "<m:f><m:fPr><m:type m:val=\"noBar\"/></m:fPr>")
+    sb_append(sb, "<m:num>")
+    sb_append(sb, top)
+    sb_append(sb, "</m:num>")
+    sb_append(sb, "<m:den>")
+    sb_append(sb, bottom)
+    sb_append(sb, "</m:den>")
+    sb_append(sb, "</m:f>")
+    return sb_build(sb)
+}
+
+// 矩阵：rows 为二维行表，<m:m> 内含 <m:mr><m:e>…</m:e></m:mr> 行；
+// m:mcs 的 count 取各行最大列数（列居中对齐）。
+pub func matrix(rows: table<table<string>>) -> string {
+    var ncols: i64 = 0
+    var r: i64 = 0
+    while r < len(rows) {
+        if len(rows[r]) > ncols {
+            ncols = len(rows[r])
+        }
+        r = r + 1
+    }
+    if ncols == 0 {
+        ncols = 1
+    }
+    var sb = string_builder()
+    sb_append(sb, "<m:m><m:mPr><m:mcs><m:mc><m:mcPr>")
+    sb_append(sb, "<m:count m:val=\"")
+    sb_append(sb, i2s(ncols))
+    sb_append(sb, "\"/><m:mcJc m:val=\"center\"/>")
+    sb_append(sb, "</m:mcPr></m:mc></m:mcs></m:mPr>")
+    r = 0
+    while r < len(rows) {
+        sb_append(sb, "<m:mr>")
+        var c: i64 = 0
+        while c < ncols {
+            var cell: string = " "
+            if c < len(rows[r]) {
+                cell = rows[r][c]
+            }
+            sb_append(sb, "<m:e>")
+            sb_append(sb, cell)
+            sb_append(sb, "</m:e>")
+            c = c + 1
+        }
+        sb_append(sb, "</m:mr>")
+        r = r + 1
+    }
+    sb_append(sb, "</m:m>")
+    return sb_build(sb)
+}
+
+// 同时上下标：base_sub^sup（m:sSubSup）。
+pub func ssubsup(base: string, sub: string, sup: string) -> string {
+    var sb = string_builder()
+    sb_append(sb, "<m:sSubSup>")
+    sb_append(sb, math_e(base))
+    sb_append(sb, math_sub(sub))
+    sb_append(sb, math_sup(sup))
+    sb_append(sb, "</m:sSubSup>")
+    return sb_build(sb)
+}
+
+// 上划线（共轭/均值）：<m:bar> pos=top。
+pub func bar(inner: string) -> string {
+    var sb = string_builder()
+    sb_append(sb, "<m:bar><m:barPr><m:pos m:val=\"top\"/></m:barPr>")
+    sb_append(sb, math_e(inner))
+    sb_append(sb, "</m:bar>")
+    return sb_build(sb)
+}
+
 // ---- 内部私有辅助 ----
 
 // <m:e> 基础元素包裹（分数/上下标/定界符的"主体"）。
@@ -155,6 +273,34 @@ func append_all(sb: i64, parts: table<string>) -> void {
         sb_append(sb, parts[i])
         i = i + 1
     }
+}
+
+// i64 → 十进制字符串（矩阵 count 等数值拼装；模块自包含）。
+func i2s(v: i64) -> string {
+    if v == 0 {
+        return "0"
+    }
+    var sb = string_builder()
+    var neg = false
+    var x: i64 = v
+    if x < 0 {
+        neg = true
+        x = 0 - x
+    }
+    var digs = table_new_i64()
+    while x > 0 {
+        table_push(digs, x % 10)
+        x = x / 10
+    }
+    if neg {
+        sb_append(sb, "-")
+    }
+    var i: i64 = len(digs) - 1
+    while i >= 0 {
+        sb_append_byte(sb, 48 + digs[i])
+        i = i - 1
+    }
+    return sb_build(sb)
 }
 
 }   // namespace omml

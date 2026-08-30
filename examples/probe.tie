@@ -123,6 +123,35 @@ func main() {
     check("mm.nary-limloc", has(nary, "<m:limLoc m:val=\"undOvr\"/>"), "true")
     check("mm.nary-bounds", has(nary, "<m:sub>sub</m:sub><m:sup>sup</m:sup>"), "true")
 
+    // ---- omml 扩展（根号/矩阵/组合/快捷算子/上下标/上划线）----
+    check("mm.sqrt", mm.sqrt(mm.r("x")),
+        "<m:rad><m:radPr><m:degHide m:val=\"on\"/></m:radPr><m:deg/><m:e><m:r><m:t>x</m:t></m:r></m:e></m:rad>")
+    check("mm.root", mm.root(mm.r("3"), mm.r("x")),
+        "<m:rad><m:deg><m:r><m:t>3</m:t></m:r></m:deg><m:e><m:r><m:t>x</m:t></m:r></m:e></m:rad>")
+    check("mm.binom", mm.binom("n", "k"),
+        "<m:f><m:fPr><m:type m:val=\"noBar\"/></m:fPr><m:num>n</m:num><m:den>k</m:den></m:f>")
+    check("mm.sum-op", has(mm.sum("i", "n", "a"), "<m:chr m:val=\"∑\"/>"), "true")
+    check("mm.sum-bounds", has(mm.sum("i", "n", "a"), "<m:sub>i</m:sub><m:sup>n</m:sup>"), "true")
+    check("mm.prod-op", has(mm.prod("j", "m", "b"), "<m:chr m:val=\"∏\"/>"), "true")
+    check("mm.integral-op", has(mm.integral("0", "1", "f"), "<m:chr m:val=\"∫\"/>"), "true")
+    check("mm.lim-op", has(mm.lim("x->0", "f"), "<m:chr m:val=\"lim\"/>"), "true")
+    check("mm.lim-nosup", has(mm.lim("x->0", "f"), "<m:sup>"), "false")
+    check("mm.ssubsup", mm.ssubsup(mm.r("x"), "i", "n"),
+        "<m:sSubSup><m:e><m:r><m:t>x</m:t></m:r></m:e><m:sub>i</m:sub><m:sup>n</m:sup></m:sSubSup>")
+    check("mm.bar", mm.bar("z"),
+        "<m:bar><m:barPr><m:pos m:val=\"top\"/></m:barPr><m:e>z</m:e></m:bar>")
+    var mr1 = table_new_string()
+    table_push(mr1, "a")
+    table_push(mr1, "b")
+    var mr2 = table_new_string()
+    table_push(mr2, "c")
+    table_push(mr2, "d")
+    var mrows = [mr1, mr2]
+    var mtx = mm.matrix(mrows)
+    check("mm.matrix-count", has(mtx, "<m:count m:val=\"2\"/>"), "true")
+    check("mm.matrix-rows", has(mtx, "<m:mr><m:e>a</m:e><m:e>b</m:e></m:mr>"), "true")
+    check("mm.matrix-rows2", has(mtx, "<m:mr><m:e>c</m:e><m:e>d</m:e></m:mr>"), "true")
+
     // ================= vml：全部 5 个 pub 接口 =================
     check("vm.escape", vm.escape("a&b"), "a&amp;b")
     var rect = vm.rect(10, 10, 120, 40, "标题&备注")
