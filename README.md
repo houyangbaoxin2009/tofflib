@@ -91,6 +91,10 @@ func main() {
 | `sect_page`  | `sect_page(pg_w_twips, pg_h_twips, top, right, bottom, left: i64) -> string`  | 自定义页面宽高与边距（twips）            |
 | `tbl`        | `tbl(rows: table<table<string>>, header: table<string>, col_width_twips: i64) -> string` | 组装表格（默认全单线边框 + 可加粗表头）   |
 | `tbl_borders`| `tbl_borders(sz: i64, color: string) -> string`                               | 自定义表格边框（线宽/颜色）               |
+| `tbl_full`   | `tbl_full(rows, header: table<table<string>>, grid_widths_twips: table<i64>, tbl_width_twips: i64) -> string` | 高级表格：tblGrid 列宽、tblHeader 跨页重复，单元格用 tc 系列片段 |
+| `tc`         | `tc(txt: string, span: i64, shade: string, align: string) -> string`         | 单元格（合并 span / 底纹 shade / 水平对齐）  |
+| `tchead`     | `tchead(txt: string, span: i64, shade: string, align: string) -> string`     | 加粗单元格（表头常用）                   |
+| `tc_w`       | `tc_w(txt: string, w_twips: i64) -> string`                                  | 定宽单元格（tcW，精确列宽）              |
 | `root_open`  | `root_open() -> string`                                                       | 文档根打开（`<w:document><w:body>`） |
 | `root_close` | `root_close() -> string`                                                      | 文档根关闭                        |
 

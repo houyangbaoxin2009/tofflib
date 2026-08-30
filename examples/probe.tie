@@ -98,6 +98,31 @@ func main() {
     check("dx.tbl_borders-red",
         has(dx.tbl_borders(8, "FF0000"), "<w:top w:val=\"single\" w:sz=\"8\" w:space=\"0\" w:color=\"FF0000\"/>"), "true")
 
+    // ---- docx 表格高级（tc/tchead/tc_w/tbl_full）----
+    check("dx.tc-plain", dx.tc("x", 1, "", ""),
+        "<w:tc><w:p><w:r><w:t xml:space=\"preserve\">x</w:t></w:r></w:p></w:tc>")
+    check("dx.tc-merge", has(dx.tc("标题", 2, "", ""), "<w:gridSpan w:val=\"2\"/>"), "true")
+    check("dx.tc-shade", has(dx.tc("备注", 1, "D9E2F3", ""), "<w:shd w:val=\"clear\" w:fill=\"D9E2F3\"/>"), "true")
+    check("dx.tc-align", has(dx.tc("值", 1, "", "center"), "<w:pPr><w:jc w:val=\"center\"/>"), "true")
+    check("dx.tchead-bold", has(dx.tchead("合计", 1, "", ""), "<w:b/>"), "true")
+    check("dx.tc_w-width", has(dx.tc_w("列", 1000), "<w:tcW w:w=\"1000\" w:type=\"dxa\"/>"), "true")
+    var hdr_row = table_new_string()
+    table_push(hdr_row, dx.tchead("事项", 2, "D9E2F3", "center"))
+    var td1 = table_new_string()
+    table_push(td1, dx.tc("写文档", 1, "", ""))
+    table_push(td1, dx.tc("完成", 1, "", "center"))
+    var td2 = table_new_string()
+    table_push(td2, dx.tc("打包验证", 1, "", ""))
+    table_push(td2, dx.tc("进行中", 1, "", "center"))
+    var adv_rows = [td1, td2]
+    var gw = table_new_i64()
+    table_push(gw, 3200)
+    table_push(gw, 1800)
+    var ftbl = dx.tbl_full(adv_rows, hdr_row, gw, 5000)
+    check("dx.tbl_full-grid", has(ftbl, "<w:tblGrid><w:gridCol w:w=\"3200\"/><w:gridCol w:w=\"1800\"/>"), "true")
+    check("dx.tbl_full-repeat", has(ftbl, "<w:trPr><w:tblHeader/>"), "true")
+    check("dx.tbl_full-cells", has(ftbl, "<w:tc><w:tcPr><w:gridSpan w:val=\"2\"/>"), "true")
+
     // ================= omml：全部 10 个 pub 接口 =================
     check("mm.escape", mm.escape("a&b<c"), "a&amp;b&lt;c")
     check("mm.r", mm.r("x"), "<m:r><m:t>x</m:t></m:r>")

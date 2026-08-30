@@ -372,6 +372,135 @@ func table_append_row(sb: i64, cells: table<string>, bold: bool) -> void {
     sb_append(sb, "</w:tr>")
 }
 
+// ---- 表格高级：tc / tchead / tc_w / tbl_full ----
+
+// 单元格生成器：txt 为纯文本自动 run；span>1 → <w:gridSpan> 跨列合并；
+// shade 非空 → <w:shd> 底纹填充色（如 "D9E2F3"）；align 非空（center/right…）→ 段落水平对齐。
+pub func tc(txt: string, span: i64, shade: string, align: string) -> string {
+    return tc2(txt, span, shade, align, false, 0)
+}
+
+// 加粗单元格（表头常用）：同 tc() 但文本加粗。
+pub func tchead(txt: string, span: i64, shade: string, align: string) -> string {
+    return tc2(txt, span, shade, align, true, 0)
+}
+
+// 定宽单元格：tcW 指定本格宽度（twips），配合 <w:tblGrid> 呈现精确列宽。
+pub func tc_w(txt: string, w_twips: i64) -> string {
+    return tc2(txt, 1, "", "", false, w_twips)
+}
+
+// 单元格通用实现（bold / w_twips 追加）。
+func tc2(txt: string, span: i64, shade: string, align: string, bold: bool, w_twips: i64) -> string {
+    var sb = string_builder()
+    sb_append(sb, "<w:tc>")
+    if span > 1 || shade != "" || w_twips > 0 {
+        sb_append(sb, "<w:tcPr>")
+        if span > 1 {
+            sb_append(sb, "<w:gridSpan w:val=\"")
+            sb_append(sb, i2s(span))
+            sb_append(sb, "\"/>")
+        }
+        if w_twips > 0 {
+            sb_append(sb, "<w:tcW w:w=\"")
+            sb_append(sb, i2s(w_twips))
+            sb_append(sb, "\" w:type=\"dxa\"/>")
+        }
+        if shade != "" {
+            sb_append(sb, "<w:shd w:val=\"clear\" w:fill=\"")
+            sb_append(sb, shade)
+            sb_append(sb, "\"/>")
+        }
+        sb_append(sb, "</w:tcPr>")
+    }
+    sb_append(sb, "<w:p>")
+    if align != "" {
+        sb_append(sb, "<w:pPr><w:jc w:val=\"")
+        sb_append(sb, align)
+        sb_append(sb, "\"/></w:pPr>")
+    }
+    if bold {
+        sb_append(sb, run_font(txt, "", 0, true))
+    } else {
+        sb_append(sb, run(txt))
+    }
+    sb_append(sb, "</w:p></w:tc>")
+    return sb_build(sb)
+}
+
+// 完整表格（高级）：header/rows 的单元格须为 tc()/tchead()/tc_w() 生成的片段
+// （可混合并/底纹/加粗/定宽）；header 非空 → 首行 <w:tblHeader/>（跨页重复）。
+// grid_widths_twips 非空 → 输出 <w:tblGrid> 逐列宽 + 固定布局；
+// 空则按 header/首行列数均分 tbl_width_twips。
+pub func tbl_full(rows: table<table<string>>, header: table<string>, grid_widths_twips: table<i64>, tbl_width_twips: i64) -> string {
+    var sb = string_builder()
+    sb_append(sb, "<w:tbl>")
+    var w: i64 = tbl_width_twips
+    if w <= 0 {
+        w = 9360
+    }
+    sb_append(sb, "<w:tblPr>")
+    sb_append(sb, "<w:tblW w:w=\"")
+    sb_append(sb, i2s(w))
+    sb_append(sb, "\" w:type=\"dxa\"/>")
+    sb_append(sb, tbl_borders(4, "auto"))
+    sb_append(sb, "</w:tblPr>")
+    // 列网格与固定布局
+    var nc: i64 = len(grid_widths_twips)
+    sb_append(sb, "<w:tblGrid>")
+    var i: i64 = 0
+    if nc > 0 {
+        while i < nc {
+            sb_append(sb, "<w:gridCol w:w=\"")
+            sb_append(sb, i2s(grid_widths_twips[i]))
+            sb_append(sb, "\"/>")
+            i = i + 1
+        }
+    } else {
+        var cols: i64 = len(header)
+        if cols == 0 {
+            if len(rows) > 0 {
+                cols = len(rows[0])
+            }
+        }
+        if cols <= 0 {
+            cols = 1
+        }
+        var per: i64 = w / cols
+        i = 0
+        while i < cols {
+            sb_append(sb, "<w:gridCol w:w=\"")
+            sb_append(sb, i2s(per))
+            sb_append(sb, "\"/>")
+            i = i + 1
+        }
+    }
+    sb_append(sb, "</w:tblGrid>")
+    if len(header) > 0 {
+        sb_append(sb, "<w:tr><w:trPr><w:tblHeader/></w:trPr>")
+        append_cells(sb, header)
+        sb_append(sb, "</w:tr>")
+    }
+    var r: i64 = 0
+    while r < len(rows) {
+        sb_append(sb, "<w:tr>")
+        append_cells(sb, rows[r])
+        sb_append(sb, "</w:tr>")
+        r = r + 1
+    }
+    sb_append(sb, "</w:tbl>")
+    return sb_build(sb)
+}
+
+// 按序追加已组装的单元格片段。
+func append_cells(sb: i64, cells: table<string>) -> void {
+    var c: i64 = 0
+    while c < len(cells) {
+        sb_append(sb, cells[c])
+        c = c + 1
+    }
+}
+
 // i64 → 十进制字符串（非负；负数前缀 '-'）。零返回 "0"。供字号/宽度等拼装。
 func i2s(v: i64) -> string {
     if v == 0 {
