@@ -1,0 +1,351 @@
+type tie<class>
+// ============================================================================
+// pptx.tie：tofflib——用 tie 办公的工具库 / PowerPoint 演示文稿（PresentationML）
+//
+// 本模块生成真实可打开的 .pptx（OOXML PresentationML 2006/main）：
+//   - slide_title_bullets()：单张幻灯片（标题 + 要点列表，居中对齐标题）
+//   - 装配：pptx_parts() → 平行表部件（主题/母版/布局/幻灯片 + relationships）
+//   - write_pptx()：一步写出（复用 ooxml.zip_store + byte_write 字节表）
+//
+// 包内固定部件（最小可开集）：ppt/theme/theme1.xml（主题色/字体）、
+// slideMasters/slideMaster1.xml + 其 rels（引用布局）、slideLayouts/slideLayout1.xml
+// （blank 布局）、presentation.xml + 其 rels、slides/slideN.xml + 各自 rels。
+//
+// 复用 ooxml.zip_store（store 免压缩 ZIP）。纯函数、零 unsafe、零外部依赖。
+// 命名空间：pptx。调用（class 库，编译为 pptx.a）：
+//   import "./pptx.tie" as pp
+//   var s = pp.slide_title_bullets("周报", ["第一步", "第二步"])
+//   pp.write_pptx("out.pptx", [s])
+// ============================================================================
+
+import "./ooxml.tie" as ox
+
+namespace pptx {
+
+// 单张幻灯片：标题（占位符 ctrTitle，居中加粗 32pt）+ 要点（占位符 body，
+// 每条 a:p）。要点表可空（仅标题页）。
+pub func slide_title_bullets(title: string, bullets: table<string>) -> string {
+    var sb = string_builder()
+    sb_append(sb, "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>")
+    sb_append(sb, "<p:sld xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\" ")
+    sb_append(sb, "xmlns:p=\"http://schemas.openxmlformats.org/presentationml/2006/main\">")
+    sb_append(sb, "<p:cSld><p:spTree>")
+    sb_append(sb, "<p:nvGrpSpPr><p:cNvPr id=\"1\" name=\"\"/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>")
+    sb_append(sb, "<p:grpSpPr><a:xfrm><a:off x=\"0\" y=\"0\"/><a:ext cx=\"0\" cy=\"0\"/>")
+    sb_append(sb, "<a:chOff x=\"0\" y=\"0\"/><a:chExt cx=\"0\" cy=\"0\"/></a:xfrm></p:grpSpPr>")
+    // 标题占位符
+    sb_append(sb, "<p:sp><p:nvSpPr>")
+    sb_append(sb, "<p:cNvPr id=\"2\" name=\"Title 1\"/><p:cNvSpPr><a:spLocks noGrp=\"1\"/></p:cNvSpPr>")
+    sb_append(sb, "<p:nvPr><p:ph type=\"ctrTitle\"/></p:nvPr></p:nvSpPr>")
+    sb_append(sb, "<p:spPr/><p:txBody><a:bodyPr/><a:lstStyle/>")
+    sb_append(sb, "<a:p><a:pPr algn=\"ctr\"/><a:r><a:rPr lang=\"zh-CN\" sz=\"3200\" b=\"1\"/>")
+    sb_append(sb, "<a:t>")
+    sb_append(sb, esc(title))
+    sb_append(sb, "</a:t></a:r></a:p>")
+    sb_append(sb, "</p:txBody></p:sp>")
+    // 要点占位符
+    sb_append(sb, "<p:sp><p:nvSpPr>")
+    sb_append(sb, "<p:cNvPr id=\"3\" name=\"Body 2\"/><p:cNvSpPr><a:spLocks noGrp=\"1\"/></p:cNvSpPr>")
+    sb_append(sb, "<p:nvPr><p:ph type=\"body\" idx=\"1\"/></p:nvPr></p:nvSpPr>")
+    sb_append(sb, "<p:spPr/><p:txBody><a:bodyPr/>")
+    if len(bullets) > 0 {
+        sb_append(sb, "<a:lstStyle>")
+    } else {
+        sb_append(sb, "<a:lstStyle/>")
+    }
+    var i: i64 = 0
+    while i < len(bullets) {
+        sb_append(sb, "<a:p><a:pPr marL=\"342900\" indent=\"-342900\"><a:buChar char=\"•\"/></a:pPr>")
+        sb_append(sb, "<a:r><a:rPr lang=\"zh-CN\" sz=\"2400\"/>")
+        sb_append(sb, "<a:t>")
+        sb_append(sb, esc(bullets[i]))
+        sb_append(sb, "</a:t></a:r></a:p>")
+        i = i + 1
+    }
+    if len(bullets) > 0 {
+        sb_append(sb, "</a:lstStyle>")
+    }
+    sb_append(sb, "</p:txBody></p:sp>")
+    sb_append(sb, "</p:spTree></p:cSld>")
+    sb_append(sb, "<p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr>")
+    sb_append(sb, "</p:sld>")
+    return sb_build(sb)
+}
+
+// 组装 .pptx 全部包部件（平行表）：slides_xml 为 slide_title_bullets() 结果表。
+pub func pptx_parts(slides_xml: table<string>) -> (names: table<string>, datas: table<string>) {
+    var names = table_new_string()
+    var datas = table_new_string()
+    var n = len(slides_xml)
+    table_push(names, "[Content_Types].xml")
+    table_push(datas, content_types(n))
+    table_push(names, "_rels/.rels")
+    table_push(datas, root_rels())
+    table_push(names, "ppt/presentation.xml")
+    table_push(datas, presentation_xml(n))
+    table_push(names, "ppt/_rels/presentation.xml.rels")
+    table_push(datas, presentation_rels(n))
+    table_push(names, "ppt/slideMasters/slideMaster1.xml")
+    table_push(datas, master_xml())
+    table_push(names, "ppt/slideMasters/_rels/slideMaster1.xml.rels")
+    table_push(datas, master_rels())
+    table_push(names, "ppt/slideLayouts/slideLayout1.xml")
+    table_push(datas, layout_xml())
+    table_push(names, "ppt/theme/theme1.xml")
+    table_push(datas, theme_xml())
+    var i: i64 = 0
+    while i < n {
+        table_push(names, "ppt/slides/slide" + i2s(i + 1) + ".xml")
+        table_push(datas, slides_xml[i])
+        table_push(names, "ppt/slides/_rels/slide" + i2s(i + 1) + ".xml.rels")
+        table_push(datas, slide_rels())
+        i = i + 1
+    }
+    return (names, datas)
+}
+
+// 一步生成 .pptx：多张幻灯片 → path 文件（byte_write 二进制安全）。
+pub func write_pptx(path: string, slides_xml: table<string>) -> bool {
+    var (names, datas) = pptx_parts(slides_xml)
+    return ox.write_zip(path, names, datas)
+}
+
+// ---- 内部私有辅助：固定部件模板 ----
+
+// [Content_Types].xml：幻灯片数量决定 Override 数。
+func content_types(n: i64) -> string {
+    var sb = string_builder()
+    sb_append(sb, "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>")
+    sb_append(sb, "<Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\">")
+    sb_append(sb, "<Default Extension=\"rels\" ContentType=\"application/vnd.openxmlformats-package.relationships+xml\"/>")
+    sb_append(sb, "<Default Extension=\"xml\" ContentType=\"application/xml\"/>")
+    sb_append(sb, "<Override PartName=\"/ppt/presentation.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml\"/>")
+    sb_append(sb, "<Override PartName=\"/ppt/slideMasters/slideMaster1.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.presentationml.slideMaster+xml\"/>")
+    sb_append(sb, "<Override PartName=\"/ppt/slideLayouts/slideLayout1.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.presentationml.slideLayout+xml\"/>")
+    sb_append(sb, "<Override PartName=\"/ppt/theme/theme1.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.theme+xml\"/>")
+    var i: i64 = 1
+    while i <= n {
+        sb_append(sb, "<Override PartName=\"/ppt/slides/slide")
+        sb_append(sb, i2s(i))
+        sb_append(sb, ".xml\" ContentType=\"application/vnd.openxmlformats-officedocument.presentationml.slide+xml\"/>")
+        i = i + 1
+    }
+    sb_append(sb, "</Types>")
+    return sb_build(sb)
+}
+
+// _rels/.rels → presentation.xml。
+func root_rels() -> string {
+    return "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>" +
+        "<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">" +
+        "<Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument\" Target=\"ppt/presentation.xml\"/>" +
+        "</Relationships>"
+}
+
+// ppt/presentation.xml：母版/布局/各幻灯片引用（16:9）。
+func presentation_xml(n: i64) -> string {
+    var sb = string_builder()
+    sb_append(sb, "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>")
+    sb_append(sb, "<p:presentation xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\" ")
+    sb_append(sb, "xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\" ")
+    sb_append(sb, "xmlns:p=\"http://schemas.openxmlformats.org/presentationml/2006/main\">")
+    sb_append(sb, "<p:sldMasterIdLst><p:sldMasterId id=\"2147483648\" r:id=\"rId1\"/></p:sldMasterIdLst>")
+    sb_append(sb, "<p:sldIdLst>")
+    var i: i64 = 0
+    while i < n {
+        sb_append(sb, "<p:sldId id=\"")
+        sb_append(sb, i2s(256 + i))
+        sb_append(sb, "\" r:id=\"rId")
+        sb_append(sb, i2s(i + 2))
+        sb_append(sb, "\"/>")
+        i = i + 1
+    }
+    sb_append(sb, "</p:sldIdLst>")
+    sb_append(sb, "<p:sldSz cx=\"12192000\" cy=\"6858000\" type=\"screen16x9\"/>")
+    sb_append(sb, "<p:notesSz cx=\"6858000\" cy=\"9144000\"/>")
+    sb_append(sb, "</p:presentation>")
+    return sb_build(sb)
+}
+
+// ppt/_rels/presentation.xml.rels：rId1=母版，rId2..=幻灯片。
+func presentation_rels(n: i64) -> string {
+    var sb = string_builder()
+    sb_append(sb, "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>")
+    sb_append(sb, "<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">")
+    sb_append(sb, "<Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideMaster\" Target=\"slideMasters/slideMaster1.xml\"/>")
+    var i: i64 = 0
+    while i < n {
+        sb_append(sb, "<Relationship Id=\"rId")
+        sb_append(sb, i2s(i + 2))
+        sb_append(sb, "\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide\" Target=\"slides/slide")
+        sb_append(sb, i2s(i + 1))
+        sb_append(sb, ".xml\"/>")
+        i = i + 1
+    }
+    sb_append(sb, "</Relationships>")
+    return sb_build(sb)
+}
+
+// 幻灯片 → 布局关系（每张同一布局）。
+func slide_rels() -> string {
+    return "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>" +
+        "<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">" +
+        "<Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout\" Target=\"../slideLayouts/slideLayout1.xml\"/>" +
+        "</Relationships>"
+}
+
+// slideMaster1.xml（含文本样式与色彩映射）。
+func master_xml() -> string {
+    var sb = string_builder()
+    sb_append(sb, "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>")
+    sb_append(sb, "<p:sldMaster xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\" ")
+    sb_append(sb, "xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\" ")
+    sb_append(sb, "xmlns:p=\"http://schemas.openxmlformats.org/presentationml/2006/main\">")
+    sb_append(sb, "<p:cSld><p:bg><p:bgPr>")
+    sb_append(sb, "<a:solidFill><a:schemeClr val=\"bg1\"/></a:solidFill><a:effectLst/>")
+    sb_append(sb, "</p:bgPr></p:bg>")
+    sb_append(sb, "<p:spTree>")
+    sb_append(sb, "<p:nvGrpSpPr><p:cNvPr id=\"1\" name=\"\"/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>")
+    sb_append(sb, "<p:grpSpPr><a:xfrm><a:off x=\"0\" y=\"0\"/><a:ext cx=\"0\" cy=\"0\"/>")
+    sb_append(sb, "<a:chOff x=\"0\" y=\"0\"/><a:chExt cx=\"0\" cy=\"0\"/></a:xfrm></p:grpSpPr>")
+    sb_append(sb, "</p:spTree></p:cSld>")
+    sb_append(sb, "<p:clrMap bg1=\"lt1\" tx1=\"dk1\" bg2=\"lt2\" tx2=\"dk2\" accent1=\"accent1\" ")
+    sb_append(sb, "accent2=\"accent2\" accent3=\"accent3\" accent4=\"accent4\" accent5=\"accent5\" ")
+    sb_append(sb, "accent6=\"accent6\" hlink=\"hlink\" folHlink=\"folHlink\"/>")
+    sb_append(sb, "<p:sldLayoutIdLst><p:sldLayoutId id=\"1\" r:id=\"rId1\"/></p:sldLayoutIdLst>")
+    sb_append(sb, "<p:txStyles>")
+    sb_append(sb, "<p:titleStyle><a:lvl1pPr><a:defRPr sz=\"4400\" b=\"1\"><a:solidFill><a:schemeClr val=\"tx1\"/></a:solidFill></a:defRPr></a:lvl1pPr></p:titleStyle>")
+    sb_append(sb, "<p:bodyStyle><a:lvl1pPr><a:defRPr sz=\"2400\"><a:solidFill><a:schemeClr val=\"tx1\"/></a:solidFill></a:defRPr></a:lvl1pPr></p:bodyStyle>")
+    sb_append(sb, "<p:otherStyle></p:otherStyle>")
+    sb_append(sb, "</p:txStyles>")
+    sb_append(sb, "</p:sldMaster>")
+    return sb_build(sb)
+}
+
+// slideMaster1.xml.rels → 布局。
+func master_rels() -> string {
+    return "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>" +
+        "<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">" +
+        "<Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout\" Target=\"../slideLayouts/slideLayout1.xml\"/>" +
+        "</Relationships>"
+}
+
+// slideLayout1.xml（blank 布局，幻灯片内容自带占位符）。
+func layout_xml() -> string {
+    var sb = string_builder()
+    sb_append(sb, "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>")
+    sb_append(sb, "<p:sldLayout xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\" ")
+    sb_append(sb, "xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\" ")
+    sb_append(sb, "xmlns:p=\"http://schemas.openxmlformats.org/presentationml/2006/main\" type=\"blank\" preserve=\"1\">")
+    sb_append(sb, "<p:cSld><p:spTree>")
+    sb_append(sb, "<p:nvGrpSpPr><p:cNvPr id=\"1\" name=\"\"/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>")
+    sb_append(sb, "<p:grpSpPr><a:xfrm><a:off x=\"0\" y=\"0\"/><a:ext cx=\"0\" cy=\"0\"/>")
+    sb_append(sb, "<a:chOff x=\"0\" y=\"0\"/><a:chExt cx=\"0\" cy=\"0\"/></a:xfrm></p:grpSpPr>")
+    sb_append(sb, "</p:spTree></p:cSld>")
+    sb_append(sb, "<p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr>")
+    sb_append(sb, "</p:sldLayout>")
+    return sb_build(sb)
+}
+
+// theme1.xml：Office 默认主题（DzBlue 色板 + 精简填充/线/效果）。
+func theme_xml() -> string {
+    var sb = string_builder()
+    sb_append(sb, "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>")
+    sb_append(sb, "<a:theme xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\" name=\"Office 主题\">")
+    sb_append(sb, "<a:themeElements>")
+    sb_append(sb, "<a:clrScheme name=\"Office\">")
+    sb_append(sb, "<a:dk1><a:sysClr val=\"windowText\" lastClr=\"000000\"/></a:dk1>")
+    sb_append(sb, "<a:lt1><a:sysClr val=\"window\" lastClr=\"FFFFFF\"/></a:lt1>")
+    sb_append(sb, "<a:dk2><a:srgbClr val=\"44546A\"/></a:dk2>")
+    sb_append(sb, "<a:lt2><a:srgbClr val=\"E7E6E6\"/></a:lt2>")
+    sb_append(sb, "<a:accent1><a:srgbClr val=\"4472C4\"/></a:accent1>")
+    sb_append(sb, "<a:accent2><a:srgbClr val=\"ED7D31\"/></a:accent2>")
+    sb_append(sb, "<a:accent3><a:srgbClr val=\"A5A5A5\"/></a:accent3>")
+    sb_append(sb, "<a:accent4><a:srgbClr val=\"FFC000\"/></a:accent4>")
+    sb_append(sb, "<a:accent5><a:srgbClr val=\"5B9BD5\"/></a:accent5>")
+    sb_append(sb, "<a:accent6><a:srgbClr val=\"70AD47\"/></a:accent6>")
+    sb_append(sb, "<a:hlink><a:srgbClr val=\"0563C1\"/></a:hlink>")
+    sb_append(sb, "<a:folHlink><a:srgbClr val=\"954F72\"/></a:folHlink>")
+    sb_append(sb, "</a:clrScheme>")
+    sb_append(sb, "<a:fontScheme name=\"Office\">")
+    sb_append(sb, "<a:majorFont><a:latin typeface=\"Calibri Light\"/><a:ea typeface=\"\"/><a:cs typeface=\"\"/></a:majorFont>")
+    sb_append(sb, "<a:minorFont><a:latin typeface=\"Calibri\"/><a:ea typeface=\"\"/><a:cs typeface=\"\"/></a:minorFont>")
+    sb_append(sb, "</a:fontScheme>")
+    sb_append(sb, "<a:fmtScheme name=\"Office\">")
+    sb_append(sb, "<a:fillStyleLst>")
+    sb_append(sb, "<a:solidFill><a:schemeClr val=\"phClr\"/></a:solidFill>")
+    sb_append(sb, "<a:solidFill><a:schemeClr val=\"phClr\"/></a:solidFill>")
+    sb_append(sb, "<a:solidFill><a:schemeClr val=\"phClr\"/></a:solidFill>")
+    sb_append(sb, "</a:fillStyleLst>")
+    sb_append(sb, "<a:lnStyleLst>")
+    sb_append(sb, "<a:ln w=\"6350\" cap=\"flat\" cmpd=\"sng\" algn=\"ctr\"><a:solidFill><a:schemeClr val=\"phClr\"/></a:solidFill></a:ln>")
+    sb_append(sb, "<a:ln w=\"12700\" cap=\"flat\" cmpd=\"sng\" algn=\"ctr\"><a:solidFill><a:schemeClr val=\"phClr\"/></a:solidFill></a:ln>")
+    sb_append(sb, "<a:ln w=\"19050\" cap=\"flat\" cmpd=\"sng\" algn=\"ctr\"><a:solidFill><a:schemeClr val=\"phClr\"/></a:solidFill></a:ln>")
+    sb_append(sb, "</a:lnStyleLst>")
+    sb_append(sb, "<a:effectStyleLst>")
+    sb_append(sb, "<a:effectStyle><a:effectLst/></a:effectStyle>")
+    sb_append(sb, "<a:effectStyle><a:effectLst/></a:effectStyle>")
+    sb_append(sb, "<a:effectStyle><a:effectLst/></a:effectStyle>")
+    sb_append(sb, "</a:effectStyleLst>")
+    sb_append(sb, "<a:bgFillStyleLst>")
+    sb_append(sb, "<a:solidFill><a:schemeClr val=\"phClr\"/></a:solidFill>")
+    sb_append(sb, "<a:solidFill><a:schemeClr val=\"phClr\"/></a:solidFill>")
+    sb_append(sb, "<a:solidFill><a:schemeClr val=\"phClr\"/></a:solidFill>")
+    sb_append(sb, "</a:bgFillStyleLst>")
+    sb_append(sb, "</a:fmtScheme>")
+    sb_append(sb, "</a:themeElements>")
+    sb_append(sb, "<a:objectDefaults/><a:extraClrSchemeLst/>")
+    sb_append(sb, "</a:theme>")
+    return sb_build(sb)
+}
+
+// XML 转义（& < >）。
+func esc(txt: string) -> string {
+    var sb = string_builder()
+    var n: i64 = str_len(txt)
+    var i: i64 = 0
+    while i < n {
+        var c = str_char(txt, i)
+        if c == "&" {
+            sb_append(sb, "&amp;")
+        } else if c == "<" {
+            sb_append(sb, "&lt;")
+        } else if c == ">" {
+            sb_append(sb, "&gt;")
+        } else {
+            sb_append(sb, c)
+        }
+        i = i + 1
+    }
+    return sb_build(sb)
+}
+
+// i64 → 十进制字符串（模块自包含）。
+func i2s(v: i64) -> string {
+    if v == 0 {
+        return "0"
+    }
+    var sb = string_builder()
+    var neg = false
+    var x: i64 = v
+    if x < 0 {
+        neg = true
+        x = 0 - x
+    }
+    var digs = table_new_i64()
+    while x > 0 {
+        table_push(digs, x % 10)
+        x = x / 10
+    }
+    if neg {
+        sb_append(sb, "-")
+    }
+    var i: i64 = len(digs) - 1
+    while i >= 0 {
+        sb_append_byte(sb, 48 + digs[i])
+        i = i - 1
+    }
+    return sb_build(sb)
+}
+
+}   // namespace pptx

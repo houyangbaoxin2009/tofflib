@@ -12,6 +12,7 @@ import "../officeutil.tie" as ou
 import "../ooxml.tie" as ox
 import "../xlsx.tie" as xs
 import "../tiedoc.tie" as td
+import "../pptx.tie" as ppx
 
 // 断言 helper：got != want 时 panic 并指出模块/用例。
 func check(name: string, got: string, want: string) {
@@ -437,6 +438,32 @@ func main() {
     }
     check("td.render_xlsx-exists", exists_rx, "true")
     check("td.render_xlsx-pk", file_pk("demo_tdoc.xlsx"), "true")
+
+    // ================= pptx：幻灯片/主题/母版/装配/写出 =================
+    var pl1 = table_new_string()
+    table_push(pl1, "买牛奶")
+    table_push(pl1, "写周报")
+    var pslide = ppx.slide_title_bullets("周报", pl1)
+    check("ppx.slide-title", has(pslide, "<p:ph type=\"ctrTitle\"/>"), "true")
+    check("ppx.slide-text", has(pslide, "周报"), "true")
+    check("ppx.slide-bullet", has(pslide, "<a:buChar char=\"•\"/>"), "true")
+    check("ppx.slide-bullet2", has(pslide, "写周报"), "true")
+    var psl = table_new_string()
+    table_push(psl, pslide)
+    var (pn1, pd1) = ppx.pptx_parts(psl)
+    check_i64("ppx.pptx_parts-count", len(pn1), 10)
+    check("ppx.pptx_parts-theme", has(pd1[7], "<a:accent1><a:srgbClr val=\"4472C4\"/>"), "true")
+    check("ppx.pptx_parts-master", has(pd1[4], "<p:sldMaster"), "true")
+    check("ppx.pptx_parts-ct", has(pd1[0], "presentationml.slide+xml"), "true")
+    var wrote_p = ppx.write_pptx("demo_out.pptx", psl)
+    var exists_p: string = "false"
+    if wrote_p {
+        if file_exists("demo_out.pptx") {
+            exists_p = "true"
+        }
+    }
+    check("ppx.write_pptx-exists", exists_p, "true")
+    check("ppx.write_pptx-pk", file_pk("demo_out.pptx"), "true")
 
     // 打印组装出的整段 docx 文档片段，供人工核对
     println("---- 组装示例 ----")
