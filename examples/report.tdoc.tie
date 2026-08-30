@@ -1,0 +1,21 @@
+type tie<tdoc>
+// report.tdoc.tie：tie 办公文档源（自定义角色 tdoc）——块协议构建，tiec 可编译校验
+// 注意：tie 不支持表内表字面量 [[..],[..]]，块行须以变量/调用结果引用组装
+namespace report {
+
+pub func title() -> string {
+    return "周报"
+}
+
+pub func blocks() -> table<table<string>> {
+    var b0: table<string> = ["h1", "第 1 章"]
+    var b1: table<string> = ["p", "你好，tie 办公"]
+    var b2: table<string> = ["ul", "买牛奶", "写周报"]
+    var b3: table<string> = ["tbl", "项目,状态", "文档,进行中", "打包,完成"]
+    var b4: table<string> = ["page"]
+    var b5: table<string> = ["link", "tie 官网", "https://tie-lang.org"]
+    var rows: table<table<string>> = [b0, b1, b2, b3, b4, b5]
+    return rows
+}
+
+}   // namespace report
