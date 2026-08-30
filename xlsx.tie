@@ -1,0 +1,313 @@
+type tie<class>
+// ============================================================================
+// xlsx.tie：tofflib——用 tie 办公的工具库 / Excel 电子表格（SpreadsheetML）
+//
+// 本模块生成真实可打开的 .xlsx（OOXML SpreadsheetML 2006/main）：
+//   - sheet_doc()：整份 worksheet 部件（冻结首行、列宽 cols、sheetData 行）
+//   - 单元格：text_cell()（inlineStr 富文本，可加粗）/ num_cell() / formula_cell()
+//   - 装配：xlsx_parts() → 平行表部件；write_xlsx() 一步写出（字节表 byte_write）
+//
+// 单元格文本采用 **inlineStr**（内联富文本 run，无需 sharedStrings 部件）：
+// LibreOffice / Excel / WPS 均支持；后续可按需升级共享字符串表。
+//
+// 复用 ooxml.zip_store（store 免压缩 ZIP）。纯函数、零 unsafe、零外部依赖。
+// 命名空间：xlsx。调用方式（class 库，编译为 xlsx.a）：
+//   import "./xlsx.tie" as xs
+//   var sheet = xs.sheet_doc("数据", xs.sheet_rows(rows, hdr), widths, 1)
+//   xs.write_xlsx("out.xlsx", [sheet], ["数据"])
+// ============================================================================
+
+import "./ooxml.tie" as ox
+
+namespace xlsx {
+
+// 列号 → 列字母（1→A、26→Z、27→AA）。
+pub func col_letter(c: i64) -> string {
+    var sb = string_builder()
+    var x: i64 = c
+    var letters = table_new_i64()
+    while x > 0 {
+        var m = (x - 1) % 26
+        table_push(letters, 65 + m)
+        x = (x - 1) / 26
+    }
+    var i: i64 = len(letters) - 1
+    while i >= 0 {
+        sb_append_byte(sb, letters[i])
+        i = i - 1
+    }
+    if len(letters) == 0 {
+        sb_append(sb, "A")
+    }
+    return sb_build(sb)
+}
+
+// 单元格引用（c/r 从 1 起）：cell_ref(1,1)="A1"。
+pub func cell_ref(c: i64, r: i64) -> string {
+    return col_letter(c) + i2s(r)
+}
+
+// 文本单元格（inlineStr，富文本 run 加粗可选）。
+pub func text_cell(c: i64, r: i64, txt: string, bold: bool) -> string {
+    var sb = string_builder()
+    sb_append(sb, "<c r=\"")
+    sb_append(sb, cell_ref(c, r))
+    sb_append(sb, "\" t=\"inlineStr\"><is>")
+    if bold {
+        sb_append(sb, "<r><rPr><b/></rPr>")
+    } else {
+        sb_append(sb, "<r>")
+    }
+    sb_append(sb, "<t>")
+    sb_append(sb, escape(txt))
+    sb_append(sb, "</t></r>")
+    sb_append(sb, "</is></c>")
+    return sb_build(sb)
+}
+
+// 数值单元格：<c r=".."><v>值</v></c>。
+pub func num_cell(c: i64, r: i64, v: i64) -> string {
+    return "<c r=\"" + cell_ref(c, r) + "\"><v>" + i2s(v) + "</v></c>"
+}
+
+// 公式单元格：<c r=".."><f>公式</f><v>0</v></c>（打开时自动计算）。
+pub func formula_cell(c: i64, r: i64, f: string) -> string {
+    return "<c r=\"" + cell_ref(c, r) + "\"><f>" + escape(f) + "</f><v>0</v></c>"
+}
+
+// 把二维单元格片段表组装为 sheetData（rows 元素各含已组装的 <c …/> 片段）。
+pub func sheet_rows(cells_rows: table<table<string>>) -> string {
+    var sb = string_builder()
+    sb_append(sb, "<sheetData>")
+    var r: i64 = 0
+    while r < len(cells_rows) {
+        sb_append(sb, "<row r=\"")
+        sb_append(sb, i2s(r + 1))
+        sb_append(sb, "\">")
+        var c: i64 = 0
+        while c < len(cells_rows[r]) {
+            sb_append(sb, cells_rows[r][c])
+            c = c + 1
+        }
+        sb_append(sb, "</row>")
+        r = r + 1
+    }
+    sb_append(sb, "</sheetData>")
+    return sb_build(sb)
+}
+
+// 整份 worksheet 部件：name 仅注释用；col_widths_twips?（列宽单位取字符宽，
+// 20≈默认）；freeze_first_row=true 时冻结首行（前 1 行）。
+pub func sheet_doc(name: string, sheet_data_xml: string, col_widths: table<i64>, freeze_first_row: bool) -> string {
+    var sb = string_builder()
+    sb_append(sb, "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>")
+    sb_append(sb, "<worksheet xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\" ")
+    sb_append(sb, "xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\">")
+    sb_append(sb, "<sheetViews><sheetView workbookViewId=\"0\"")
+    if freeze_first_row {
+        sb_append(sb, "><pane ySplit=\"1\" topLeftCell=\"A2\" activePane=\"bottomLeft\" state=\"frozen\"/><selection pane=\"bottomLeft\" activeCell=\"A2\" sqref=\"A2\"/>")
+    } else {
+        sb_append(sb, "/>")
+    }
+    if freeze_first_row {
+        sb_append(sb, "</sheetView>")
+    }
+    sb_append(sb, "</sheetViews>")
+    if len(col_widths) > 0 {
+        sb_append(sb, "<cols>")
+        var i: i64 = 0
+        while i < len(col_widths) {
+            sb_append(sb, "<col min=\"")
+            sb_append(sb, i2s(i + 1))
+            sb_append(sb, "\" max=\"")
+            sb_append(sb, i2s(i + 1))
+            sb_append(sb, "\" width=\"")
+            sb_append(sb, i2s(col_widths[i]))
+            sb_append(sb, "\" customWidth=\"1\"/>")
+            i = i + 1
+        }
+        sb_append(sb, "</cols>")
+    }
+    sb_append(sb, sheet_data_xml)
+    sb_append(sb, "</worksheet>")
+    return sb_build(sb)
+}
+
+// 便捷：纯文本二维表 → sheetData（header 为可选加粗表头行，占第一行；数据行顺延）。
+pub func sheet_text_rows(cells_rows: table<table<string>>, header: table<string>) -> string {
+    var sb = string_builder()
+    sb_append(sb, "<sheetData>")
+    if len(header) > 0 {
+        sb_append(sb, sheet_row(header, 1, true))
+    }
+    var r: i64 = 0
+    while r < len(cells_rows) {
+        sb_append(sb, sheet_row(cells_rows[r], r + 2, false))
+        r = r + 1
+    }
+    sb_append(sb, "</sheetData>")
+    return sb_build(sb)
+}
+
+// 一行全文本单元格（每格 text_cell，bold 时加粗）。
+func sheet_row(cells: table<string>, r: i64, bold: bool) -> string {
+    var sb = string_builder()
+    sb_append(sb, "<row r=\"")
+    sb_append(sb, i2s(r))
+    sb_append(sb, "\">")
+    var c: i64 = 0
+    while c < len(cells) {
+        sb_append(sb, text_cell(c + 1, r, cells[c], bold))
+        c = c + 1
+    }
+    sb_append(sb, "</row>")
+    return sb_build(sb)
+}
+
+// 组装 .xlsx 全部包部件（平行表）：sheet_docs 为 sheet_doc() 结果，
+// sheet_names 一一对应（须非空且不重复）。
+pub func xlsx_parts(sheet_docs: table<string>, sheet_names: table<string>) -> (names: table<string>, datas: table<string>) {
+    var names = table_new_string()
+    var datas = table_new_string()
+    table_push(names, "[Content_Types].xml")
+    table_push(datas, content_types(sheet_docs))
+    table_push(names, "_rels/.rels")
+    table_push(datas, root_rels())
+    table_push(names, "xl/workbook.xml")
+    table_push(datas, workbook_xml(sheet_names))
+    table_push(names, "xl/_rels/workbook.xml.rels")
+    table_push(datas, workbook_rels(sheet_docs))
+    var i: i64 = 0
+    while i < len(sheet_docs) {
+        table_push(names, "xl/worksheets/sheet" + i2s(i + 1) + ".xml")
+        table_push(datas, sheet_docs[i])
+        i = i + 1
+    }
+    return (names, datas)
+}
+
+// 一步生成 .xlsx：多 sheet → path 文件（byte_write 二进制安全）。
+pub func write_xlsx(path: string, sheet_docs: table<string>, sheet_names: table<string>) -> bool {
+    var (names, datas) = xlsx_parts(sheet_docs, sheet_names)
+    return ox.write_zip(path, names, datas)
+}
+
+// ---- 内部私有辅助 ----
+
+// [Content_Types].xml
+func content_types(sheet_docs: table<string>) -> string {
+    var sb = string_builder()
+    sb_append(sb, "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>")
+    sb_append(sb, "<Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\">")
+    sb_append(sb, "<Default Extension=\"rels\" ContentType=\"application/vnd.openxmlformats-package.relationships+xml\"/>")
+    sb_append(sb, "<Default Extension=\"xml\" ContentType=\"application/xml\"/>")
+    sb_append(sb, "<Override PartName=\"/xl/workbook.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml\"/>")
+    var i: i64 = 0
+    while i < len(sheet_docs) {
+        sb_append(sb, "<Override PartName=\"/xl/worksheets/sheet")
+        sb_append(sb, i2s(i + 1))
+        sb_append(sb, ".xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml\"/>")
+        i = i + 1
+    }
+    sb_append(sb, "</Types>")
+    return sb_build(sb)
+}
+
+// _rels/.rels
+func root_rels() -> string {
+    return "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>" +
+        "<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">" +
+        "<Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument\" Target=\"xl/workbook.xml\"/>" +
+        "</Relationships>"
+}
+
+// xl/workbook.xml
+func workbook_xml(sheet_names: table<string>) -> string {
+    var sb = string_builder()
+    sb_append(sb, "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>")
+    sb_append(sb, "<workbook xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\" ")
+    sb_append(sb, "xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\">")
+    sb_append(sb, "<sheets>")
+    var i: i64 = 0
+    while i < len(sheet_names) {
+        sb_append(sb, "<sheet name=\"")
+        sb_append(sb, escape(sheet_names[i]))
+        sb_append(sb, "\" sheetId=\"")
+        sb_append(sb, i2s(i + 1))
+        sb_append(sb, "\" r:id=\"rId")
+        sb_append(sb, i2s(i + 1))
+        sb_append(sb, "\"/>")
+        i = i + 1
+    }
+    sb_append(sb, "</sheets></workbook>")
+    return sb_build(sb)
+}
+
+// xl/_rels/workbook.xml.rels
+func workbook_rels(sheet_docs: table<string>) -> string {
+    var sb = string_builder()
+    sb_append(sb, "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>")
+    sb_append(sb, "<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">")
+    var i: i64 = 0
+    while i < len(sheet_docs) {
+        sb_append(sb, "<Relationship Id=\"rId")
+        sb_append(sb, i2s(i + 1))
+        sb_append(sb, "\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet\" Target=\"worksheets/sheet")
+        sb_append(sb, i2s(i + 1))
+        sb_append(sb, ".xml\"/>")
+        i = i + 1
+    }
+    sb_append(sb, "</Relationships>")
+    return sb_build(sb)
+}
+
+// XML 转义（& < >）。
+pub func escape(txt: string) -> string {
+    var sb = string_builder()
+    var n: i64 = str_len(txt)
+    var i: i64 = 0
+    while i < n {
+        var c = str_char(txt, i)
+        if c == "&" {
+            sb_append(sb, "&amp;")
+        } else if c == "<" {
+            sb_append(sb, "&lt;")
+        } else if c == ">" {
+            sb_append(sb, "&gt;")
+        } else {
+            sb_append(sb, c)
+        }
+        i = i + 1
+    }
+    return sb_build(sb)
+}
+
+// i64 → 十进制字符串（模块自包含）。
+func i2s(v: i64) -> string {
+    if v == 0 {
+        return "0"
+    }
+    var sb = string_builder()
+    var neg = false
+    var x: i64 = v
+    if x < 0 {
+        neg = true
+        x = 0 - x
+    }
+    var digs = table_new_i64()
+    while x > 0 {
+        table_push(digs, x % 10)
+        x = x / 10
+    }
+    if neg {
+        sb_append(sb, "-")
+    }
+    var i: i64 = len(digs) - 1
+    while i >= 0 {
+        sb_append_byte(sb, 48 + digs[i])
+        i = i - 1
+    }
+    return sb_build(sb)
+}
+
+}   // namespace xlsx

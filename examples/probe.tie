@@ -10,6 +10,7 @@ import "../omml.tie" as mm
 import "../vml.tie" as vm
 import "../officeutil.tie" as ou
 import "../ooxml.tie" as ox
+import "../xlsx.tie" as xs
 
 // 断言 helper：got != want 时 panic 并指出模块/用例。
 func check(name: string, got: string, want: string) {
@@ -333,6 +334,54 @@ func main() {
     }
     check("ox.hbf-write-exists", exists_hbf, "true")
     check("ox.hbf-write-pk", file_pk("demo_hbf.docx"), "true")
+
+    // ================= xlsx：列号/单元格/工作表/装配/写出 =================
+    check("xs.col_letter-a", xs.col_letter(1), "A")
+    check("xs.col_letter-z", xs.col_letter(26), "Z")
+    check("xs.col_letter-aa", xs.col_letter(27), "AA")
+    check("xs.col_letter-az", xs.col_letter(52), "AZ")
+    check("xs.cell_ref", xs.cell_ref(3, 2), "C2")
+    check("xs.text_cell", xs.text_cell(1, 1, "你好", false),
+        "<c r=\"A1\" t=\"inlineStr\"><is><r><t>你好</t></r></is></c>")
+    check("xs.text_cell-bold", has(xs.text_cell(1, 1, "表头", true), "<r><rPr><b/></rPr>"), "true")
+    check("xs.num_cell", xs.num_cell(1, 2, 42), "<c r=\"A2\"><v>42</v></c>")
+    check("xs.formula_cell", has(xs.formula_cell(1, 3, "SUM(B1:B3)"), "<f>SUM(B1:B3)</f>"), "true")
+    var xh = table_new_string()
+    table_push(xh, "项目")
+    table_push(xh, "分")
+    var xr1 = table_new_string()
+    table_push(xr1, "甲")
+    table_push(xr1, "88")
+    var xr2 = table_new_string()
+    table_push(xr2, "乙")
+    table_push(xr2, "92")
+    var xrows = [xr1, xr2]
+    var sdata = xs.sheet_text_rows(xrows, xh)
+    check("xs.sheet_text_rows-header", has(sdata, "<row r=\"1\"><c r=\"A1\""), "true")
+    check("xs.sheet_text_rows-bold", has(sdata, "<c r=\"A1\" t=\"inlineStr\"><is><r><rPr><b/></rPr>"), "true")
+    check("xs.sheet_text_rows-data", has(sdata, "<row r=\"2\">"), "true")
+    var xw = table_new_i64()
+    table_push(xw, 18)
+    table_push(xw, 10)
+    var xsheet = xs.sheet_doc("数据", sdata, xw, true)
+    check("xs.sheet_doc-freeze", has(xsheet, "state=\"frozen\""), "true")
+    check("xs.sheet_doc-cols", has(xsheet, "<col min=\"1\" max=\"1\" width=\"18\" customWidth=\"1\"/>"), "true")
+    var xsn = table_new_string()
+    table_push(xsn, "数据")
+    var (xn1, xd1) = xs.xlsx_parts([xsheet], xsn)
+    check_i64("xs.xlsx_parts-count", len(xn1), 5)
+    check("xs.xlsx_parts-wb", xn1[2], "xl/workbook.xml")
+    check("xs.xlsx_parts-sheet", xn1[4], "xl/worksheets/sheet1.xml")
+    check("xs.xlsx_parts-ct", has(xd1[0], "spreadsheetml.worksheet+xml"), "true")
+    var wrote_x = xs.write_xlsx("demo_out.xlsx", [xsheet], xsn)
+    var exists_x: string = "false"
+    if wrote_x {
+        if file_exists("demo_out.xlsx") {
+            exists_x = "true"
+        }
+    }
+    check("xs.write_xlsx-exists", exists_x, "true")
+    check("xs.write_xlsx-pk", file_pk("demo_out.xlsx"), "true")
 
     // 打印组装出的整段 docx 文档片段，供人工核对
     println("---- 组装示例 ----")

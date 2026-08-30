@@ -193,6 +193,12 @@ pub func write_docx(path: string, body_xml: string, footer_page: bool) -> bool {
     return byte_write(path, str_to_bytes(zip_store(names, datas)))
 }
 
+// 通用归档写出：任意「部件名 + 内容」平行表 → zip 容器并写入文件
+// （xlsx/pptx/odt/ods 等模块共用；byte_write 二进制安全）。
+pub func write_zip(path: string, zip_names: table<string>, zip_datas: table<string>) -> bool {
+    return byte_write(path, str_to_bytes(zip_store(zip_names, zip_datas)))
+}
+
 // 字符串 → 字节表（逐字节 str_byte，二进制安全；支持 UTF-8 原始字节）。
 func str_to_bytes(s: string) -> table<i64> {
     var t = table_new_i64()
