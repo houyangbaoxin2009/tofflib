@@ -253,6 +253,31 @@ func main() {
     check("ox.write_docx-exists", exists, "true")
     check("ox.write_docx-pk", file_pk("demo_out.docx"), "true")
 
+    // ---- ooxml 页眉页脚（docx_parts_hbf / write_docx_hbf）----
+    var hdr = dx.header_para([dx.run("tofflib 演示")])
+    check("dx.header_para", hdr,
+        "<w:hdr xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\">" +
+        "<w:p><w:r><w:t xml:space=\"preserve\">tofflib 演示</w:t></w:r></w:p></w:hdr>")
+    var ftr = dx.footer_para([dx.page_field()])
+    check("dx.footer_para", has(ftr, "<w:ftr xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\"><w:p>"), "true")
+    check("dx.footer_para-page", has(ftr, "PAGE"), "true")
+    var (pn3, pd3) = ox.docx_parts_hbf(oxbody, hdr, ftr)
+    check_i64("ox.hbf-count", len(pn3), 8)
+    check("ox.hbf-header-part", pn3[6], "word/header1.xml")
+    check("ox.hbf-footer-part", pn3[7], "word/footer1.xml")
+    check("ox.hbf-hdr-ref", has(pd3[2], "<w:headerReference w:type=\"default\" r:id=\"rId4\"/>"), "true")
+    check("ox.hbf-ftr-ref", has(pd3[2], "<w:footerReference w:type=\"default\" r:id=\"rId3\"/>"), "true")
+    check("ox.hbf-ct", has(pd3[0], "wordprocessingml.header+xml"), "true")
+    var wrote_hbf = ox.write_docx_hbf("demo_hbf.docx", oxbody, hdr, ftr)
+    var exists_hbf: string = "false"
+    if wrote_hbf {
+        if file_exists("demo_hbf.docx") {
+            exists_hbf = "true"
+        }
+    }
+    check("ox.hbf-write-exists", exists_hbf, "true")
+    check("ox.hbf-write-pk", file_pk("demo_hbf.docx"), "true")
+
     // 打印组装出的整段 docx 文档片段，供人工核对
     println("---- 组装示例 ----")
     println(dx.root_open() + dx.paragraph("你好，tie 办公") + txml +

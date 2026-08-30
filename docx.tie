@@ -7,8 +7,9 @@ type tie<class>
 //   - 文档根骨架：root_open() / root_close() 包裹 <w:document><w:body>…
 //   - 段落：paragraph() / paragraph_runs()（含 run 属性 run() / run_font()）
 //   - 标题/列表：heading()（Heading1..9）、bullet() / number()（编号项+整组便捷）
-//   - 分页/页码：page_break()、page_field()（PAGE 域，入页眉/页脚）+ para_center()
-//   - 页面设置：sect_page() / sect_a4()（页宽高+边距，twips）
+//   - 分页/页码：page_break()、page_field()（PAGE 域）+ para_center()/para_right()
+//   - 页眉/页脚：header_para() / footer_para()（部件内容，供 ooxml 装配 header1/footer1）
+//   - 页面设置与分节：sect_page() / sect_a4()（页宽高+边距，twips；正文中插即分节）
 //   - 表格：tbl() 由嵌套字符串表组装 <w:tbl>/<w:tr>/<w:tc>，默认全单线边框
 //     tbl_borders() 可自定义线宽/颜色
 //   - 文本净化：escape() 转义 & < > 等 XML 特殊字符
@@ -231,6 +232,36 @@ pub func sect_page(pg_w_twips: i64, pg_h_twips: i64, margin_top: i64, margin_rig
     sb_append(sb, i2s(margin_left))
     sb_append(sb, "\" w:header=\"720\" w:footer=\"720\" w:gutter=\"0\"/>")
     sb_append(sb, "</w:sectPr>")
+    return sb_build(sb)
+}
+
+// ---- 页眉 / 页脚 ----
+
+// 页眉部件内容：<w:hdr> 包裹一个段落（children 为 run/结构片段，页眉常放文档标题）。
+pub func header_para(children: table<string>) -> string {
+    return hdr_footer_para(children, "hdr")
+}
+
+// 页脚部件内容：<w:ftr> 包裹一个段落（children 如 page_field() 页码域）。
+pub func footer_para(children: table<string>) -> string {
+    return hdr_footer_para(children, "ftr")
+}
+
+// 页眉/页脚部件通用组装：<w:hdr|ftr xmlns:w=…><w:p>children</w:p></w:hdr|ftr>。
+func hdr_footer_para(children: table<string>, tag: string) -> string {
+    var sb = string_builder()
+    sb_append(sb, "<w:")
+    sb_append(sb, tag)
+    sb_append(sb, " xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\">")
+    sb_append(sb, "<w:p>")
+    var i: i64 = 0
+    while i < len(children) {
+        sb_append(sb, children[i])
+        i = i + 1
+    }
+    sb_append(sb, "</w:p></w:")
+    sb_append(sb, tag)
+    sb_append(sb, ">")
     return sb_build(sb)
 }
 

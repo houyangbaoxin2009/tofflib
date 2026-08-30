@@ -140,32 +140,54 @@ pub func zip_store(zip_names: table<string>, zip_datas: table<string>) -> string
 // ---- docx 装配器 ----
 
 // 生成真实 .docx 的全部包部件（平行表：名称 + 内容）。
-// footer_page=true 时附加 word/footer1.xml（居中 PAGE 域）并在节属性注入引用。
-pub func docx_parts(body_xml: string, footer_page: bool) -> (names: table<string>, datas: table<string>) {
+// header_xml / footer_xml 为 docx.header_para() / footer_para() 生成的部件内容；
+// 传入空串则对应部件不生成、节属性也不注入引用。
+pub func docx_parts_hbf(body_xml: string, header_xml: string, footer_xml: string) -> (names: table<string>, datas: table<string>) {
     var names = table_new_string()
     var datas = table_new_string()
+    var has_h: bool = str_len(header_xml) > 0
+    var has_f: bool = str_len(footer_xml) > 0
     table_push(names, "[Content_Types].xml")
-    table_push(datas, content_types(footer_page))
+    table_push(datas, content_types(has_h, has_f))
     table_push(names, "_rels/.rels")
     table_push(datas, root_rels())
     table_push(names, "word/document.xml")
-    table_push(datas, dx.root_open() + body_xml + document_sect(footer_page) + dx.root_close())
+    table_push(datas, dx.root_open() + body_xml + document_sect(has_h, has_f) + dx.root_close())
     table_push(names, "word/styles.xml")
     table_push(datas, styles_xml())
     table_push(names, "word/numbering.xml")
     table_push(datas, numbering_xml())
     table_push(names, "word/_rels/document.xml.rels")
-    table_push(datas, doc_rels(footer_page))
-    if footer_page {
+    table_push(datas, doc_rels(has_h, has_f))
+    if has_h {
+        table_push(names, "word/header1.xml")
+        table_push(datas, header_xml)
+    }
+    if has_f {
         table_push(names, "word/footer1.xml")
-        table_push(datas, footer_xml())
+        table_push(datas, footer_xml)
     }
     return (names, datas)
 }
 
-// 一步生成 .docx：正文 XML → path 文件。
+// 兼容层：footer_page=true 时生成默认居中页码页脚（word/footer1.xml）。
+pub func docx_parts(body_xml: string, footer_page: bool) -> (names: table<string>, datas: table<string>) {
+    var footer_xml: string = ""
+    if footer_page {
+        footer_xml = dx.footer_para([dx.page_field()])
+    }
+    return docx_parts_hbf(body_xml, "", footer_xml)
+}
+
+// 一步生成 .docx（含页眉/页脚）：正文 XML + 页眉/页脚部件内容 → path 文件。
 // 写盘走底座原语 byte_write（字节表，二进制安全）——file_write 按 C 字符串
 // 在首个 NUL 字节处截断，不能用于含 0x00 的 zip 二进制。
+pub func write_docx_hbf(path: string, body_xml: string, header_xml: string, footer_xml: string) -> bool {
+    var (names, datas) = docx_parts_hbf(body_xml, header_xml, footer_xml)
+    return byte_write(path, str_to_bytes(zip_store(names, datas)))
+}
+
+// 一步生成 .docx（footer_page=true 带居中页码）：正文 XML → path 文件。
 pub func write_docx(path: string, body_xml: string, footer_page: bool) -> bool {
     var (names, datas) = docx_parts(body_xml, footer_page)
     return byte_write(path, str_to_bytes(zip_store(names, datas)))
@@ -185,13 +207,22 @@ func str_to_bytes(s: string) -> table<i64> {
 
 // ---- 内部私有辅助 ----
 
-// document.xml 的节属性：footer 时注入 w:footerReference(rId3) 于 sectPr 最前。
-func document_sect(footer_page: bool) -> string {
-    if !footer_page {
+// document.xml 的末节属性：按需在 sectPr 最前注入 headerReference(rId4)/
+// footerReference(rId3)，随后沿用 A4 页面设置（strip_prefix 剥掉 <w:sectPr> 前缀）。
+func document_sect(has_header: bool, has_footer: bool) -> string {
+    if !has_header && !has_footer {
         return dx.sect_a4()
     }
-    return "<w:sectPr><w:footerReference w:type=\"default\" r:id=\"rId3\"/>" +
-        strip_prefix(dx.sect_a4(), 10)
+    var sb = string_builder()
+    sb_append(sb, "<w:sectPr>")
+    if has_header {
+        sb_append(sb, "<w:headerReference w:type=\"default\" r:id=\"rId4\"/>")
+    }
+    if has_footer {
+        sb_append(sb, "<w:footerReference w:type=\"default\" r:id=\"rId3\"/>")
+    }
+    sb_append(sb, strip_prefix(dx.sect_a4(), 10))
+    return sb_build(sb)
 }
 
 // 去掉字符串前 prefix_len 个码点（用于在 sectPr 后注入 footerReference）。
@@ -206,8 +237,8 @@ func strip_prefix(s: string, prefix_len: i64) -> string {
     return sb_build(sb)
 }
 
-// [Content_Types].xml：声明全部部件类型。
-func content_types(footer_page: bool) -> string {
+// [Content_Types].xml：声明全部部件类型（页眉/页脚按需）。
+func content_types(has_header: bool, has_footer: bool) -> string {
     var sb = string_builder()
     sb_append(sb, "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>")
     sb_append(sb, "<Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\">")
@@ -216,7 +247,10 @@ func content_types(footer_page: bool) -> string {
     sb_append(sb, "<Override PartName=\"/word/document.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml\"/>")
     sb_append(sb, "<Override PartName=\"/word/styles.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml\"/>")
     sb_append(sb, "<Override PartName=\"/word/numbering.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml\"/>")
-    if footer_page {
+    if has_header {
+        sb_append(sb, "<Override PartName=\"/word/header1.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml\"/>")
+    }
+    if has_footer {
         sb_append(sb, "<Override PartName=\"/word/footer1.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml\"/>")
     }
     sb_append(sb, "</Types>")
@@ -233,15 +267,18 @@ func root_rels() -> string {
     return sb_build(sb)
 }
 
-// word/_rels/document.xml.rels：主文档 → 样式/编号/页脚。
-func doc_rels(footer_page: bool) -> string {
+// word/_rels/document.xml.rels：主文档 → 样式/编号/页脚/页眉。
+func doc_rels(has_header: bool, has_footer: bool) -> string {
     var sb = string_builder()
     sb_append(sb, "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>")
     sb_append(sb, "<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">")
     sb_append(sb, "<Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles\" Target=\"styles.xml\"/>")
     sb_append(sb, "<Relationship Id=\"rId2\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/numbering\" Target=\"numbering.xml\"/>")
-    if footer_page {
+    if has_footer {
         sb_append(sb, "<Relationship Id=\"rId3\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/footer\" Target=\"footer1.xml\"/>")
+    }
+    if has_header {
+        sb_append(sb, "<Relationship Id=\"rId4\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/header\" Target=\"header1.xml\"/>")
     }
     sb_append(sb, "</Relationships>")
     return sb_build(sb)
@@ -313,17 +350,6 @@ func num_lvl(ilvl: i64, fmt: string, lvl_text: string) -> string {
     return "<w:lvl w:ilvl=\"" + i2s(ilvl) + "\"><w:start w:val=\"1\"/>" +
         "<w:numFmt w:val=\"" + fmt + "\"/><w:lvlText w:val=\"" + lvl_text + "\"/>" +
         "<w:lvlJc w:val=\"left\"/></w:lvl>"
-}
-
-// word/footer1.xml：居中 PAGE 域页脚。
-func footer_xml() -> string {
-    var sb = string_builder()
-    sb_append(sb, "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>")
-    sb_append(sb, "<w:ftr xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\">")
-    sb_append(sb, "<w:p><w:pPr><w:jc w:val=\"center\"/></w:pPr>")
-    sb_append(sb, dx.page_field())
-    sb_append(sb, "</w:p></w:ftr>")
-    return sb_build(sb)
 }
 
 // ---- 二进制小端写入 ----

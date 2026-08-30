@@ -83,6 +83,8 @@ func main() {
 | `numbers`    | `numbers(txts: table<string>, level: i64) -> string`                          | 整组有序列表（多行拼接）                 |
 | `page_break` | `page_break() -> string`                                                      | 分页符段落 `<w:br w:type="page"/>`  |
 | `page_field` | `page_field() -> string`                                                      | 页码域 run 序列（PAGE，入页眉/页脚）        |
+| `header_para`| `header_para(children: table<string>) -> string`                              | 页眉部件内容 `<w:hdr>`（供 ooxml 装配）    |
+| `footer_para`| `footer_para(children: table<string>) -> string`                              | 页脚部件内容 `<w:ftr>`                |
 | `para_center`| `para_center(children: table<string>) -> string`                              | 居中段落（如页脚页码）                   |
 | `para_right` | `para_right(children: table<string>) -> string`                               | 右对齐段落                         |
 | `sect_a4`    | `sect_a4() -> string`                                                         | 节属性：A4 纵向 + 常用边距              |
@@ -152,11 +154,17 @@ func main() {
 | `crc32`     | `crc32(s: string) -> i64`                                                   | PKZIP 标准 CRC32（查表法，二进制安全）             |
 | `zip_store` | `zip_store(names: table<string>, datas: table<string>) -> string`         | 最小 ZIP 容器（store 不压缩；本地头+中央目录+EOCD）   |
 | `docx_parts`| `docx_parts(body_xml: string, footer_page: bool) -> (names, datas: table<string>)` | 装配全部 OOXML 部件（styles/numbering/可选页脚）  |
+| `docx_parts_hbf` | `docx_parts_hbf(body_xml, header_xml, footer_xml: string) -> (names, datas: table<string>)` | 装配含页眉/页脚的部件（header1/footer1 按需）   |
 | `write_docx`| `write_docx(path: string, body_xml: string, footer_page: bool) -> bool`   | 正文 XML → 真实 .docx 文件（字节表写入，二进制安全）    |
+| `write_docx_hbf` | `write_docx_hbf(path, body_xml, header_xml, footer_xml: string) -> bool` | 正文 + 页眉/页脚部件 → .docx 文件             |
 
 > 正文约定：`body_xml` 为 `<w:body>` 内部内容块拼接（段落/表格/列表等），**不含**
-> `<w:sectPr>`——装配器统一追加 A4 页设置，`footer_page=true` 时注入居中页码
-> （word/footer1.xml + `w:footerReference`）。
+> 末尾 `<w:sectPr>`——装配器统一追加末节（A4 或带页眉/页脚引用）；正文中插
+> `dx.sect_page(...)` 即产生分节（Word 自动换新页）。
+>
+> `header_xml`/`footer_xml` 由 `dx.header_para([...])` / `dx.footer_para([...])` 生成；
+> 传空串则不带对应部件。`footer_page=true` 等价于默认居中页码页脚
+> （`footer_para([page_field()])`）。
 >
 > `zip_store` 使用 store 方法（不压缩），Office/解压工具均兼容；写盘用底座
 > `byte_write`（`file_write` 按 C 字符串在首个 NUL 截断，**不可用于二进制**）。
