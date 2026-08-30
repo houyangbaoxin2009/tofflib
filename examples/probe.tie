@@ -58,12 +58,44 @@ func main() {
     var rows = [r1, r2]
     var txml = dx.tbl(rows, h, 100)
     check("dx.tbl-width", has(txml, "<w:tblW w:w=\"100\""), "true")
-    check("dx.tbl-border", has(txml, "<w:tblBorders/>"), "true")
+    check("dx.tbl-border", has(txml, "<w:tblBorders><w:top w:val=\"single\" w:sz=\"4\" w:space=\"0\" w:color=\"auto\"/>"), "true")
     check("dx.tbl-boldheader", has(txml, "<w:b/>"), "true")
     var empty_h = table_new_string()
     var tplain = dx.tbl(rows, empty_h, 0)
     check("dx.tbl-defaultwidth", has(tplain, "<w:tblW w:w=\"9360\""), "true")
     check("dx.tbl-nobold", has(tplain, "<w:b/>"), "false")
+
+    // ---- docx blocks（t3 扩展）----
+    check("dx.heading", dx.heading("章标题", 1),
+        "<w:p><w:pPr><w:pStyle w:val=\"Heading1\"/></w:pPr><w:r><w:t xml:space=\"preserve\">章标题</w:t></w:r></w:p>")
+    check("dx.heading-clamp", has(dx.heading("x", 15), "w:val=\"Heading9\""), "true")
+    check("dx.bullet", dx.bullet("事项", 0),
+        "<w:p><w:pPr><w:numPr><w:ilvl w:val=\"0\"/><w:numId w:val=\"1\"/></w:numPr></w:pPr><w:r><w:t xml:space=\"preserve\">事项</w:t></w:r></w:p>")
+    check("dx.number", dx.number("第一", 0),
+        "<w:p><w:pPr><w:numPr><w:ilvl w:val=\"0\"/><w:numId w:val=\"2\"/></w:numPr></w:pPr><w:r><w:t xml:space=\"preserve\">第一</w:t></w:r></w:p>")
+    var litems = table_new_string()
+    table_push(litems, "a")
+    table_push(litems, "b")
+    check("dx.bullets", dx.bullets(litems, 1),
+        "<w:p><w:pPr><w:numPr><w:ilvl w:val=\"1\"/><w:numId w:val=\"1\"/></w:numPr></w:pPr><w:r><w:t xml:space=\"preserve\">a</w:t></w:r></w:p>" +
+        "<w:p><w:pPr><w:numPr><w:ilvl w:val=\"1\"/><w:numId w:val=\"1\"/></w:numPr></w:pPr><w:r><w:t xml:space=\"preserve\">b</w:t></w:r></w:p>")
+    check("dx.numbers", dx.numbers(litems, 0),
+        "<w:p><w:pPr><w:numPr><w:ilvl w:val=\"0\"/><w:numId w:val=\"2\"/></w:numPr></w:pPr><w:r><w:t xml:space=\"preserve\">a</w:t></w:r></w:p>" +
+        "<w:p><w:pPr><w:numPr><w:ilvl w:val=\"0\"/><w:numId w:val=\"2\"/></w:numPr></w:pPr><w:r><w:t xml:space=\"preserve\">b</w:t></w:r></w:p>")
+    check("dx.page_break", dx.page_break(), "<w:p><w:r><w:br w:type=\"page\"/></w:r></w:p>")
+    check("dx.page_field", dx.page_field(),
+        "<w:r><w:fldChar w:fldCharType=\"begin\"/></w:r><w:r><w:instrText xml:space=\"preserve\"> PAGE </w:instrText></w:r><w:r><w:fldChar w:fldCharType=\"end\"/></w:r>")
+    var pf = table_new_string()
+    table_push(pf, dx.page_field())
+    check("dx.para_center", dx.para_center(pf),
+        "<w:p><w:pPr><w:jc w:val=\"center\"/></w:pPr>" +
+        "<w:r><w:fldChar w:fldCharType=\"begin\"/></w:r><w:r><w:instrText xml:space=\"preserve\"> PAGE </w:instrText></w:r><w:r><w:fldChar w:fldCharType=\"end\"/></w:r></w:p>")
+    check("dx.para_right", has(dx.para_right(pf), "w:jc w:val=\"right\""), "true")
+    check("dx.sect_a4", dx.sect_a4(),
+        "<w:sectPr><w:pgSz w:w=\"11906\" w:h=\"16838\"/><w:pgMar w:top=\"1440\" w:right=\"1800\" w:bottom=\"1440\" w:left=\"1800\" w:header=\"720\" w:footer=\"720\" w:gutter=\"0\"/></w:sectPr>")
+    check("dx.sect_page-default", has(dx.sect_page(0, 0, 1, 2, 3, 4), "w:pgSz w:w=\"11906\" w:h=\"16838\""), "true")
+    check("dx.tbl_borders-red",
+        has(dx.tbl_borders(8, "FF0000"), "<w:top w:val=\"single\" w:sz=\"8\" w:space=\"0\" w:color=\"FF0000\"/>"), "true")
 
     // ================= omml：全部 10 个 pub 接口 =================
     check("mm.escape", mm.escape("a&b<c"), "a&amp;b&lt;c")

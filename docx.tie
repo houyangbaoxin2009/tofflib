@@ -6,7 +6,11 @@ type tie<class>
 // word/document.xml：
 //   - 文档根骨架：root_open() / root_close() 包裹 <w:document><w:body>…
 //   - 段落：paragraph() / paragraph_runs()（含 run 属性 run() / run_font()）
-//   - 表格：table() 由嵌套字符串表组装 <w:tbl>/<w:tr>/<w:tc>
+//   - 标题/列表：heading()（Heading1..9）、bullet() / number()（编号项+整组便捷）
+//   - 分页/页码：page_break()、page_field()（PAGE 域，入页眉/页脚）+ para_center()
+//   - 页面设置：sect_page() / sect_a4()（页宽高+边距，twips）
+//   - 表格：tbl() 由嵌套字符串表组装 <w:tbl>/<w:tr>/<w:tc>，默认全单线边框
+//     tbl_borders() 可自定义线宽/颜色
 //   - 文本净化：escape() 转义 & < > 等 XML 特殊字符
 //
 // 命名空间：http://schemas.openxmlformats.org/wordprocessingml/2006/main（w:）
@@ -119,6 +123,176 @@ pub func root_close() -> string {
     return "</w:body></w:document>"
 }
 
+// ---- 标题 ----
+
+// 标题段落：引用内置样式 Heading1..Heading9（level 1..9，越界回钳到 1/9）。
+pub func heading(txt: string, level: i64) -> string {
+    var lv: i64 = level
+    if lv < 1 {
+        lv = 1
+    }
+    if lv > 9 {
+        lv = 9
+    }
+    return "<w:p><w:pPr><w:pStyle w:val=\"Heading" + i2s(lv) + "\"/></w:pPr>" + run(txt) + "</w:p>"
+}
+
+// ---- 列表 ----
+
+// 无序列表项：numPr 引用 numId=1（bullet 编号定义在 numbering.xml，由打包装配器提供）。
+pub func bullet(txt: string, level: i64) -> string {
+    return list_item(txt, level, 1)
+}
+
+// 有序列表项：numPr 引用 numId=2（decimal 编号定义，同上）。
+pub func number(txt: string, level: i64) -> string {
+    return list_item(txt, level, 2)
+}
+
+// 整组无序列表（多行拼接，同 level）。
+pub func bullets(txts: table<string>, level: i64) -> string {
+    var sb = string_builder()
+    var i: i64 = 0
+    while i < len(txts) {
+        sb_append(sb, list_item(txts[i], level, 1))
+        i = i + 1
+    }
+    return sb_build(sb)
+}
+
+// 整组有序列表（多行拼接，同 level）。
+pub func numbers(txts: table<string>, level: i64) -> string {
+    var sb = string_builder()
+    var i: i64 = 0
+    while i < len(txts) {
+        sb_append(sb, list_item(txts[i], level, 2))
+        i = i + 1
+    }
+    return sb_build(sb)
+}
+
+// ---- 分页 / 页码 ----
+
+// 分页符：独立段落内的 <w:br w:type="page"/>。
+pub func page_break() -> string {
+    return "<w:p><w:r><w:br w:type=\"page\"/></w:r></w:p>"
+}
+
+// 页码域 run 序列（PAGE 域，须放入页眉/页脚段落中才渲染出页码）。
+pub func page_field() -> string {
+    return "<w:r><w:fldChar w:fldCharType=\"begin\"/></w:r>" +
+        "<w:r><w:instrText xml:space=\"preserve\"> PAGE </w:instrText></w:r>" +
+        "<w:r><w:fldChar w:fldCharType=\"end\"/></w:r>"
+}
+
+// ---- 段落对齐 ----
+
+// 居中对齐段落：children 为已组装的 run/结构片段（如页码域）。
+pub func para_center(children: table<string>) -> string {
+    return para_align(children, "center")
+}
+
+// 右对齐段落。
+pub func para_right(children: table<string>) -> string {
+    return para_align(children, "right")
+}
+
+// ---- 页面设置 ----
+
+// 节属性：A4 纵向 + 常用边距（1cm≈567 twips）。
+pub func sect_a4() -> string {
+    return sect_page(11906, 16838, 1440, 1800, 1440, 1800)
+}
+
+// 节属性：自定义页面宽高与上下左右边距（单位 twips；宽高为 0 时回退 A4 默认）。
+pub func sect_page(pg_w_twips: i64, pg_h_twips: i64, margin_top: i64, margin_right: i64, margin_bottom: i64, margin_left: i64) -> string {
+    var w: i64 = pg_w_twips
+    var h: i64 = pg_h_twips
+    if w <= 0 {
+        w = 11906
+    }
+    if h <= 0 {
+        h = 16838
+    }
+    var sb = string_builder()
+    sb_append(sb, "<w:sectPr>")
+    sb_append(sb, "<w:pgSz w:w=\"")
+    sb_append(sb, i2s(w))
+    sb_append(sb, "\" w:h=\"")
+    sb_append(sb, i2s(h))
+    sb_append(sb, "\"/>")
+    sb_append(sb, "<w:pgMar w:top=\"")
+    sb_append(sb, i2s(margin_top))
+    sb_append(sb, "\" w:right=\"")
+    sb_append(sb, i2s(margin_right))
+    sb_append(sb, "\" w:bottom=\"")
+    sb_append(sb, i2s(margin_bottom))
+    sb_append(sb, "\" w:left=\"")
+    sb_append(sb, i2s(margin_left))
+    sb_append(sb, "\" w:header=\"720\" w:footer=\"720\" w:gutter=\"0\"/>")
+    sb_append(sb, "</w:sectPr>")
+    return sb_build(sb)
+}
+
+// ---- 表格 ----
+
+// 通用列表项：ilvl 为嵌套层级，num_id 引用 numbering.xml 中的编号定义 id。
+func list_item(txt: string, level: i64, num_id: i64) -> string {
+    var lv: i64 = level
+    if lv < 0 {
+        lv = 0
+    }
+    var sb = string_builder()
+    sb_append(sb, "<w:p><w:pPr><w:numPr><w:ilvl w:val=\"")
+    sb_append(sb, i2s(lv))
+    sb_append(sb, "\"/><w:numId w:val=\"")
+    sb_append(sb, i2s(num_id))
+    sb_append(sb, "\"/></w:numPr></w:pPr>")
+    sb_append(sb, run(txt))
+    sb_append(sb, "</w:p>")
+    return sb_build(sb)
+}
+
+// 按对齐值组装段落（center/right；默认 left 无 pPr）。
+func para_align(children: table<string>, align: string) -> string {
+    var sb = string_builder()
+    sb_append(sb, "<w:p><w:pPr><w:jc w:val=\"")
+    sb_append(sb, align)
+    sb_append(sb, "\"/></w:pPr>")
+    var i: i64 = 0
+    while i < len(children) {
+        sb_append(sb, children[i])
+        i = i + 1
+    }
+    sb_append(sb, "</w:p>")
+    return sb_build(sb)
+}
+
+// 表格边框定义（全部单线）：tbl() 默认 sz=4（0.5pt）/auto 色。
+pub func tbl_borders(sz: i64, color: string) -> string {
+    var s: i64 = sz
+    if s <= 0 {
+        s = 4
+    }
+    var c: string = color
+    if c == "" {
+        c = "auto"
+    }
+    return "<w:tblBorders>" +
+        border_side("top", s, c) +
+        border_side("left", s, c) +
+        border_side("bottom", s, c) +
+        border_side("right", s, c) +
+        border_side("insideH", s, c) +
+        border_side("insideV", s, c) +
+        "</w:tblBorders>"
+}
+
+// 单条边框（side 为 top/left/bottom/right/insideH/insideV）。
+func border_side(side: string, s: i64, c: string) -> string {
+    return "<w:" + side + " w:val=\"single\" w:sz=\"" + i2s(s) + "\" w:space=\"0\" w:color=\"" + c + "\"/>"
+}
+
 // 组装表格 XML：rows 为二维字符串表（行内列）。
 // 结构：<w:tbl><w:tblPr><w:tblW …/><w:tblBorders/></w:tblPr>
 //       <w:tr><w:tc><w:p>…</w:p></w:tc></w:tr>…
@@ -134,7 +308,7 @@ pub func tbl(rows: table<table<string>>, header: table<string>, col_width_twips:
     sb_append(sb, "<w:tblW w:w=\"")
     sb_append(sb, i2s(w))
     sb_append(sb, "\" w:type=\"dxa\"/>")
-    sb_append(sb, "<w:tblBorders/>")
+    sb_append(sb, tbl_borders(4, "auto"))
     sb_append(sb, "</w:tblPr>")
     if len(header) > 0 {
         table_append_row(sb, header, true)

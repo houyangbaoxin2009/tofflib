@@ -63,16 +63,28 @@ func main() {
 
 ### docx（`docx.tie`）
 
-| 函数                    | 签名                                                                            | 说明                          |
-| --------------------- | ----------------------------------------------------------------------------- | --------------------------- |
-| `escape`              | `escape(txt: string) -> string`                                                | XML 转义 `&` `<` `>`            |
-| `run`                 | `run(txt: string) -> string`                                                   | 单个文本 run `<w:r><w:t>`        |
-| `run_font`            | `run_font(txt, font: string, size_half_points: i64, bold: bool) -> string`      | 带格式 run（字体/字号/加粗）回用            |
-| `paragraph`           | `paragraph(txt: string) -> string`                                             | 单 run 段落 `<w:p>`              |
-| `paragraph_runs`      | `paragraph_runs(runs_table: table<string>) -> string`                         | 多 run 组装一个段落                 |
-| `root_open`           | `root_open() -> string`                                                        | 文档根打开（`<w:document><w:body>`） |
-| `root_close`          | `root_close() -> string`                                                       | 文档根关闭                        |
-| `tbl`                 | `tbl(rows: table<table<string>>, header: table<string>, col_width_twips: i64) -> string` | 组装表格，可选加粗表头               |
+| 函数            | 签名                                                                            | 说明                          |
+| ------------ | ----------------------------------------------------------------------------- | --------------------------- |
+| `escape`     | `escape(txt: string) -> string`                                                | XML 转义 `&` `<` `>`            |
+| `run`        | `run(txt: string) -> string`                                                   | 单个文本 run `<w:r><w:t>`        |
+| `run_font`   | `run_font(txt, font: string, size_half_points: i64, bold: bool) -> string`      | 带格式 run（字体/字号/加粗）回用            |
+| `paragraph`  | `paragraph(txt: string) -> string`                                             | 单 run 段落 `<w:p>`              |
+| `paragraph_runs` | `paragraph_runs(runs_table: table<string>) -> string`                         | 多 run 组装一个段落                 |
+| `heading`    | `heading(txt: string, level: i64) -> string`                                  | 标题段落（引用内置样式 Heading1..9）       |
+| `bullet`     | `bullet(txt: string, level: i64) -> string`                                   | 无序列表项（numId=1，ilvl 层级）        |
+| `number`     | `number(txt: string, level: i64) -> string`                                   | 有序列表项（numId=2）               |
+| `bullets`    | `bullets(txts: table<string>, level: i64) -> string`                          | 整组无序列表（多行拼接）                 |
+| `numbers`    | `numbers(txts: table<string>, level: i64) -> string`                          | 整组有序列表（多行拼接）                 |
+| `page_break` | `page_break() -> string`                                                      | 分页符段落 `<w:br w:type="page"/>`  |
+| `page_field` | `page_field() -> string`                                                      | 页码域 run 序列（PAGE，入页眉/页脚）        |
+| `para_center`| `para_center(children: table<string>) -> string`                              | 居中段落（如页脚页码）                   |
+| `para_right` | `para_right(children: table<string>) -> string`                               | 右对齐段落                         |
+| `sect_a4`    | `sect_a4() -> string`                                                         | 节属性：A4 纵向 + 常用边距              |
+| `sect_page`  | `sect_page(pg_w_twips, pg_h_twips, top, right, bottom, left: i64) -> string`  | 自定义页面宽高与边距（twips）            |
+| `tbl`        | `tbl(rows: table<table<string>>, header: table<string>, col_width_twips: i64) -> string` | 组装表格（默认全单线边框 + 可加粗表头）   |
+| `tbl_borders`| `tbl_borders(sz: i64, color: string) -> string`                               | 自定义表格边框（线宽/颜色）               |
+| `root_open`  | `root_open() -> string`                                                       | 文档根打开（`<w:document><w:body>`） |
+| `root_close` | `root_close() -> string`                                                      | 文档根关闭                        |
 
 ### omml（`omml.tie`）
 
