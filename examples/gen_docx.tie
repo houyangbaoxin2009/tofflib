@@ -35,7 +35,7 @@ func main() {
         dx.bullets(["写文档", "跑测试", "打包验证"], 0) +
         dx.numbers(["第一步", "第二步", "第三步"], 0) +
         demo_table() +
-        dx.para_ex([dx.link("tie 语言官网", "https://github.com/tie-lang", "打开 tie-lang")], "", 120, 0, 0) +
+        dx.link("tie 语言官网", "https://github.com/tie-lang", "打开 tie-lang") +
         dx.sect_page(0, 0, 1440, 1800, 1440, 1800) +
         dx.heading("第二页", 2) +
         dx.paragraph("新节由 sect_page() 分段；页眉/页脚作用于全文，目录在 Word 中右键更新。")

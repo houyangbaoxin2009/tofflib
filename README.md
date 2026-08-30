@@ -66,6 +66,24 @@ func main() {
 
 > 注意：`paragraph(txt)` 接收的是**纯文本**（内部自动 run + 转义）；要插入已组装的
 > 格式 run，用 `paragraph_runs([...])`，不要把 `run_font(...)` 的输出再塞进 `paragraph()`。
+> `link()`/`page_break()` 等返回**完整段落**的块，不可再包进 `para_ex()`/`para_center()`
+> （否则出现 `<w:p><w:p>` 嵌套，Word 拒绝打开）。
+
+## 真机验证（Microsoft Office COM）
+
+用本机 Office（Word/Excel COM）打开了 tofflib 生成的真实文件：
+
+| 文件 | 来源 | Word | Excel |
+| ---- | ---- | ---- | ----- |
+| `demo.docx`（目录/高级表格/链接/分节/页眉页码） | `gen_docx.tie` | ✅ 21 段/1 表 | - |
+| `demo_report.docx` / `.xlsx` | `gen_report.tie`（tdoc 渲染） | ✅ | ✅ 单元格值逐行命中 |
+| `demo_tdoc.docx` | probe（tdoc 渲染） | ✅ | - |
+
+真机验证发现并修复：① `toc()`/`caption()` 的域占位文本曾漏包 `<w:r>`
+（`<w:t>` 直接挂 `<w:p>` 下，schema 违规，Word 拒开）——现已包裹；② 示例中用
+`para_ex()` 包 `link()` 造成段落嵌套——用法已修正。
+LibreOffice 未安装（需管理员权限，UAC 未批准）；本机以 Office COM 做真机校验，
+ODF 后端落地后再装 LibreOffice 验证 ODF。
 
 ## tie 办公表达格式（tdoc）
 
