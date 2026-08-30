@@ -26,7 +26,8 @@ tofflib 的使命是把 **tie 用作办公脚本**：
 | `officeutil.tie` | `officeutil` | 日常办公：日期时间、CSV/对齐表格文本、待办清单、编号列表                | `officeutil.a` |
 | `ooxml.tie`     | `ooxml`     | 端到端 docx 打包：OOXML 包装配 + 纯 tie ZIP 写入器（store 免压缩）     | `ooxml.a`  |
 | `xlsx.tie`      | `xlsx`      | Excel 电子表格：SpreadsheetML 装配（单元格/冻结行/列宽/多 sheet）     | `xlsx.a`  |
-| `tiedoc.tie`    | `tiedoc`    | tie 办公表达格式：tdoc 角色块构建 + 渲染 docx/xlsx               | `tiedoc.a` |
+| `pptx.tie`      | `pptx`      | PowerPoint 演示：PresentationML 装配（主题/母版/布局/幻灯片/关系）    | `pptx.a`  |
+| `tiedoc.tie`    | `tiedoc`    | tie 办公表达格式：tdoc 角色块构建 + 渲染 docx/xlsx/pptx            | `tiedoc.a` |
 
 ## 快速开始
 
@@ -78,10 +79,15 @@ func main() {
 | `demo.docx`（目录/高级表格/链接/分节/页眉页码） | `gen_docx.tie` | ✅ 21 段/1 表 | - |
 | `demo_report.docx` / `.xlsx` | `gen_report.tie`（tdoc 渲染） | ✅ | ✅ 单元格值逐行命中 |
 | `demo_tdoc.docx` | probe（tdoc 渲染） | ✅ | - |
+| `demo_report.pptx` | `gen_report.tie`（tdoc 渲染） | 结构级 ✅（.NET ZipFile 解压 CRC 通过、全部部件 XML well-formed） | - |
 
 真机验证发现并修复：① `toc()`/`caption()` 的域占位文本曾漏包 `<w:r>`
 （`<w:t>` 直接挂 `<w:p>` 下，schema 违规，Word 拒开）——现已包裹；② 示例中用
 `para_ex()` 包 `link()` 造成段落嵌套——用法已修正。
+pptx 说明：PowerPoint COM 打开仍报 `0x80070570`（文件损坏），微软 PowerPoint
+对 PresentationML 包要求严格；本机环境以结构校验（ZipFile + XML well-formed）为准，
+**待 LibreOffice 真机复核**（ODF 后端落地后一起验证）。docx/xlsx 已通过微软
+Office COM 真机验证。
 LibreOffice 未安装（需管理员权限，UAC 未批准）；本机以 Office COM 做真机校验，
 ODF 后端落地后再装 LibreOffice 验证 ODF。
 
@@ -117,6 +123,7 @@ namespace report {
 - **渲染**（`tiedoc` 命名空间）：
   - `render_docx(path, title, blocks)` → Word
   - `render_xlsx(path, title, blocks)` → Excel（title + tbl 展开为 sheet）
+  - `render_pptx(path, deck_title, blocks)` → PowerPoint（封面 + h 开页/要点/表格行）
   - `csv_split(line)` → 解析 CSV（RFC 4180 子集，供表格块）
 - **入口示例**：`examples/gen_report.tie` —— `report.blocks() → demo_report.docx/.xlsx`
 

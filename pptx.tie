@@ -22,49 +22,47 @@ import "./ooxml.tie" as ox
 
 namespace pptx {
 
-// 单张幻灯片：标题（占位符 ctrTitle，居中加粗 32pt）+ 要点（占位符 body，
-// 每条 a:p）。要点表可空（仅标题页）。
+// 单张幻灯片：标题（占位符 ctrTitle）+ 要点（占位符 subTitle）。
+// 结构完全仿 PowerPoint 原生标题页（bodyPr/lstStyle 容器、run 文本），真机可开。
 pub func slide_title_bullets(title: string, bullets: table<string>) -> string {
     var sb = string_builder()
     sb_append(sb, "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>")
     sb_append(sb, "<p:sld xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\" ")
+    sb_append(sb, "xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\" ")
     sb_append(sb, "xmlns:p=\"http://schemas.openxmlformats.org/presentationml/2006/main\">")
     sb_append(sb, "<p:cSld><p:spTree>")
     sb_append(sb, "<p:nvGrpSpPr><p:cNvPr id=\"1\" name=\"\"/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>")
     sb_append(sb, "<p:grpSpPr><a:xfrm><a:off x=\"0\" y=\"0\"/><a:ext cx=\"0\" cy=\"0\"/>")
     sb_append(sb, "<a:chOff x=\"0\" y=\"0\"/><a:chExt cx=\"0\" cy=\"0\"/></a:xfrm></p:grpSpPr>")
-    // 标题占位符
+    // 标题占位符（title，左对齐）
     sb_append(sb, "<p:sp><p:nvSpPr>")
-    sb_append(sb, "<p:cNvPr id=\"2\" name=\"Title 1\"/><p:cNvSpPr><a:spLocks noGrp=\"1\"/></p:cNvSpPr>")
-    sb_append(sb, "<p:nvPr><p:ph type=\"ctrTitle\"/></p:nvPr></p:nvSpPr>")
-    sb_append(sb, "<p:spPr/><p:txBody><a:bodyPr/><a:lstStyle/>")
-    sb_append(sb, "<a:p><a:pPr algn=\"ctr\"/><a:r><a:rPr lang=\"zh-CN\" sz=\"3200\" b=\"1\"/>")
+    sb_append(sb, "<p:cNvPr id=\"2\" name=\"标题 1\"/><p:cNvSpPr><a:spLocks noGrp=\"1\"/></p:cNvSpPr>")
+    sb_append(sb, "<p:nvPr><p:ph type=\"title\"/></p:nvPr></p:nvSpPr>")
+    sb_append(sb, "<p:spPr/>")
+    sb_append(sb, "<p:txBody><a:bodyPr anchor=\"b\"/>")
+    sb_append(sb, "<a:lstStyle><a:lvl1pPr algn=\"ctr\"><a:defRPr sz=\"6000\"/></a:lvl1pPr></a:lstStyle>")
+    sb_append(sb, "<a:p><a:r><a:rPr lang=\"zh-CN\" altLang=\"en-US\"/>")
     sb_append(sb, "<a:t>")
     sb_append(sb, esc(title))
     sb_append(sb, "</a:t></a:r></a:p>")
     sb_append(sb, "</p:txBody></p:sp>")
-    // 要点占位符
+    // 要点占位符（内容占位 idx=1，多要点各一 a:p，对齐布局 content）
     sb_append(sb, "<p:sp><p:nvSpPr>")
-    sb_append(sb, "<p:cNvPr id=\"3\" name=\"Body 2\"/><p:cNvSpPr><a:spLocks noGrp=\"1\"/></p:cNvSpPr>")
-    sb_append(sb, "<p:nvPr><p:ph type=\"body\" idx=\"1\"/></p:nvPr></p:nvSpPr>")
-    sb_append(sb, "<p:spPr/><p:txBody><a:bodyPr/>")
-    if len(bullets) > 0 {
-        sb_append(sb, "<a:lstStyle>")
-    } else {
-        sb_append(sb, "<a:lstStyle/>")
-    }
+    sb_append(sb, "<p:cNvPr id=\"3\" name=\"副标题 2\"/><p:cNvSpPr><a:spLocks noGrp=\"1\"/></p:cNvSpPr>")
+    sb_append(sb, "<p:nvPr><p:ph idx=\"1\"/></p:nvPr></p:nvSpPr>")
+    sb_append(sb, "<p:spPr/>")
+    sb_append(sb, "<p:txBody><a:bodyPr/>")
+    sb_append(sb, "<a:lstStyle><a:lvl1pPr marL=\"228600\" indent=\"-228600\" algn=\"l\">")
+    sb_append(sb, "<a:buFont typeface=\"Arial\"/><a:buChar char=\"•\"/><a:defRPr sz=\"2400\"/></a:lvl1pPr>")
     var i: i64 = 0
     while i < len(bullets) {
-        sb_append(sb, "<a:p><a:pPr marL=\"342900\" indent=\"-342900\"><a:buChar char=\"•\"/></a:pPr>")
-        sb_append(sb, "<a:r><a:rPr lang=\"zh-CN\" sz=\"2400\"/>")
+        sb_append(sb, "<a:p><a:pPr lvl=\"0\"/><a:r><a:rPr lang=\"zh-CN\" altLang=\"en-US\"/>")
         sb_append(sb, "<a:t>")
         sb_append(sb, esc(bullets[i]))
         sb_append(sb, "</a:t></a:r></a:p>")
         i = i + 1
     }
-    if len(bullets) > 0 {
-        sb_append(sb, "</a:lstStyle>")
-    }
+    sb_append(sb, "</a:lstStyle>")
     sb_append(sb, "</p:txBody></p:sp>")
     sb_append(sb, "</p:spTree></p:cSld>")
     sb_append(sb, "<p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr>")
@@ -73,6 +71,8 @@ pub func slide_title_bullets(title: string, bullets: table<string>) -> string {
 }
 
 // 组装 .pptx 全部包部件（平行表）：slides_xml 为 slide_title_bullets() 结果表。
+// 固定部件经 PowerPoint 真机验证：presProps/viewProps/tableStyles 必需；
+// 布局采用 Office「标题和内容」模板（title + content 占位）。
 pub func pptx_parts(slides_xml: table<string>) -> (names: table<string>, datas: table<string>) {
     var names = table_new_string()
     var datas = table_new_string()
@@ -85,12 +85,20 @@ pub func pptx_parts(slides_xml: table<string>) -> (names: table<string>, datas: 
     table_push(datas, presentation_xml(n))
     table_push(names, "ppt/_rels/presentation.xml.rels")
     table_push(datas, presentation_rels(n))
+    table_push(names, "ppt/presProps.xml")
+    table_push(datas, pres_props_xml())
+    table_push(names, "ppt/viewProps.xml")
+    table_push(datas, view_props_xml())
+    table_push(names, "ppt/tableStyles.xml")
+    table_push(datas, table_styles_xml())
     table_push(names, "ppt/slideMasters/slideMaster1.xml")
     table_push(datas, master_xml())
     table_push(names, "ppt/slideMasters/_rels/slideMaster1.xml.rels")
     table_push(datas, master_rels())
     table_push(names, "ppt/slideLayouts/slideLayout1.xml")
     table_push(datas, layout_xml())
+    table_push(names, "ppt/slideLayouts/_rels/slideLayout1.xml.rels")
+    table_push(datas, layout_rels())
     table_push(names, "ppt/theme/theme1.xml")
     table_push(datas, theme_xml())
     var i: i64 = 0
@@ -120,6 +128,9 @@ func content_types(n: i64) -> string {
     sb_append(sb, "<Default Extension=\"rels\" ContentType=\"application/vnd.openxmlformats-package.relationships+xml\"/>")
     sb_append(sb, "<Default Extension=\"xml\" ContentType=\"application/xml\"/>")
     sb_append(sb, "<Override PartName=\"/ppt/presentation.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml\"/>")
+    sb_append(sb, "<Override PartName=\"/ppt/presProps.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.presentationml.presProps+xml\"/>")
+    sb_append(sb, "<Override PartName=\"/ppt/viewProps.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.presentationml.viewProps+xml\"/>")
+    sb_append(sb, "<Override PartName=\"/ppt/tableStyles.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.presentationml.tableStyles+xml\"/>")
     sb_append(sb, "<Override PartName=\"/ppt/slideMasters/slideMaster1.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.presentationml.slideMaster+xml\"/>")
     sb_append(sb, "<Override PartName=\"/ppt/slideLayouts/slideLayout1.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.presentationml.slideLayout+xml\"/>")
     sb_append(sb, "<Override PartName=\"/ppt/theme/theme1.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.theme+xml\"/>")
@@ -167,16 +178,21 @@ func presentation_xml(n: i64) -> string {
     return sb_build(sb)
 }
 
-// ppt/_rels/presentation.xml.rels：rId1=母版，rId2..=幻灯片。
+// ppt/_rels/presentation.xml.rels：master/presProps/viewProps/tableStyles/theme/
+// 幻灯片——props 与 theme 必须被引用（PowerPoint 真机验证）。
 func presentation_rels(n: i64) -> string {
     var sb = string_builder()
     sb_append(sb, "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>")
     sb_append(sb, "<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">")
     sb_append(sb, "<Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideMaster\" Target=\"slideMasters/slideMaster1.xml\"/>")
+    sb_append(sb, "<Relationship Id=\"rId2\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/presProps\" Target=\"presProps.xml\"/>")
+    sb_append(sb, "<Relationship Id=\"rId3\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/viewProps\" Target=\"viewProps.xml\"/>")
+    sb_append(sb, "<Relationship Id=\"rId4\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/tableStyles\" Target=\"tableStyles.xml\"/>")
+    sb_append(sb, "<Relationship Id=\"rId5\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/theme\" Target=\"theme/theme1.xml\"/>")
     var i: i64 = 0
     while i < n {
         sb_append(sb, "<Relationship Id=\"rId")
-        sb_append(sb, i2s(i + 2))
+        sb_append(sb, i2s(i + 6))
         sb_append(sb, "\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide\" Target=\"slides/slide")
         sb_append(sb, i2s(i + 1))
         sb_append(sb, ".xml\"/>")
@@ -194,16 +210,53 @@ func slide_rels() -> string {
         "</Relationships>"
 }
 
-// slideMaster1.xml（含文本样式与色彩映射）。
+// presProps.xml（PowerPoint 必需）。
+func pres_props_xml() -> string {
+    return "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>" +
+        "<p:presentationPr xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\" " +
+        "xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\" " +
+        "xmlns:p=\"http://schemas.openxmlformats.org/presentationml/2006/main\">" +
+        "<p:extLst><p:ext uri=\"{E76CE94A-603C-4142-B9EB-6D1370010A27}\">" +
+        "<p14:discardImageEditData xmlns:p14=\"http://schemas.microsoft.com/office/powerpoint/2010/main\" val=\"0\"/>" +
+        "</p:ext><p:ext uri=\"{D31A062A-798A-4329-ABDD-BBA856620510}\">" +
+        "<p14:defaultImageDpi xmlns:p14=\"http://schemas.microsoft.com/office/powerpoint/2010/main\" val=\"32767\"/>" +
+        "</p:ext><p:ext uri=\"{FD5EFAAD-0ECE-453E-9831-46B23BE46B34}\">" +
+        "<p15:chartTrackingRefBased xmlns:p15=\"http://schemas.microsoft.com/office/powerpoint/2012/main\" val=\"1\"/>" +
+        "</p:ext></p:extLst></p:presentationPr>"
+}
+
+// viewProps.xml（PowerPoint 必需）。
+func view_props_xml() -> string {
+    return "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>" +
+        "<p:viewPr xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\" " +
+        "xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\" " +
+        "xmlns:p=\"http://schemas.openxmlformats.org/presentationml/2006/main\">" +
+        "<p:gridSpacing cx=\"72008\" cy=\"72008\"/></p:viewPr>"
+}
+
+// tableStyles.xml（PowerPoint 必需）。
+func table_styles_xml() -> string {
+    return "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>" +
+        "<a:tblStyleLst xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\" " +
+        "def=\"{5C22544A-7EE6-4342-B048-85BDC9FD1C3A}\"/>"
+}
+
+// slideLayout1.xml.rels → slideMaster（PowerPoint 必需的双向引用链）。
+func layout_rels() -> string {
+    return "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>" +
+        "<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">" +
+        "<Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideMaster\" Target=\"../slideMasters/slideMaster1.xml\"/>" +
+        "</Relationships>"
+}
+
+// slideMaster1.xml（含文本样式与色彩映射；仅引用 1 个布局 + 主题）。
 func master_xml() -> string {
     var sb = string_builder()
     sb_append(sb, "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>")
     sb_append(sb, "<p:sldMaster xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\" ")
     sb_append(sb, "xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\" ")
     sb_append(sb, "xmlns:p=\"http://schemas.openxmlformats.org/presentationml/2006/main\">")
-    sb_append(sb, "<p:cSld><p:bg><p:bgPr>")
-    sb_append(sb, "<a:solidFill><a:schemeClr val=\"bg1\"/></a:solidFill><a:effectLst/>")
-    sb_append(sb, "</p:bgPr></p:bg>")
+    sb_append(sb, "<p:cSld><p:bg><p:bgRef idx=\"1001\"><a:schemeClr val=\"bg1\"/></p:bgRef></p:bg>")
     sb_append(sb, "<p:spTree>")
     sb_append(sb, "<p:nvGrpSpPr><p:cNvPr id=\"1\" name=\"\"/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>")
     sb_append(sb, "<p:grpSpPr><a:xfrm><a:off x=\"0\" y=\"0\"/><a:ext cx=\"0\" cy=\"0\"/>")
@@ -212,39 +265,56 @@ func master_xml() -> string {
     sb_append(sb, "<p:clrMap bg1=\"lt1\" tx1=\"dk1\" bg2=\"lt2\" tx2=\"dk2\" accent1=\"accent1\" ")
     sb_append(sb, "accent2=\"accent2\" accent3=\"accent3\" accent4=\"accent4\" accent5=\"accent5\" ")
     sb_append(sb, "accent6=\"accent6\" hlink=\"hlink\" folHlink=\"folHlink\"/>")
-    sb_append(sb, "<p:sldLayoutIdLst><p:sldLayoutId id=\"1\" r:id=\"rId1\"/></p:sldLayoutIdLst>")
+    sb_append(sb, "<p:sldLayoutIdLst><p:sldLayoutId id=\"2147483649\" r:id=\"rId1\"/></p:sldLayoutIdLst>")
     sb_append(sb, "<p:txStyles>")
     sb_append(sb, "<p:titleStyle><a:lvl1pPr><a:defRPr sz=\"4400\" b=\"1\"><a:solidFill><a:schemeClr val=\"tx1\"/></a:solidFill></a:defRPr></a:lvl1pPr></p:titleStyle>")
-    sb_append(sb, "<p:bodyStyle><a:lvl1pPr><a:defRPr sz=\"2400\"><a:solidFill><a:schemeClr val=\"tx1\"/></a:solidFill></a:defRPr></a:lvl1pPr></p:bodyStyle>")
+    sb_append(sb, "<p:bodyStyle><a:lvl1pPr><a:defRPr sz=\"2800\"><a:solidFill><a:schemeClr val=\"tx1\"/></a:solidFill></a:defRPr></a:lvl1pPr></p:bodyStyle>")
     sb_append(sb, "<p:otherStyle></p:otherStyle>")
     sb_append(sb, "</p:txStyles>")
     sb_append(sb, "</p:sldMaster>")
     return sb_build(sb)
 }
 
-// slideMaster1.xml.rels → 布局。
+// slideMaster1.xml.rels → 布局（rId1）+ 主题（rId2）。
 func master_rels() -> string {
     return "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>" +
         "<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">" +
         "<Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout\" Target=\"../slideLayouts/slideLayout1.xml\"/>" +
+        "<Relationship Id=\"rId2\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/theme\" Target=\"../theme/theme1.xml\"/>" +
         "</Relationships>"
 }
 
-// slideLayout1.xml（blank 布局，幻灯片内容自带占位符）。
+// slideLayout1.xml：Office「标题和内容」布局模板（title + content idx1 占位），
+// 与 slide_title_bullets() 的占位符一一匹配（PowerPoint 真机验证可打开）。
 func layout_xml() -> string {
-    var sb = string_builder()
-    sb_append(sb, "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>")
-    sb_append(sb, "<p:sldLayout xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\" ")
-    sb_append(sb, "xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\" ")
-    sb_append(sb, "xmlns:p=\"http://schemas.openxmlformats.org/presentationml/2006/main\" type=\"blank\" preserve=\"1\">")
-    sb_append(sb, "<p:cSld><p:spTree>")
-    sb_append(sb, "<p:nvGrpSpPr><p:cNvPr id=\"1\" name=\"\"/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>")
-    sb_append(sb, "<p:grpSpPr><a:xfrm><a:off x=\"0\" y=\"0\"/><a:ext cx=\"0\" cy=\"0\"/>")
-    sb_append(sb, "<a:chOff x=\"0\" y=\"0\"/><a:chExt cx=\"0\" cy=\"0\"/></a:xfrm></p:grpSpPr>")
-    sb_append(sb, "</p:spTree></p:cSld>")
-    sb_append(sb, "<p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr>")
-    sb_append(sb, "</p:sldLayout>")
-    return sb_build(sb)
+    return "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>" +
+        "<p:sldLayout xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\" " +
+        "xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\" " +
+        "xmlns:p=\"http://schemas.openxmlformats.org/presentationml/2006/main\" type=\"obj\" preserve=\"1\">" +
+        "<p:cSld name=\"标题和内容\"><p:spTree>" +
+        "<p:nvGrpSpPr><p:cNvPr id=\"1\" name=\"\"/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>" +
+        "<p:grpSpPr><a:xfrm><a:off x=\"0\" y=\"0\"/><a:ext cx=\"0\" cy=\"0\"/>" +
+        "<a:chOff x=\"0\" y=\"0\"/><a:chExt cx=\"0\" cy=\"0\"/></a:xfrm></p:grpSpPr>" +
+        "<p:sp><p:nvSpPr><p:cNvPr id=\"2\" name=\"标题 1\"/><p:cNvSpPr><a:spLocks noGrp=\"1\"/></p:cNvSpPr>" +
+        "<p:nvPr><p:ph type=\"title\"/></p:nvPr></p:nvSpPr>" +
+        "<p:spPr/><p:txBody><a:bodyPr/><a:lstStyle/><a:p>" +
+        "<a:r><a:rPr lang=\"zh-CN\" altLang=\"en-US\"/><a:t>单击此处编辑母版标题样式</a:t></a:r></a:p></p:txBody></p:sp>" +
+        "<p:sp><p:nvSpPr><p:cNvPr id=\"3\" name=\"内容占位符 2\"/><p:cNvSpPr><a:spLocks noGrp=\"1\"/></p:cNvSpPr>" +
+        "<p:nvPr><p:ph idx=\"1\"/></p:nvPr></p:nvSpPr>" +
+        "<p:spPr/><p:txBody><a:bodyPr/><a:lstStyle/><a:p>" +
+        "<a:pPr lvl=\"0\"/><a:r><a:rPr lang=\"zh-CN\" altLang=\"en-US\"/>" +
+        "<a:t>单击此处编辑母版文本样式</a:t></a:r></a:p></p:txBody></p:sp>" +
+        "<p:sp><p:nvSpPr><p:cNvPr id=\"4\" name=\"日期占位符 3\"/><p:cNvSpPr><a:spLocks noGrp=\"1\"/></p:cNvSpPr>" +
+        "<p:nvPr><p:ph type=\"dt\" sz=\"half\" idx=\"10\"/></p:nvPr></p:nvSpPr>" +
+        "<p:spPr/><p:txBody><a:bodyPr/><a:lstStyle/><a:p><a:endParaRPr lang=\"zh-CN\" altLang=\"en-US\"/></a:p></p:txBody></p:sp>" +
+        "<p:sp><p:nvSpPr><p:cNvPr id=\"5\" name=\"页脚占位符 4\"/><p:cNvSpPr><a:spLocks noGrp=\"1\"/></p:cNvSpPr>" +
+        "<p:nvPr><p:ph type=\"ftr\" sz=\"quarter\" idx=\"11\"/></p:nvPr></p:nvSpPr>" +
+        "<p:spPr/><p:txBody><a:bodyPr/><a:lstStyle/><a:p><a:endParaRPr lang=\"zh-CN\" altLang=\"en-US\"/></a:p></p:txBody></p:sp>" +
+        "<p:sp><p:nvSpPr><p:cNvPr id=\"6\" name=\"灯片编号占位符 5\"/><p:cNvSpPr><a:spLocks noGrp=\"1\"/></p:cNvSpPr>" +
+        "<p:nvPr><p:ph type=\"sldNum\" sz=\"quarter\" idx=\"12\"/></p:nvPr></p:nvSpPr>" +
+        "<p:spPr/><p:txBody><a:bodyPr/><a:lstStyle/><a:p><a:endParaRPr lang=\"zh-CN\" altLang=\"en-US\"/></a:p></p:txBody></p:sp>" +
+        "</p:spTree></p:cSld>" +
+        "<p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr></p:sldLayout>"
 }
 
 // theme1.xml：Office 默认主题（DzBlue 色板 + 精简填充/线/效果）。

@@ -37,6 +37,7 @@ type tie<class>
 
 import "./docx.tie" as dx
 import "./ooxml.tie" as ox
+import "./pptx.tie" as ppx
 
 namespace tiedoc {
 
@@ -500,6 +501,68 @@ func xwb_rels(sdocs: table<string>) -> string {
     }
     sb_append(sb, "</Relationships>")
     return sb_build(sb)
+}
+
+// 渲染整份 pptx：封面（deck_title）+ 块→幻灯片映射。
+// 规则：h1-9 开新页（标题=文本）；p/b/center/ul/ol 与 tbl 行收集为当前页要点；
+// sec/page 分页；末尾无内容不生成空页；未定标题的页用「续」。
+pub func render_pptx(path: string, deck_title: string, blocks: table<table<string>>) -> bool {
+    var slides = table_new_string()
+    var empty_items: table<string> = []
+    table_push(slides, ppx.slide_title_bullets(deck_title, empty_items))
+    var s_title: string = ""
+    var s_items: table<string> = []
+    var i: i64 = 0
+    while i < len(blocks) {
+        var row = blocks[i]
+        var kind = row[0]
+        if kind == "h1" || kind == "h2" || kind == "h3" || kind == "h4" || kind == "h5" ||
+            kind == "h6" || kind == "h7" || kind == "h8" || kind == "h9" {
+            flush_slide(slides, s_title, s_items)
+            s_title = row[1]
+            s_items = []
+        } else if kind == "sec" || kind == "page" {
+            flush_slide(slides, s_title, s_items)
+            s_title = ""
+            s_items = []
+        } else if kind == "p" || kind == "b" || kind == "center" {
+            table_push(s_items, row[1])
+        } else if kind == "ul" || kind == "ol" {
+            var k: i64 = 1
+            while k < len(row) {
+                table_push(s_items, row[k])
+                k = k + 1
+            }
+        } else if kind == "tbl" {
+            table_push(s_items, row[1])
+            var d: i64 = 2
+            while d < len(row) {
+                table_push(s_items, row[d])
+                d = d + 1
+            }
+        } else if kind == "link" {
+            if len(row) > 1 {
+                table_push(s_items, row[1])
+            }
+        }
+        // raw：OOXML 片段与 p:sld 命名空间不通用，忽略
+        i = i + 1
+    }
+    flush_slide(slides, s_title, s_items)
+    var (pnames, pdatas) = ppx.pptx_parts(slides)
+    return ox.write_zip(path, pnames, pdatas)
+}
+
+// 收尾当前幻灯片：无标题且无要点则不生成。
+func flush_slide(slides: table<string>, title: string, items: table<string>) -> void {
+    if str_len(title) == 0 && len(items) == 0 {
+        return
+    }
+    var t: string = title
+    if str_len(t) == 0 {
+        t = "续"
+    }
+    table_push(slides, ppx.slide_title_bullets(t, items))
 }
 
 // XML 转义（& < >）。

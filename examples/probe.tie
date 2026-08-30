@@ -444,16 +444,17 @@ func main() {
     table_push(pl1, "买牛奶")
     table_push(pl1, "写周报")
     var pslide = ppx.slide_title_bullets("周报", pl1)
-    check("ppx.slide-title", has(pslide, "<p:ph type=\"ctrTitle\"/>"), "true")
+    check("ppx.slide-title", has(pslide, "<p:ph type=\"title\"/>"), "true")
     check("ppx.slide-text", has(pslide, "周报"), "true")
     check("ppx.slide-bullet", has(pslide, "<a:buChar char=\"•\"/>"), "true")
     check("ppx.slide-bullet2", has(pslide, "写周报"), "true")
     var psl = table_new_string()
     table_push(psl, pslide)
     var (pn1, pd1) = ppx.pptx_parts(psl)
-    check_i64("ppx.pptx_parts-count", len(pn1), 10)
-    check("ppx.pptx_parts-theme", has(pd1[7], "<a:accent1><a:srgbClr val=\"4472C4\"/>"), "true")
-    check("ppx.pptx_parts-master", has(pd1[4], "<p:sldMaster"), "true")
+    check_i64("ppx.pptx_parts-count", len(pn1), 14)
+    check("ppx.pptx_parts-theme", has(pd1[11], "<a:accent1><a:srgbClr val=\"4472C4\"/>"), "true")
+    check("ppx.pptx_parts-master", has(pd1[7], "<p:sldMaster"), "true")
+    check("ppx.pptx_parts-layoutrels", has(pd1[10], "slideMaster"), "true")
     check("ppx.pptx_parts-ct", has(pd1[0], "presentationml.slide+xml"), "true")
     var wrote_p = ppx.write_pptx("demo_out.pptx", psl)
     var exists_p: string = "false"
@@ -464,6 +465,17 @@ func main() {
     }
     check("ppx.write_pptx-exists", exists_p, "true")
     check("ppx.write_pptx-pk", file_pk("demo_out.pptx"), "true")
+
+    // ---- tiedoc → pptx 渲染（块→幻灯片映射）----
+    var rp = td.render_pptx("demo_tdoc.pptx", "标题", rblocks)
+    var exists_rp: string = "false"
+    if rp {
+        if file_exists("demo_tdoc.pptx") {
+            exists_rp = "true"
+        }
+    }
+    check("td.render_pptx-exists", exists_rp, "true")
+    check("td.render_pptx-pk", file_pk("demo_tdoc.pptx"), "true")
 
     // 打印组装出的整段 docx 文档片段，供人工核对
     println("---- 组装示例 ----")

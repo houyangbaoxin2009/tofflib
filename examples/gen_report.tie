@@ -14,7 +14,8 @@ func main() {
     var blocks = report.blocks()
     var okd = td.render_docx("demo_report.docx", report.title(), blocks)
     var okx = td.render_xlsx("demo_report.xlsx", report.title(), blocks)
-    println("render_docx=" + bool_s(okd) + " render_xlsx=" + bool_s(okx))
+    var okp = td.render_pptx("demo_report.pptx", report.title(), blocks)
+    println("render_docx=" + bool_s(okd) + " render_xlsx=" + bool_s(okx) + " render_pptx=" + bool_s(okp))
 }
 
 func bool_s(b: bool) -> string {
