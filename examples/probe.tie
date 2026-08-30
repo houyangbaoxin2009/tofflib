@@ -411,6 +411,24 @@ func main() {
     var trows: table<table<string>> = [td.h1("a"), td.p("b")]
     check_i64("td.rows-build", len(trows), 2)
 
+    // ---- tiedoc 渲染 docx（CSV 解析 + 块路由）----
+    var csv0 = td.csv_split("a,\"b,c\",d")
+    check_i64("td.csv_split-q-len", len(csv0), 3)
+    check("td.csv_split-q-1", csv0[1], "b,c")
+    check_i64("td.csv_split-basic", len(td.csv_split("x,y,z")), 3)
+    check("td.csv_split-esc", td.csv_split("\"a\"\"b\"")[0], "a\"b")
+    var rblocks: table<table<string>> = [td.h1("章一"), td.p("正文"), td.ul(["a", "b"]), td.tbl("项目,状态", ["文档,进行中"])]
+    check_i64("td.blocks-len", len(rblocks), 4)
+    var drew = td.render_docx("demo_tdoc.docx", "标题", rblocks)
+    var exists_d: string = "false"
+    if drew {
+        if file_exists("demo_tdoc.docx") {
+            exists_d = "true"
+        }
+    }
+    check("td.render_docx-exists", exists_d, "true")
+    check("td.render_docx-pk", file_pk("demo_tdoc.docx"), "true")
+
     // 打印组装出的整段 docx 文档片段，供人工核对
     println("---- 组装示例 ----")
     println(dx.root_open() + dx.paragraph("你好，tie 办公") + txml +

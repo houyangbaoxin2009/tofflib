@@ -35,6 +35,9 @@ type tie<class>
 // 命名空间：tiedoc。import "./tiedoc.tie" as td
 // ============================================================================
 
+import "./docx.tie" as dx
+import "./ooxml.tie" as ox
+
 namespace tiedoc {
 
 // 标题：level 1..9（越界钳位），对应 Heading1..9。
@@ -158,6 +161,143 @@ func i2s(v: i64) -> string {
         i = i - 1
     }
     return sb_build(sb)
+}
+
+// ---- 渲染：tdoc 块协议 → docx ----
+
+// CSV 行解析（RFC 4180 子集）：逗号分隔；字段可被双引号包围（内部 " 翻倍转义），
+// 引号包围的字段可含逗号/换行。返回字段表。
+pub func csv_split(line: string) -> table<string> {
+    var out = table_new_string()
+    var sb = string_builder()
+    var n: i64 = str_len(line)
+    var in_q = false
+    var i: i64 = 0
+    while i < n {
+        var c = str_char(line, i)
+        if in_q {
+            if c == "\"" {
+                if i + 1 < n && str_char(line, i + 1) == "\"" {
+                    sb_append(sb, "\"")
+                    i = i + 1
+                } else {
+                    in_q = false
+                }
+            } else {
+                sb_append(sb, c)
+            }
+        } else {
+            if c == "\"" {
+                in_q = true
+            } else if c == "," {
+                table_push(out, sb_build(sb))
+                sb = string_builder()
+            } else {
+                sb_append(sb, c)
+            }
+        }
+        i = i + 1
+    }
+    table_push(out, sb_build(sb))
+    return out
+}
+
+// 单块 → docx XML 片段（kind 路由）。
+func block_docx(row: table<string>) -> string {
+    var kind = row[0]
+    if kind == "h1" || kind == "h2" || kind == "h3" ||
+        kind == "h4" || kind == "h5" || kind == "h6" ||
+        kind == "h7" || kind == "h8" || kind == "h9" {
+        return dx.heading(row[1], hlvl(kind))
+    }
+    if kind == "p" {
+        return dx.paragraph(row[1])
+    }
+    if kind == "b" {
+        var rr = table_new_string()
+        table_push(rr, dx.run_font(row[1], "", 0, true))
+        return dx.paragraph_runs(rr)
+    }
+    if kind == "center" {
+        var rr = table_new_string()
+        table_push(rr, dx.run(row[1]))
+        return dx.para_center(rr)
+    }
+    if kind == "ul" {
+        return list_to_docx(row, 1)
+    }
+    if kind == "ol" {
+        return list_to_docx(row, 2)
+    }
+    if kind == "tbl" {
+        return tbl_to_docx(row)
+    }
+    if kind == "page" {
+        return dx.page_break()
+    }
+    if kind == "sec" {
+        return dx.sect_a4()
+    }
+    if kind == "link" {
+        return dx.link(row[1], row[2], "")
+    }
+    if kind == "raw" {
+        return row[1]
+    }
+    // 未知块宽容处理：按段落输出原始行文本。
+    var sb = string_builder()
+    var j: i64 = 0
+    while j < len(row) {
+        if j > 0 {
+            sb_append(sb, " ")
+        }
+        sb_append(sb, row[j])
+        j = j + 1
+    }
+    return dx.paragraph(sb_build(sb))
+}
+
+// 标题 kind "hN" → N。
+func hlvl(kind: string) -> i64 {
+    return char_code(str_char(kind, 1)) - 48
+}
+
+// 列表块：kind 已校验；num_id 1=bullet 2=decimal；从第 2 个参数起为条目。
+func list_to_docx(row: table<string>, num_id: i64) -> string {
+    var sb = string_builder()
+    var i: i64 = 1
+    while i < len(row) {
+        if num_id == 1 {
+            sb_append(sb, dx.bullet(row[i], 0))
+        } else {
+            sb_append(sb, dx.number(row[i], 0))
+        }
+        i = i + 1
+    }
+    return sb_build(sb)
+}
+
+// 表格块：row[1] 表头 CSV，row[2..] 数据行 CSV → dx.tbl。
+func tbl_to_docx(row: table<string>) -> string {
+    var header = csv_split(row[1])
+    var rows2: table<table<string>> = []
+    var i: i64 = 2
+    while i < len(row) {
+        table_push(rows2, csv_split(row[i]))
+        i = i + 1
+    }
+    return dx.tbl(rows2, header, 5000)
+}
+
+// 渲染整份 docx：title 作为首行 H1，覆盖全部块；写盘 ox.write_docx（无页脚）。
+pub func render_docx(path: string, title: string, blocks: table<table<string>>) -> bool {
+    var body = dx.heading(title, 1)
+    var i: i64 = 0
+    while i < len(blocks) {
+        body = body + block_docx(blocks[i])
+        i = i + 1
+    }
+    return ox.write_docx(path, body, false)
 }
 
 }   // namespace tiedoc
