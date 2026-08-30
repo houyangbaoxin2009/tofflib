@@ -267,6 +267,103 @@ func prefix_space(txt: string) -> string {
     return txt + " "
 }
 
+// ---- 样式与主题 ----
+
+// 通用段落：children 为已组装的 run/结构片段；align（center/right…）、
+// before/after（段前/段后间距，twips）、left_indent（左缩进，twips）按非默认值输出。
+pub func para_ex(children: table<string>, align: string, before: i64, after: i64, left_indent: i64) -> string {
+    var sb = string_builder()
+    sb_append(sb, "<w:p>")
+    if align != "" || before > 0 || after > 0 || left_indent > 0 {
+        sb_append(sb, "<w:pPr>")
+        if align != "" {
+            sb_append(sb, "<w:jc w:val=\"")
+            sb_append(sb, align)
+            sb_append(sb, "\"/>")
+        }
+        if before > 0 || after > 0 {
+            sb_append(sb, "<w:spacing w:before=\"")
+            sb_append(sb, i2s(before))
+            sb_append(sb, "\" w:after=\"")
+            sb_append(sb, i2s(after))
+            sb_append(sb, "\"/>")
+        }
+        if left_indent > 0 {
+            sb_append(sb, "<w:ind w:left=\"")
+            sb_append(sb, i2s(left_indent))
+            sb_append(sb, "\"/>")
+        }
+        sb_append(sb, "</w:pPr>")
+    }
+    var i: i64 = 0
+    while i < len(children) {
+        sb_append(sb, children[i])
+        i = i + 1
+    }
+    sb_append(sb, "</w:p>")
+    return sb_build(sb)
+}
+
+// 超链接：HYPERLINK 域（无需 doc rels，Word 点击可跳转）；tooltip 为空时省略提示。
+pub func link(txt: string, url: string, tooltip: string) -> string {
+    var sb = string_builder()
+    sb_append(sb, "<w:p><w:fldSimple w:instr=\" HYPERLINK &quot;")
+    sb_append(sb, escape(url))
+    sb_append(sb, "&quot;")
+    if tooltip != "" {
+        sb_append(sb, " ")
+        sb_append(sb, bs())
+        sb_append(sb, "o &quot;")
+        sb_append(sb, escape(tooltip))
+        sb_append(sb, "&quot;")
+    }
+    sb_append(sb, " \">")
+    sb_append(sb, run_like(txt, "0563C1", true))
+    sb_append(sb, "</w:fldSimple></w:p>")
+    return sb_build(sb)
+}
+
+// 带前景色的 run（hex_color 如 "C00000"）。
+pub func run_color(txt: string, hex_color: string) -> string {
+    return run_like(txt, hex_color, false)
+}
+
+// Office 默认主题色：theme("accent1".."accent6"/"dark1"/"dark2"/"light1"/"light2") → 十六进制色值。
+// 未知名字回退黑色。
+pub func theme(name: string) -> string {
+    switch name {
+        case "accent1": return "4472C4"
+        case "accent2": return "ED7D31"
+        case "accent3": return "A5A5A5"
+        case "accent4": return "FFC000"
+        case "accent5": return "5B9BD5"
+        case "accent6": return "70AD47"
+        case "dark1":   return "000000"
+        case "dark2":   return "44546A"
+        case "light1":  return "FFFFFF"
+        case "light2":  return "E7E6E6"
+        default:        return "000000"
+    }
+}
+
+// 带颜色（可选下划线）的 run（超链接样式用）。
+func run_like(txt: string, hex_color: string, underline: bool) -> string {
+    var sb = string_builder()
+    sb_append(sb, "<w:r><w:rPr>")
+    if hex_color != "" {
+        sb_append(sb, "<w:color w:val=\"")
+        sb_append(sb, hex_color)
+        sb_append(sb, "\"/>")
+    }
+    if underline {
+        sb_append(sb, "<w:u w:val=\"single\"/>")
+    }
+    sb_append(sb, "</w:rPr>")
+    sb_append(sb, run_text(txt))
+    sb_append(sb, "</w:r>")
+    return sb_build(sb)
+}
+
 // ---- 段落对齐 ----
 
 // 居中对齐段落：children 为已组装的 run/结构片段（如页码域）。

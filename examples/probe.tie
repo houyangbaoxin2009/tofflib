@@ -133,6 +133,27 @@ func main() {
     check("dx.bookmark", dx.bookmark_start("fig1", 1) + dx.bookmark_end(1),
         "<w:bookmarkStart w:id=\"1\" w:name=\"fig1\"/><w:bookmarkEnd w:id=\"1\"/>")
 
+    // ---- docx 样式与主题（para_ex/link/run_color/theme）----
+    var pp = table_new_string()
+    table_push(pp, dx.run("正文"))
+    check("dx.para_ex-spacing",
+        dx.para_ex(pp, "right", 240, 120, 0),
+        "<w:p><w:pPr><w:jc w:val=\"right\"/><w:spacing w:before=\"240\" w:after=\"120\"/></w:pPr>" +
+        "<w:r><w:t xml:space=\"preserve\">正文</w:t></w:r></w:p>")
+    check("dx.para_ex-indent",
+        has(dx.para_ex(pp, "", 0, 0, 720), "<w:ind w:left=\"720\"/>"), "true")
+    check("dx.para_ex-plain", dx.para_ex(pp, "", 0, 0, 0),
+        "<w:p><w:r><w:t xml:space=\"preserve\">正文</w:t></w:r></w:p>")
+    check("dx.link-instr",
+        has(dx.link("tie 官网", "https://tie-lang.org", "打开"), " HYPERLINK &quot;https://tie-lang.org&quot; \\o &quot;打开&quot; "), "true")
+    check("dx.link-color", has(dx.link("tie 官网", "https://tie-lang.org", ""), "<w:color w:val=\"0563C1\"/><w:u w:val=\"single\"/>"), "true")
+    check("dx.run_color", dx.run_color("红", "C00000"),
+        "<w:r><w:rPr><w:color w:val=\"C00000\"/></w:rPr><w:t xml:space=\"preserve\">红</w:t></w:r>")
+    check("dx.theme-accent1", dx.theme("accent1"), "4472C4")
+    check("dx.theme-accent4", dx.theme("accent4"), "FFC000")
+    check("dx.theme-dark2", dx.theme("dark2"), "44546A")
+    check("dx.theme-unknown", dx.theme("nope"), "000000")
+
     // ================= omml：全部 10 个 pub 接口 =================
     check("mm.escape", mm.escape("a&b<c"), "a&amp;b&lt;c")
     check("mm.r", mm.r("x"), "<m:r><m:t>x</m:t></m:r>")

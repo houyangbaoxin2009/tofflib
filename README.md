@@ -87,6 +87,10 @@ func main() {
 | `footer_para`| `footer_para(children: table<string>) -> string`                              | 页脚部件内容 `<w:ftr>`                |
 | `para_center`| `para_center(children: table<string>) -> string`                              | 居中段落（如页脚页码）                   |
 | `para_right` | `para_right(children: table<string>) -> string`                               | 右对齐段落                         |
+| `para_ex`    | `para_ex(children: table<string>, align: string, before, after, left_indent: i64) -> string` | 通用段落（对齐/段前段后/左缩进）       |
+| `link`       | `link(txt, url, tooltip: string) -> string`                                  | 超链接（HYPERLINK 域，无需 rels）       |
+| `run_color`  | `run_color(txt: string, hex_color: string) -> string`                        | 带前景色 run（`w:color`）              |
+| `theme`      | `theme(name: string) -> string`                                              | Office 默认主题色（accent1-6/dark1-2/light1-2） |
 | `sect_a4`    | `sect_a4() -> string`                                                         | 节属性：A4 纵向 + 常用边距              |
 | `sect_page`  | `sect_page(pg_w_twips, pg_h_twips, top, right, bottom, left: i64) -> string`  | 自定义页面宽高与边距（twips）            |
 | `tbl`        | `tbl(rows: table<table<string>>, header: table<string>, col_width_twips: i64) -> string` | 组装表格（默认全单线边框 + 可加粗表头）   |
