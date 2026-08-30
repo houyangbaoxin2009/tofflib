@@ -300,4 +300,227 @@ pub func render_docx(path: string, title: string, blocks: table<table<string>>) 
     return ox.write_docx(path, body, false)
 }
 
+// 渲染整份 xlsx（v1 单 sheet 映射）：
+//   - 第 1 行 = title（加粗）
+//   - tbl 块 → 表头行 + 数据行逐列展开
+//   - 其余文本块（p/h/b/…）→ 单列单元格
+// 结果可被 Excel / LibreOffice / WPS 打开。
+pub func render_xlsx(path: string, title: string, blocks: table<table<string>>) -> bool {
+    var sb = string_builder()
+    sb_append(sb, "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>")
+    sb_append(sb, "<worksheet xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\" ")
+    sb_append(sb, "xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\">")
+    sb_append(sb, "<sheetViews><sheetView workbookViewId=\"0\"/></sheetViews>")
+    sb_append(sb, "<sheetData>")
+    var r_n: i64 = 1
+    // title 行（首行加粗）
+    sb_append(sb, "<row r=\"1\">")
+    sb_append(sb, xcell(1, 1, title, true))
+    sb_append(sb, "</row>")
+    r_n = 2
+    var i: i64 = 0
+    while i < len(blocks) {
+        var row = blocks[i]
+        var kind = row[0]
+        if kind == "tbl" {
+            // 表头行
+            var hdr = csv_split(row[1])
+            sb_append(sb, "<row r=\"")
+            sb_append(sb, i2s(r_n))
+            sb_append(sb, "\">")
+            var cc: i64 = 1
+            var hc: i64 = 0
+            while hc < len(hdr) {
+                sb_append(sb, xcell(cc, r_n, hdr[hc], true))
+                cc = cc + 1
+                hc = hc + 1
+            }
+            sb_append(sb, "</row>")
+            r_n = r_n + 1
+            // 数据行
+            var d: i64 = 2
+            while d < len(row) {
+                var cells = csv_split(row[d])
+                sb_append(sb, "<row r=\"")
+                sb_append(sb, i2s(r_n))
+                sb_append(sb, "\">")
+                cc = 1
+                var k: i64 = 0
+                while k < len(cells) {
+                    sb_append(sb, xcell(cc, r_n, cells[k], false))
+                    cc = cc + 1
+                    k = k + 1
+                }
+                sb_append(sb, "</row>")
+                r_n = r_n + 1
+                d = d + 1
+            }
+        } else {
+            // 其他文本块 → 单列
+            var txt: string = ""
+            if len(row) > 1 {
+                txt = row[1]
+            }
+            sb_append(sb, "<row r=\"")
+            sb_append(sb, i2s(r_n))
+            sb_append(sb, "\">")
+            sb_append(sb, xcell(1, r_n, txt, false))
+            sb_append(sb, "</row>")
+            r_n = r_n + 1
+        }
+        i = i + 1
+    }
+    sb_append(sb, "</sheetData></worksheet>")
+    var sdoc = sb_build(sb)
+    var snames = table_new_string()
+    table_push(snames, "Sheet1")
+    var sdocs = table_new_string()
+    table_push(sdocs, sdoc)
+    var (n2, d2) = xlsx_parts_of(sdocs, snames)
+    return ox.write_zip(path, n2, d2)
+}
+
+// xlsx 单格（复用 xlsx 模块约定：inlineStr）。
+func xcell(c: i64, r: i64, txt: string, bold: bool) -> string {
+    var sb = string_builder()
+    sb_append(sb, "<c r=\"")
+    sb_append(sb, xlt(c) + i2s(r))
+    sb_append(sb, "\" t=\"inlineStr\"><is>")
+    if bold {
+        sb_append(sb, "<r><rPr><b/></rPr>")
+    } else {
+        sb_append(sb, "<r>")
+    }
+    sb_append(sb, "<t>")
+    sb_append(sb, esc(txt))
+    sb_append(sb, "</t></r></is></c>")
+    return sb_build(sb)
+}
+
+// 列号 → 列字母（1→A）。
+
+func xlt(c: i64) -> string {
+    var sb = string_builder()
+    var x: i64 = c
+    var letters = table_new_i64()
+    while x > 0 {
+        var m = (x - 1) % 26
+        table_push(letters, 65 + m)
+        x = (x - 1) / 26
+    }
+    var i: i64 = len(letters) - 1
+    while i >= 0 {
+        sb_append_byte(sb, letters[i])
+        i = i - 1
+    }
+    if len(letters) == 0 {
+        sb_append(sb, "A")
+    }
+    return sb_build(sb)
+}
+
+// 单 sheet 的 xlsx 包部件（复用 xlsx 格式：Content_Types/rels/workbook/sheet1）。
+func xlsx_parts_of(sdocs: table<string>, snames: table<string>) -> (names: table<string>, datas: table<string>) {
+    var names = table_new_string()
+    var datas = table_new_string()
+    table_push(names, "[Content_Types].xml")
+    table_push(datas, xct(sdocs))
+    table_push(names, "_rels/.rels")
+    table_push(datas, xroot_rels())
+    table_push(names, "xl/workbook.xml")
+    table_push(datas, xwb(snames))
+    table_push(names, "xl/_rels/workbook.xml.rels")
+    table_push(datas, xwb_rels(sdocs))
+    var i: i64 = 0
+    while i < len(sdocs) {
+        table_push(names, "xl/worksheets/sheet" + i2s(i + 1) + ".xml")
+        table_push(datas, sdocs[i])
+        i = i + 1
+    }
+    return (names, datas)
+}
+
+func xct(sdocs: table<string>) -> string {
+    var sb = string_builder()
+    sb_append(sb, "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>")
+    sb_append(sb, "<Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\">")
+    sb_append(sb, "<Default Extension=\"rels\" ContentType=\"application/vnd.openxmlformats-package.relationships+xml\"/>")
+    sb_append(sb, "<Default Extension=\"xml\" ContentType=\"application/xml\"/>")
+    sb_append(sb, "<Override PartName=\"/xl/workbook.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml\"/>")
+    var i: i64 = 0
+    while i < len(sdocs) {
+        sb_append(sb, "<Override PartName=\"/xl/worksheets/sheet")
+        sb_append(sb, i2s(i + 1))
+        sb_append(sb, ".xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml\"/>")
+        i = i + 1
+    }
+    sb_append(sb, "</Types>")
+    return sb_build(sb)
+}
+
+func xroot_rels() -> string {
+    return "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>" +
+        "<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">" +
+        "<Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument\" Target=\"xl/workbook.xml\"/>" +
+        "</Relationships>"
+}
+
+func xwb(snames: table<string>) -> string {
+    var sb = string_builder()
+    sb_append(sb, "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>")
+    sb_append(sb, "<workbook xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\" ")
+    sb_append(sb, "xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\"><sheets>")
+    var i: i64 = 0
+    while i < len(snames) {
+        sb_append(sb, "<sheet name=\"")
+        sb_append(sb, esc(snames[i]))
+        sb_append(sb, "\" sheetId=\"")
+        sb_append(sb, i2s(i + 1))
+        sb_append(sb, "\" r:id=\"rId")
+        sb_append(sb, i2s(i + 1))
+        sb_append(sb, "\"/>")
+        i = i + 1
+    }
+    sb_append(sb, "</sheets></workbook>")
+    return sb_build(sb)
+}
+
+func xwb_rels(sdocs: table<string>) -> string {
+    var sb = string_builder()
+    sb_append(sb, "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>")
+    sb_append(sb, "<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">")
+    var i: i64 = 0
+    while i < len(sdocs) {
+        sb_append(sb, "<Relationship Id=\"rId")
+        sb_append(sb, i2s(i + 1))
+        sb_append(sb, "\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet\" Target=\"worksheets/sheet")
+        sb_append(sb, i2s(i + 1))
+        sb_append(sb, ".xml\"/>")
+        i = i + 1
+    }
+    sb_append(sb, "</Relationships>")
+    return sb_build(sb)
+}
+
+// XML 转义（& < >）。
+func esc(txt: string) -> string {
+    var sb = string_builder()
+    var n: i64 = str_len(txt)
+    var i: i64 = 0
+    while i < n {
+        var c = str_char(txt, i)
+        if c == "&" {
+            sb_append(sb, "&amp;")
+        } else if c == "<" {
+            sb_append(sb, "&lt;")
+        } else if c == ">" {
+            sb_append(sb, "&gt;")
+        } else {
+            sb_append(sb, c)
+        }
+        i = i + 1
+    }
+    return sb_build(sb)
+}
+
 }   // namespace tiedoc

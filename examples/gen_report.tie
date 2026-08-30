@@ -1,0 +1,25 @@
+type tie<logic>
+// ============================================================================
+// gen_report.tie：tdoc 文档渲染入口示例
+// 让 tie 办公文档源（report.tdoc.tie）一键导出 docx / xlsx。
+// 运行：tiec examples\gen_report.tie -o examples\gen_report.exe
+//      examples\gen_report.exe   # 仓库根生成 demo_report.docx / .xlsx
+// 说明：roles.data.tie 须与文档文件同目录（tdoc 角色识别）。
+// ============================================================================
+
+import "./report.tdoc.tie" as report
+import "../tiedoc.tie" as td
+
+func main() {
+    var blocks = report.blocks()
+    var okd = td.render_docx("demo_report.docx", report.title(), blocks)
+    var okx = td.render_xlsx("demo_report.xlsx", report.title(), blocks)
+    println("render_docx=" + bool_s(okd) + " render_xlsx=" + bool_s(okx))
+}
+
+func bool_s(b: bool) -> string {
+    if b {
+        return "true"
+    }
+    return "false"
+}

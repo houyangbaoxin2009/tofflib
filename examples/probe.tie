@@ -428,6 +428,15 @@ func main() {
     }
     check("td.render_docx-exists", exists_d, "true")
     check("td.render_docx-pk", file_pk("demo_tdoc.docx"), "true")
+    var rx = td.render_xlsx("demo_tdoc.xlsx", "标题", rblocks)
+    var exists_rx: string = "false"
+    if rx {
+        if file_exists("demo_tdoc.xlsx") {
+            exists_rx = "true"
+        }
+    }
+    check("td.render_xlsx-exists", exists_rx, "true")
+    check("td.render_xlsx-pk", file_pk("demo_tdoc.xlsx"), "true")
 
     // 打印组装出的整段 docx 文档片段，供人工核对
     println("---- 组装示例 ----")
