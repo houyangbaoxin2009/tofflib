@@ -25,6 +25,8 @@ tofflib 的使命是把 **tie 用作办公脚本**：
 | `vml.tie`       | `vml`       | Word 原生绘图：VML 形状组/矩形+文本框/带箭头直线                    | `vml.a`   |
 | `officeutil.tie` | `officeutil` | 日常办公：日期时间、CSV/对齐表格文本、待办清单、编号列表                | `officeutil.a` |
 | `ooxml.tie`     | `ooxml`     | 端到端 docx 打包：OOXML 包装配 + 纯 tie ZIP 写入器（store 免压缩）     | `ooxml.a`  |
+| `xlsx.tie`      | `xlsx`      | Excel 电子表格：SpreadsheetML 装配（单元格/冻结行/列宽/多 sheet）     | `xlsx.a`  |
+| `tiedoc.tie`    | `tiedoc`    | tie 办公表达格式：tdoc 角色块构建 + 渲染 docx/xlsx               | `tiedoc.a` |
 
 ## 快速开始
 
@@ -64,6 +66,46 @@ func main() {
 
 > 注意：`paragraph(txt)` 接收的是**纯文本**（内部自动 run + 转义）；要插入已组装的
 > 格式 run，用 `paragraph_runs([...])`，不要把 `run_font(...)` 的输出再塞进 `paragraph()`。
+
+## tie 办公表达格式（tdoc）
+
+**tdoc** 是 tofflib 定义的**用 tie 语言表达办公文档**的源码格式：文档本身是一个
+`xxx.tdoc.tie` 文件（自定义角色 `tdoc`，注册于 `roles.data.tie`），内容 100% 符合
+tie 语法、可被 `tiec` 编译校验；由 `tiedoc` 渲染库导出为 docx/xlsx。
+
+```tie
+// report.tdoc.tie —— 文档即 tie 源码
+type tie<tdoc>
+import "../tiedoc.tie" as td
+
+namespace report {
+    pub func title() -> string { return "周报" }
+    pub func blocks() -> table<table<string>> {
+        var r0: table<string> = td.h1("第 1 章")
+        var r1: table<string> = td.p("你好，tie 办公")
+        var r2: table<string> = td.ul(["买牛奶", "写周报"])
+        var r3: table<string> = td.tbl("项目,状态", ["文档,进行中", "打包,完成"])
+        var r4: table<string> = td.page()
+        var r5: table<string> = td.link("tie 官网", "https://tie-lang.org")
+        var rows: table<table<string>> = [r0, r1, r2, r3, r4, r5]
+        return rows
+    }
+}
+```
+
+- **角色注册**：`roles.data.tie`（文档所在目录需有一份，tiec 据此识别 `tdoc` 角色）
+- **块协议**（`tiedoc` 构建函数生产"块行"）：`h1..h9` / `p` / `b` / `center` /
+  `ul` / `ol` / `tbl`（CSV 行） / `page` / `sec` / `link` / `raw`(OOXML 透传)
+- **渲染**（`tiedoc` 命名空间）：
+  - `render_docx(path, title, blocks)` → Word
+  - `render_xlsx(path, title, blocks)` → Excel（title + tbl 展开为 sheet）
+  - `csv_split(line)` → 解析 CSV（RFC 4180 子集，供表格块）
+- **入口示例**：`examples/gen_report.tie` —— `report.blocks() → demo_report.docx/.xlsx`
+
+> 语法约束（tie 编译器实测）：① 表内表字面量 `[[..],[..]]` 不支持，块行须以
+> 变量/调用结果引用组装；② 多行表字面量中元素为函数调用时受 ASI 影响（单行或
+> 变量引用）；③ 全局表只能空表初始化，文档内容须在函数内构建；
+> ④ `roles.data.tie` 须与文档文件同目录。
 
 ## 各模块公开接口
 
