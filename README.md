@@ -128,10 +128,10 @@ tofflib/
 ├── examples/
 │   └── probe.tie     # 冒烟验证（导入全模块 + 断言）
 ├── .gitignore
-├── LICENSE           # 自定义宽松许可 v1.1
+├── LICENSE           # TIE-LANG 开源许可 v1.1
 └── README.md
 ```
 
 ## 许可证
 
-版权所有 (c) houyangbaoxin2009，依据项目根目录 [LICENSE](LICENSE)（自定义宽松许可 v1.1）发布。
+tofflib 依据项目根目录 [LICENSE](LICENSE)（TIE-LANG Open Source License v1.1）发布。
