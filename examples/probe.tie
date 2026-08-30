@@ -9,6 +9,7 @@ import "../docx.tie" as dx
 import "../omml.tie" as mm
 import "../vml.tie" as vm
 import "../officeutil.tie" as ou
+import "../ooxml.tie" as ox
 
 // 断言 helper：got != want 时 panic 并指出模块/用例。
 func check(name: string, got: string, want: string) {
@@ -187,11 +188,73 @@ func main() {
     check("ou.list_items", ou.list_items("", ["准备"]), "1. 准备\n")
     check("ou.list_items-title", ou.list_items("标题", ["a", "b"]), "标题\n1. a\n2. b\n")
 
+    // ================= ooxml：CRC32 / zip / 装配 / 写出 =================
+    check_i64("ox.crc32-empty", ox.crc32(""), 0)
+    check_i64("ox.crc32-abc", ox.crc32("abc"), 0x352441C2)
+    check_i64("ox.crc32-123456789", ox.crc32("123456789"), 0xCBF43926)
+    var zn = table_new_string()
+    table_push(zn, "a.txt")
+    var zd = table_new_string()
+    table_push(zd, "hello")
+    var zbin = ox.zip_store(zn, zd)
+    check("ox.zip-local-sig", byte_eq(zbin, 0, 0x50), "true")
+    check("ox.zip-local-sig3", byte_eq(zbin, 3, 0x04), "true")
+    check("ox.zip-name-off", byte_eq(zbin, 30, 97), "true")
+    check("ox.zip-data-off", byte_eq(zbin, 35, 104), "true")
+    check("ox.zip-eocd-sig", byte_eq(zbin, len(zbin) - 22, 0x50), "true")
+    check("ox.zip-eocd-sig3", byte_eq(zbin, len(zbin) - 19, 0x06), "true")
+    var oxbody = dx.paragraph("打包测试")
+    var (pnames, pdatas) = ox.docx_parts(oxbody, false)
+    check_i64("ox.parts-count", len(pnames), 6)
+    check("ox.parts-name0", pnames[0], "[Content_Types].xml")
+    check("ox.parts-ct", has(pdatas[0], "wordprocessingml.document.main+xml"), "true")
+    check("ox.parts-noftrref", has(pdatas[2], "<w:footerReference"), "false")
+    check("ox.parts-numbering", has(pdatas[4], "<w:num w:numId=\"1\">"), "true")
+    var (pn2, pd2) = ox.docx_parts(oxbody, true)
+    check_i64("ox.parts-ftr-count", len(pn2), 7)
+    check("ox.parts-ftr-ref", has(pd2[2], "<w:footerReference w:type=\"default\" r:id=\"rId3\"/>"), "true")
+    check("ox.parts-ftr-part", has(pd2[6], "<w:ftr"), "true")
+    var wrote = ox.write_docx("demo_out.docx", oxbody, true)
+    var exists: string = "false"
+    if wrote {
+        if file_exists("demo_out.docx") {
+            exists = "true"
+        }
+    }
+    check("ox.write_docx-exists", exists, "true")
+    check("ox.write_docx-pk", file_pk("demo_out.docx"), "true")
+
     // 打印组装出的整段 docx 文档片段，供人工核对
     println("---- 组装示例 ----")
     println(dx.root_open() + dx.paragraph("你好，tie 办公") + txml +
         mm.omath_para(ip) + grp + dx.root_close())
     println("---- 结束 ----")
+}
+
+// 整数断言 helper（如 CRC32 向量）。
+func check_i64(name: string, got: i64, want: i64) {
+    if got != want {
+        panic("FAIL " + name)
+    }
+    println("OK " + name)
+}
+
+// 取字符串第 i 字节是否等于 v（二进制断言）。
+func byte_eq(s: string, i: i64, v: i64) -> string {
+    if str_byte(s, i) == v {
+        return "true"
+    }
+    return "false"
+}
+
+// 读文件并校验 ZIP 魔数 PK\x03\x04（probe 内二进制自检；byte_read 底座二进制安全）。
+func file_pk(path: string) -> string {
+    var t = byte_read(path)
+    if len(t) > 4 && t[0] == 0x50 && t[1] == 0x4B &&
+        t[2] == 0x03 && t[3] == 0x04 {
+        return "true"
+    }
+    return "false"
 }
 
 // 子串包含判断（供 probe 断言；模块内部不含此 helper）。

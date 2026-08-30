@@ -20,10 +20,11 @@ tofflib 的使命是把 **tie 用作办公脚本**：
 
 | 模块            | 命名空间       | 职责                                                        | 编译产物      |
 | --------------- | ----------- | --------------------------------------------------------- | --------- |
-| `docx.tie`      | `docx`      | Word 文档骨架：段落/run/字体、表格，组装成 OOXML 文档正文 XML      | `docx.a`  |
+| `docx.tie`      | `docx`      | Word 文档骨架：段落/run/字体、标题/列表/分页/页码、表格，组装成 OOXML 文档正文 XML  | `docx.a`  |
 | `omml.tie`      | `omml`      | Word 公式：OMML 结构生成器（分数/上下标/定界符/n-ary 求和积分）        | `omml.a`  |
 | `vml.tie`       | `vml`       | Word 原生绘图：VML 形状组/矩形+文本框/带箭头直线                    | `vml.a`   |
 | `officeutil.tie` | `officeutil` | 日常办公：日期时间、CSV/对齐表格文本、待办清单、编号列表                | `officeutil.a` |
+| `ooxml.tie`     | `ooxml`     | 端到端 docx 打包：OOXML 包装配 + 纯 tie ZIP 写入器（store 免压缩）     | `ooxml.a`  |
 
 ## 快速开始
 
@@ -33,10 +34,15 @@ tiec docx.tie          # → docx.a
 tiec omml.tie          # → omml.a
 tiec vml.tie           # → vml.a
 tiec officeutil.tie    # → officeutil.a
+tiec ooxml.tie         # → ooxml.a
 
 # 冒烟验证：编译并运行 probe
 tiec examples\probe.tie -o examples\probe.exe
 examples\probe.exe      # 打印 OK 断言 + 组装示例，exit 0 即通过
+
+# 端到端：生成真实 .docx（标题/列表/表格/分页/页码）
+tiec examples\gen_docx.tie -o examples\gen_docx.exe
+examples\gen_docx.exe   # → demo.docx，双击可用 Word 打开
 ```
 
 写一个带格式的文档骨架（逻辑程序）：
@@ -129,6 +135,22 @@ func main() {
 > 复用约定：`import "./docx.tie" as dx` 后即用 `dx.xxx(...)` 前缀调用（`import` 别名是唯一入口）。
 > 命名约定：`text`、`num`、`table` 是 tie 语言关键字，故函数/参数命名中避开（见各模块头注释）。
 
+### ooxml（`ooxml.tie`）
+
+| 函数          | 签名                                                                         | 说明                                      |
+| ----------- | -------------------------------------------------------------------------- | --------------------------------------- |
+| `crc32`     | `crc32(s: string) -> i64`                                                   | PKZIP 标准 CRC32（查表法，二进制安全）             |
+| `zip_store` | `zip_store(names: table<string>, datas: table<string>) -> string`         | 最小 ZIP 容器（store 不压缩；本地头+中央目录+EOCD）   |
+| `docx_parts`| `docx_parts(body_xml: string, footer_page: bool) -> (names, datas: table<string>)` | 装配全部 OOXML 部件（styles/numbering/可选页脚）  |
+| `write_docx`| `write_docx(path: string, body_xml: string, footer_page: bool) -> bool`   | 正文 XML → 真实 .docx 文件（字节表写入，二进制安全）    |
+
+> 正文约定：`body_xml` 为 `<w:body>` 内部内容块拼接（段落/表格/列表等），**不含**
+> `<w:sectPr>`——装配器统一追加 A4 页设置，`footer_page=true` 时注入居中页码
+> （word/footer1.xml + `w:footerReference`）。
+>
+> `zip_store` 使用 store 方法（不压缩），Office/解压工具均兼容；写盘用底座
+> `byte_write`（`file_write` 按 C 字符串在首个 NUL 截断，**不可用于二进制**）。
+
 ## 工程结构
 
 ```
@@ -137,8 +159,10 @@ tofflib/
 ├── omml.tie          # Word 公式 OMML
 ├── vml.tie           # Word 绘图 VML
 ├── officeutil.tie     # 办公小工具
+├── ooxml.tie         # 端到端 docx 打包（装配 + ZIP）
 ├── examples/
-│   └── probe.tie     # 冒烟验证（导入全模块 + 断言）
+│   ├── probe.tie     # 冒烟验证（导入全模块 + 断言）
+│   └── gen_docx.tie  # 端到端示例：生成 demo.docx（标题/列表/表格/页码）
 ├── .gitignore
 ├── LICENSE           # TIE-LANG 开源许可 v1.1
 └── README.md

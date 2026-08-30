@@ -1,0 +1,381 @@
+type tie<class>
+// ============================================================================
+// ooxml.tie：tofflib——用 tie 办公的工具库 / 端到端 docx 打包（装配 + ZIP）
+//
+// 本模块把 docx 模块生成的正文 XML 片段组装成**真正可打开的 .docx 文件**：
+//   - 装配器 docx_parts()：生成全部 OOXML 包部件（[Content_Types].xml、
+//     _rels/.rels、word/document.xml、word/styles.xml、word/numbering.xml、
+//     可选 word/footer1.xml）→ 以「部件名 + 内容」平行表返回
+//   - ZIP 写入器 zip_store()：纯 tie 实现的最小 ZIP 容器（store 无压缩模式，
+//     CRC32 查表实现），零外部压缩库；Office 可正常打开
+//   - 一步生成 write_docx()：正文 XML → .docx 文件（file_write 内置）
+//
+// 命名空间：ooxml。调用方式（class 库，编译为 ooxml.a）：
+//   import "./docx.tie" as dx
+//   import "./ooxml.tie" as ox
+//   var doc = dx.paragraph_runs([dx.run_font("周报", "宋体", 22, true)]) +
+//             dx.tbl([[ou.fmt_date(2026,8,30), "进行中"]], [], 3000)
+//   ox.write_docx("out.docx", doc, true)     // footer_page=true 带居中页码
+//
+// 正文约定：body_xml 为 <w:body> 内部的内容块拼接（段落/表格/列表等），
+// **不含** <w:sectPr>（装配器统一追加 A4 页设置；footer 时注入页码引用 rId3）。
+//
+// 纯函数、零 unsafe、零外部依赖（不 import 任何 std 模块；仅 import docx 复用
+// 根骨架与 A4 节设置）。
+// ============================================================================
+
+import "./docx.tie" as dx
+
+namespace ooxml {
+
+// ---- CRC32（PKZIP 标准，查表法；s 按字节处理，二进制安全）----
+
+pub func crc32(s: string) -> i64 {
+    var tbl = table_new_i64()
+    var i: i64 = 0
+    while i < 256 {
+        var c: i64 = i
+        var k: i64 = 0
+        while k < 8 {
+            if (c & 1) != 0 {
+                c = 0xEDB88320 ^ (c >> 1)
+            } else {
+                c = c >> 1
+            }
+            k = k + 1
+        }
+        table_push(tbl, c)
+        i = i + 1
+    }
+    var crc: i64 = 0xFFFFFFFF
+    var n: i64 = len(s)
+    var j: i64 = 0
+    while j < n {
+        crc = (crc >> 8) ^ tbl[(crc & 0xFF) ^ str_byte(s, j)]
+        j = j + 1
+    }
+    return crc ^ 0xFFFFFFFF
+}
+
+// ---- ZIP 写入器（store 无压缩）----
+
+// 把「部件名 + 内容」两个平行表打包为完整 ZIP 容器二进制字符串。
+// 每条目流派 store（method 0，不压缩），CRC32 由查表法计算；
+// 布局：本地文件头 + 数据 → 中央目录 → 结束记录（EOCD）。
+pub func zip_store(zip_names: table<string>, zip_datas: table<string>) -> string {
+    var n: i64 = len(zip_names)
+    var sb = string_builder()
+    var offsets = table_new_i64()
+    var crcs = table_new_i64()
+    var sizes = table_new_i64()
+    var off: i64 = 0
+    var i: i64 = 0
+    while i < n {
+        var nm = zip_names[i]
+        var data = zip_datas[i]
+        var crc = crc32(data)
+        var sz = len(data)
+        var nl = str_len(nm)
+        table_push(offsets, off)
+        table_push(crcs, crc)
+        table_push(sizes, sz)
+        // ---- 本地文件头（30 字节 + 名称）----
+        put_u32(sb, 0x04034B50)
+        put_u16(sb, 20)
+        put_u16(sb, 0)
+        put_u16(sb, 0)
+        put_u16(sb, 0)
+        put_u16(sb, 0)
+        put_u32(sb, crc)
+        put_u32(sb, sz)
+        put_u32(sb, sz)
+        put_u16(sb, nl)
+        put_u16(sb, 0)
+        put_raw(sb, nm)
+        // ---- 条目数据（store 原样）----
+        put_raw(sb, data)
+        off = off + 30 + nl + sz
+        i = i + 1
+    }
+    // ---- 中央目录 ----
+    var cd_off: i64 = off
+    var cd_size: i64 = 0
+    i = 0
+    while i < n {
+        var nm = zip_names[i]
+        var nl = str_len(nm)
+        put_u32(sb, 0x02014B50)
+        put_u16(sb, 20)
+        put_u16(sb, 20)
+        put_u16(sb, 0)
+        put_u16(sb, 0)
+        put_u16(sb, 0)
+        put_u16(sb, 0)
+        put_u32(sb, crcs[i])
+        put_u32(sb, sizes[i])
+        put_u32(sb, sizes[i])
+        put_u16(sb, nl)
+        put_u16(sb, 0)
+        put_u16(sb, 0)
+        put_u16(sb, 0)
+        put_u16(sb, 0)
+        put_u32(sb, 0)
+        put_u32(sb, offsets[i])
+        put_raw(sb, nm)
+        cd_size = cd_size + 46 + nl
+        i = i + 1
+    }
+    // ---- 结束记录（EOCD）----
+    put_u32(sb, 0x06054B50)
+    put_u16(sb, 0)
+    put_u16(sb, 0)
+    put_u16(sb, n)
+    put_u16(sb, n)
+    put_u32(sb, cd_size)
+    put_u32(sb, cd_off)
+    put_u16(sb, 0)
+    return sb_build(sb)
+}
+
+// ---- docx 装配器 ----
+
+// 生成真实 .docx 的全部包部件（平行表：名称 + 内容）。
+// footer_page=true 时附加 word/footer1.xml（居中 PAGE 域）并在节属性注入引用。
+pub func docx_parts(body_xml: string, footer_page: bool) -> (names: table<string>, datas: table<string>) {
+    var names = table_new_string()
+    var datas = table_new_string()
+    table_push(names, "[Content_Types].xml")
+    table_push(datas, content_types(footer_page))
+    table_push(names, "_rels/.rels")
+    table_push(datas, root_rels())
+    table_push(names, "word/document.xml")
+    table_push(datas, dx.root_open() + body_xml + document_sect(footer_page) + dx.root_close())
+    table_push(names, "word/styles.xml")
+    table_push(datas, styles_xml())
+    table_push(names, "word/numbering.xml")
+    table_push(datas, numbering_xml())
+    table_push(names, "word/_rels/document.xml.rels")
+    table_push(datas, doc_rels(footer_page))
+    if footer_page {
+        table_push(names, "word/footer1.xml")
+        table_push(datas, footer_xml())
+    }
+    return (names, datas)
+}
+
+// 一步生成 .docx：正文 XML → path 文件。
+// 写盘走底座原语 byte_write（字节表，二进制安全）——file_write 按 C 字符串
+// 在首个 NUL 字节处截断，不能用于含 0x00 的 zip 二进制。
+pub func write_docx(path: string, body_xml: string, footer_page: bool) -> bool {
+    var (names, datas) = docx_parts(body_xml, footer_page)
+    return byte_write(path, str_to_bytes(zip_store(names, datas)))
+}
+
+// 字符串 → 字节表（逐字节 str_byte，二进制安全；支持 UTF-8 原始字节）。
+func str_to_bytes(s: string) -> table<i64> {
+    var t = table_new_i64()
+    var n: i64 = len(s)
+    var i: i64 = 0
+    while i < n {
+        table_push(t, str_byte(s, i))
+        i = i + 1
+    }
+    return t
+}
+
+// ---- 内部私有辅助 ----
+
+// document.xml 的节属性：footer 时注入 w:footerReference(rId3) 于 sectPr 最前。
+func document_sect(footer_page: bool) -> string {
+    if !footer_page {
+        return dx.sect_a4()
+    }
+    return "<w:sectPr><w:footerReference w:type=\"default\" r:id=\"rId3\"/>" +
+        strip_prefix(dx.sect_a4(), 10)
+}
+
+// 去掉字符串前 prefix_len 个码点（用于在 sectPr 后注入 footerReference）。
+func strip_prefix(s: string, prefix_len: i64) -> string {
+    var sb = string_builder()
+    var n: i64 = str_len(s)
+    var i: i64 = prefix_len
+    while i < n {
+        sb_append(sb, str_char(s, i))
+        i = i + 1
+    }
+    return sb_build(sb)
+}
+
+// [Content_Types].xml：声明全部部件类型。
+func content_types(footer_page: bool) -> string {
+    var sb = string_builder()
+    sb_append(sb, "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>")
+    sb_append(sb, "<Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\">")
+    sb_append(sb, "<Default Extension=\"rels\" ContentType=\"application/vnd.openxmlformats-package.relationships+xml\"/>")
+    sb_append(sb, "<Default Extension=\"xml\" ContentType=\"application/xml\"/>")
+    sb_append(sb, "<Override PartName=\"/word/document.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml\"/>")
+    sb_append(sb, "<Override PartName=\"/word/styles.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml\"/>")
+    sb_append(sb, "<Override PartName=\"/word/numbering.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml\"/>")
+    if footer_page {
+        sb_append(sb, "<Override PartName=\"/word/footer1.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml\"/>")
+    }
+    sb_append(sb, "</Types>")
+    return sb_build(sb)
+}
+
+// _rels/.rels：根关系 → 主文档。
+func root_rels() -> string {
+    var sb = string_builder()
+    sb_append(sb, "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>")
+    sb_append(sb, "<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">")
+    sb_append(sb, "<Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument\" Target=\"word/document.xml\"/>")
+    sb_append(sb, "</Relationships>")
+    return sb_build(sb)
+}
+
+// word/_rels/document.xml.rels：主文档 → 样式/编号/页脚。
+func doc_rels(footer_page: bool) -> string {
+    var sb = string_builder()
+    sb_append(sb, "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>")
+    sb_append(sb, "<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">")
+    sb_append(sb, "<Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles\" Target=\"styles.xml\"/>")
+    sb_append(sb, "<Relationship Id=\"rId2\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/numbering\" Target=\"numbering.xml\"/>")
+    if footer_page {
+        sb_append(sb, "<Relationship Id=\"rId3\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/footer\" Target=\"footer1.xml\"/>")
+    }
+    sb_append(sb, "</Relationships>")
+    return sb_build(sb)
+}
+
+// word/styles.xml：Normal + Heading1..9（docx.heading() 引用）等段样式。
+func styles_xml() -> string {
+    var sb = string_builder()
+    sb_append(sb, "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>")
+    sb_append(sb, "<w:styles xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\">")
+    sb_append(sb, "<w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:ascii=\"Calibri\" w:hAnsi=\"Calibri\" w:eastAsia=\"宋体\"/><w:sz w:val=\"21\"/></w:rPr></w:rPrDefault></w:docDefaults>")
+    sb_append(sb, "<w:style w:type=\"paragraph\" w:default=\"1\" w:styleId=\"Normal\"><w:name w:val=\"Normal\"/></w:style>")
+    var i: i64 = 1
+    while i <= 9 {
+        sb_append(sb, heading_style(i))
+        i = i + 1
+    }
+    sb_append(sb, "</w:styles>")
+    return sb_build(sb)
+}
+
+// 单个 Heading 样式（level 1..9；字号随层级递减，1→36、2→32、其余→28 半磅）。
+func heading_style(level: i64) -> string {
+    var sz: i64 = 28
+    if level == 1 {
+        sz = 36
+    }
+    if level == 2 {
+        sz = 32
+    }
+    var before: i64 = 240
+    if level > 1 {
+        before = 120
+    }
+    return "<w:style w:type=\"paragraph\" w:styleId=\"Heading" + i2s(level) + "\">" +
+        "<w:name w:val=\"heading " + i2s(level) + "\"/>" +
+        "<w:basedOn w:val=\"Normal\"/>" +
+        "<w:pPr><w:keepNext/><w:spacing w:before=\"" + i2s(before) + "\" w:after=\"120\"/>" +
+        "<w:outlineLvl w:val=\"" + i2s(level - 1) + "\"/></w:pPr>" +
+        "<w:rPr><w:b/><w:sz w:val=\"" + i2s(sz) + "\"/></w:rPr>" +
+        "</w:style>"
+}
+
+// word/numbering.xml：bullet（abstractNum 0 ↔ numId 1）与 decimal（1 ↔ numId 2），
+// 与 docx.bullet()/number() 的 numId 对应（两级缩进）。
+func numbering_xml() -> string {
+    var sb = string_builder()
+    sb_append(sb, "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>")
+    sb_append(sb, "<w:numbering xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\">")
+    sb_append(sb, num_lvls(0, "bullet", "•", "◦"))
+    sb_append(sb, num_lvls(1, "decimal", "%1.", "%1.%2."))
+    sb_append(sb, "<w:num w:numId=\"1\"><w:abstractNumId w:val=\"0\"/></w:num>")
+    sb_append(sb, "<w:num w:numId=\"2\"><w:abstractNumId w:val=\"1\"/></w:num>")
+    sb_append(sb, "</w:numbering>")
+    return sb_build(sb)
+}
+
+// 一个 abstractNum 的两级 lvl 定义。
+func num_lvls(abstract_id: i64, fmt: string, lvl0_text: string, lvl1_text: string) -> string {
+    return "<w:abstractNum w:abstractNumId=\"" + i2s(abstract_id) + "\">" +
+        "<w:multiLevelType w:val=\"multilevel\"/>" +
+        num_lvl(0, fmt, lvl0_text) +
+        num_lvl(1, fmt, lvl1_text) +
+        "</w:abstractNum>"
+}
+
+// 单个编号层级。
+func num_lvl(ilvl: i64, fmt: string, lvl_text: string) -> string {
+    return "<w:lvl w:ilvl=\"" + i2s(ilvl) + "\"><w:start w:val=\"1\"/>" +
+        "<w:numFmt w:val=\"" + fmt + "\"/><w:lvlText w:val=\"" + lvl_text + "\"/>" +
+        "<w:lvlJc w:val=\"left\"/></w:lvl>"
+}
+
+// word/footer1.xml：居中 PAGE 域页脚。
+func footer_xml() -> string {
+    var sb = string_builder()
+    sb_append(sb, "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>")
+    sb_append(sb, "<w:ftr xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\">")
+    sb_append(sb, "<w:p><w:pPr><w:jc w:val=\"center\"/></w:pPr>")
+    sb_append(sb, dx.page_field())
+    sb_append(sb, "</w:p></w:ftr>")
+    return sb_build(sb)
+}
+
+// ---- 二进制小端写入 ----
+
+func put_u16(sb: i64, v: i64) -> void {
+    sb_append_byte(sb, v & 0xFF)
+    sb_append_byte(sb, (v >> 8) & 0xFF)
+}
+
+func put_u32(sb: i64, v: i64) -> void {
+    sb_append_byte(sb, v & 0xFF)
+    sb_append_byte(sb, (v >> 8) & 0xFF)
+    sb_append_byte(sb, (v >> 16) & 0xFF)
+    sb_append_byte(sb, (v >> 24) & 0xFF)
+}
+
+// 原样追加字符串全部字节（逐字节 sb_append_byte，二进制安全）。
+func put_raw(sb: i64, s: string) -> void {
+    var n: i64 = len(s)
+    var i: i64 = 0
+    while i < n {
+        sb_append_byte(sb, str_byte(s, i))
+        i = i + 1
+    }
+}
+
+// i64 → 十进制字符串（模块自包含）。
+func i2s(v: i64) -> string {
+    if v == 0 {
+        return "0"
+    }
+    var sb = string_builder()
+    var neg = false
+    var x: i64 = v
+    if x < 0 {
+        neg = true
+        x = 0 - x
+    }
+    var digs = table_new_i64()
+    while x > 0 {
+        table_push(digs, x % 10)
+        x = x / 10
+    }
+    if neg {
+        sb_append(sb, "-")
+    }
+    var i: i64 = len(digs) - 1
+    while i >= 0 {
+        sb_append_byte(sb, 48 + digs[i])
+        i = i - 1
+    }
+    return sb_build(sb)
+}
+
+}   // namespace ooxml

@@ -1,0 +1,38 @@
+type tie<logic>
+// ============================================================================
+// gen_docx.tie：tofflib 端到端示例——一份完整 .docx（标题/列表/表格/分页/页码）
+// 运行：tiec examples\gen_docx.tie -o examples\gen_docx.exe
+//      examples\gen_docx.exe    # 在仓库根生成 demo.docx，双击可用 Word 打开
+// ============================================================================
+
+import "../docx.tie" as dx
+import "../officeutil.tie" as ou
+import "../ooxml.tie" as ox
+
+func main() {
+    var h = table_new_string()
+    table_push(h, "事项")
+    table_push(h, "状态")
+    var r1 = table_new_string()
+    table_push(r1, ou.fmt_date(2026, 8, 30))
+    table_push(r1, "进行中")
+    var r2 = table_new_string()
+    table_push(r2, "文档演示")
+    table_push(r2, "完成")
+    var rows = [r1, r2]
+
+    var body = dx.heading("周报", 1) +
+        dx.paragraph_runs([dx.run_font("你好，tie 办公——端到端 docx", "宋体", 22, true)]) +
+        dx.bullets(["写文档", "跑测试", "打包验证"], 0) +
+        dx.numbers(["第一步", "第二步", "第三步"], 0) +
+        dx.tbl(rows, h, 5000) +
+        dx.page_break() +
+        dx.heading("第二页", 2) +
+        dx.paragraph("第二页内容，页脚已带居中页码。")
+
+    if ox.write_docx("demo.docx", body, true) {
+        println("已生成 demo.docx")
+    } else {
+        println("写入失败")
+    }
+}
