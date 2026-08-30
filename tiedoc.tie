@@ -1,0 +1,163 @@
+type tie<class>
+// ============================================================================
+// tiedoc.tie：tofflib——tie 办公表达格式（tdoc）块协议构建库（class → tiedoc.a）
+//
+// tdoc = 一份用 tie 语言表达的办公文档源（自定义角色，见 roles.data.tie）：
+//   文档即 tie 源码（可被 tiec 编译校验），内容为「块行」序列；
+//   each 块 = table<string>（首个元素为 kind，即块类型，后随参数）。
+//   本模块提供块构建函数（td.h1/td.p/td.tbl/…），渲染见同一模块的
+//   render_docx/render_xlsx（C3 起）或直接消费 blocks 二次加工。
+//
+// 块协议 v1（kind 由构建函数产出）：
+//   ["h1".."h9", text]  标题（对应 Word Heading1..9）
+//   ["p", text]         段落
+//   ["b", text]         加粗段落
+//   ["center", text]    居中段落
+//   ["ul", item, ...]   无序列表（多参=多条目）
+//   ["ol", item, ...]   有序列表
+//   ["tbl", header_csv, row_csv, ...]  表格（CSV 行；首行为表头）
+//   ["page"]            分页
+//   ["sec"]             分节（新节 + 换页）
+//   ["link", text, url] 超链接
+//   ["raw", xml]        OOXML 片段透传（高级）
+//
+// 文档文件写法（完全符合 tie 语法）：
+//   type tie<tdoc>
+//   namespace report {
+//       pub func blocks() -> table<table<string>> {
+//           var r0: table<string> = td.h1("周报")
+//           var r1: table<string> = td.p("你好")
+//           return [r0, r1]        // §表内表字面量受编译器限制，块行用变量/调用结果引用
+//       }
+//   }
+//
+// 纯函数、零 unsafe；依赖文档块协议与格式后端（docx/xlsx/…）——本文件只产块行。
+// 命名空间：tiedoc。import "./tiedoc.tie" as td
+// ============================================================================
+
+namespace tiedoc {
+
+// 标题：level 1..9（越界钳位），对应 Heading1..9。
+pub func h(level: i64, txt: string) -> table<string> {
+    var lv: i64 = level
+    if lv < 1 {
+        lv = 1
+    }
+    if lv > 9 {
+        lv = 9
+    }
+    var row = table_new_string()
+    table_push(row, "h" + i2s(lv))
+    table_push(row, txt)
+    return row
+}
+
+pub func h1(txt: string) -> table<string> { return h(1, txt) }
+pub func h2(txt: string) -> table<string> { return h(2, txt) }
+pub func h3(txt: string) -> table<string> { return h(3, txt) }
+pub func h4(txt: string) -> table<string> { return h(4, txt) }
+pub func h5(txt: string) -> table<string> { return h(5, txt) }
+pub func h6(txt: string) -> table<string> { return h(6, txt) }
+pub func h7(txt: string) -> table<string> { return h(7, txt) }
+pub func h8(txt: string) -> table<string> { return h(8, txt) }
+pub func h9(txt: string) -> table<string> { return h(9, txt) }
+
+// 段落。
+pub func p(txt: string) -> table<string> {
+    return ["p", txt]
+}
+
+// 加粗段落。
+pub func b(txt: string) -> table<string> {
+    return ["b", txt]
+}
+
+// 居中段落。
+pub func center(txt: string) -> table<string> {
+    return ["center", txt]
+}
+
+// 无序列表（多条目）。
+pub func ul(items: table<string>) -> table<string> {
+    return list_blk("ul", items)
+}
+
+// 有序列表（多条目）。
+pub func ol(items: table<string>) -> table<string> {
+    return list_blk("ol", items)
+}
+
+// 表格：header_csv 为表头行（CSV），row_csvs 为后续数据行（CSV，可空表）。
+pub func tbl(header_csv: string, row_csvs: table<string>) -> table<string> {
+    var row = table_new_string()
+    table_push(row, "tbl")
+    table_push(row, header_csv)
+    var i: i64 = 0
+    while i < len(row_csvs) {
+        table_push(row, row_csvs[i])
+        i = i + 1
+    }
+    return row
+}
+
+// 分页。
+pub func page() -> table<string> {
+    return ["page"]
+}
+
+// 分节（新节并换页）。
+pub func sec() -> table<string> {
+    return ["sec"]
+}
+
+// 超链接。
+pub func link(txt: string, url: string) -> table<string> {
+    return ["link", txt, url]
+}
+
+// OOXML 片段透传（高级：直接给 Word 级 XML）。
+pub func raw(xml: string) -> table<string> {
+    return ["raw", xml]
+}
+
+// 列表块通用构建（kind 为 ul/ol）。
+func list_blk(kind: string, items: table<string>) -> table<string> {
+    var row = table_new_string()
+    table_push(row, kind)
+    var i: i64 = 0
+    while i < len(items) {
+        table_push(row, items[i])
+        i = i + 1
+    }
+    return row
+}
+
+// i64 → 十进制字符串（模块自包含）。
+func i2s(v: i64) -> string {
+    if v == 0 {
+        return "0"
+    }
+    var sb = string_builder()
+    var neg = false
+    var x: i64 = v
+    if x < 0 {
+        neg = true
+        x = 0 - x
+    }
+    var digs = table_new_i64()
+    while x > 0 {
+        table_push(digs, x % 10)
+        x = x / 10
+    }
+    if neg {
+        sb_append(sb, "-")
+    }
+    var i: i64 = len(digs) - 1
+    while i >= 0 {
+        sb_append_byte(sb, 48 + digs[i])
+        i = i - 1
+    }
+    return sb_build(sb)
+}
+
+}   // namespace tiedoc

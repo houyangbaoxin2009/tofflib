@@ -1,0 +1,5 @@
+// 项目级自定义角色注册（tie 编译器识别）
+// tdoc = tie 办公文档源文件角色：文档即 tie 源码（块协议），由 tofflib 渲染库消费
+[
+    "tdoc": [ "kind": "base", "output": "lib" ],
+]

@@ -11,6 +11,7 @@ import "../vml.tie" as vm
 import "../officeutil.tie" as ou
 import "../ooxml.tie" as ox
 import "../xlsx.tie" as xs
+import "../tiedoc.tie" as td
 
 // 断言 helper：got != want 时 panic 并指出模块/用例。
 func check(name: string, got: string, want: string) {
@@ -382,6 +383,33 @@ func main() {
     }
     check("xs.write_xlsx-exists", exists_x, "true")
     check("xs.write_xlsx-pk", file_pk("demo_out.xlsx"), "true")
+
+    // ================= tiedoc：tdoc 块协议构建 =================
+    var tb0 = td.h(2, "节标题")
+    check_i64("td.h-len", len(tb0), 2)
+    check("td.h-kind", tb0[0], "h2")
+    check("td.h-text", tb0[1], "节标题")
+    check("td.h1", td.h1("x")[0], "h1")
+    check("td.h9", td.h9("x")[0], "h9")
+    check("td.h-clamp", td.h(99, "x")[0], "h9")
+    check("td.p-kind", td.p("你好")[0], "p")
+    check("td.b-text", td.b("x")[1], "x")
+    check("td.center-kind", td.center("x")[0], "center")
+    var tul = td.ul(["a", "b"])
+    check_i64("td.ul-len", len(tul), 3)
+    check("td.ul-1", tul[1], "a")
+    check("td.ul-2", tul[2], "b")
+    check("td.ol-kind", td.ol(["a"])[0], "ol")
+    var tt = td.tbl("项目,状态", ["文档,进行中"])
+    check_i64("td.tbl-len", len(tt), 3)
+    check("td.tbl-hdr", tt[1], "项目,状态")
+    check("td.tbl-row", tt[2], "文档,进行中")
+    check("td.page-kind", td.page()[0], "page")
+    check("td.sec-kind", td.sec()[0], "sec")
+    check_i64("td.link-len", len(td.link("t", "u")), 3)
+    check("td.raw-xml", td.raw("<x/>")[1], "<x/>")
+    var trows: table<table<string>> = [td.h1("a"), td.p("b")]
+    check_i64("td.rows-build", len(trows), 2)
 
     // 打印组装出的整段 docx 文档片段，供人工核对
     println("---- 组装示例 ----")
