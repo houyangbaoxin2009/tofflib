@@ -1,8 +1,8 @@
 type tie<logic>
 // ============================================================================
 // probe.tie：tofflib 冒烟验证（logic 可执行入口，仅本地验证用，不入库语义核心）
-// 导入全部 4 个模块并调用各模块代表性 pub 接口，做输入/输出抽查。
-// 运行：tiec probe.tie && probe.exe；任一断言不符即 panic（非零退出）。
+// 覆盖 4 个模块的全部 pub 接口（精确断言 + 子串断言）。
+// 运行：tiec probe.tie -o probe.exe && probe.exe；任一断言不符即 panic（非零退出）。
 // ============================================================================
 
 import "../docx.tie" as dx
@@ -19,10 +19,31 @@ func check(name: string, got: string, want: string) {
 }
 
 func main() {
-    // ---- docx：转义 / 段落 / run_font / 表格 ----
+    // ================= docx：全部 8 个 pub 接口 =================
     check("dx.escape", dx.escape("a&b<c>d"), "a&amp;b&lt;c&gt;d")
     check("dx.run", dx.run("你好"), "<w:r><w:t xml:space=\"preserve\">你好</w:t></w:r>")
-    check("dx.paragraph", dx.paragraph("z"), "<w:p><w:r><w:t xml:space=\"preserve\">z</w:t></w:r></w:p>")
+    check("dx.run_font",
+        dx.run_font("加粗", "宋体", 22, true),
+        "<w:r><w:rPr><w:rFonts w:ascii=\"宋体\" w:hAnsi=\"宋体\" w:eastAsia=\"宋体\"/><w:sz w:val=\"22\"/><w:b/></w:rPr>" +
+        "<w:t xml:space=\"preserve\">加粗</w:t></w:r>")
+    check("dx.run_font-none",
+        dx.run_font("x", "", 0, false),
+        "<w:r><w:rPr></w:rPr><w:t xml:space=\"preserve\">x</w:t></w:r>")
+    check("dx.paragraph",
+        dx.paragraph("z"),
+        "<w:p><w:r><w:t xml:space=\"preserve\">z</w:t></w:r></w:p>")
+    var pr = table_new_string()
+    table_push(pr, dx.run("a"))
+    table_push(pr, dx.run("b"))
+    check("dx.paragraph_runs",
+        dx.paragraph_runs(pr),
+        "<w:p><w:r><w:t xml:space=\"preserve\">a</w:t></w:r><w:r><w:t xml:space=\"preserve\">b</w:t></w:r></w:p>")
+    check("dx.root_open",
+        dx.root_open(),
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>" +
+        "<w:document xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" " +
+        "xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\">" +
+        "<w:body>")
     check("dx.root_close", dx.root_close(), "</w:body></w:document>")
 
     var h = table_new_string()
@@ -36,40 +57,108 @@ func main() {
     table_push(r2, "乙")
     var rows = [r1, r2]
     var txml = dx.tbl(rows, h, 100)
-    check("dx.tbl-header", has(txml, "<w:tblW w:w=\"100\""), "true")
+    check("dx.tbl-width", has(txml, "<w:tblW w:w=\"100\""), "true")
+    check("dx.tbl-border", has(txml, "<w:tblBorders/>"), "true")
     check("dx.tbl-boldheader", has(txml, "<w:b/>"), "true")
+    var empty_h = table_new_string()
+    var tplain = dx.tbl(rows, empty_h, 0)
+    check("dx.tbl-defaultwidth", has(tplain, "<w:tblW w:w=\"9360\""), "true")
+    check("dx.tbl-nobold", has(tplain, "<w:b/>"), "false")
 
-    // ---- omml：分数 / 上下标 / 公式段落 ----
-    var formula = mm.omath_para([mm.frac(mm.r("a") + mm.r("b"), mm.r("c")), mm.ssup(mm.r("x"), mm.r("2"))])
-    check("mm.frac", has(formula, "<m:f><m:num>"), "true")
-    check("mm.ssup", has(formula, "<m:sSup>"), "true")
+    // ================= omml：全部 10 个 pub 接口 =================
+    check("mm.escape", mm.escape("a&b<c"), "a&amp;b&lt;c")
+    check("mm.r", mm.r("x"), "<m:r><m:t>x</m:t></m:r>")
+    check("mm.raw", mm.raw("<x/>"), "<x/>")
+    var ip = table_new_string()
+    table_push(ip, mm.r("a"))
+    table_push(ip, mm.r("b"))
+    check("mm.inline",
+        mm.inline(ip),
+        "<m:oMath><m:r><m:t>a</m:t></m:r><m:r><m:t>b</m:t></m:r></m:oMath>")
+    check("mm.omath_para",
+        mm.omath_para(ip),
+        "<m:oMathPara><m:oMath><m:r><m:t>a</m:t></m:r><m:r><m:t>b</m:t></m:r></m:oMath></m:oMathPara>")
+    check("mm.frac", mm.frac("num", "den"), "<m:f><m:num>num</m:num><m:den>den</m:den></m:f>")
+    check("mm.ssub", mm.ssub(mm.r("x"), mm.r("i")),
+        "<m:sSub><m:e><m:r><m:t>x</m:t></m:r></m:e><m:sub><m:r><m:t>i</m:t></m:r></m:sub></m:sSub>")
+    check("mm.ssup", mm.ssup(mm.r("x"), mm.r("2")),
+        "<m:sSup><m:e><m:r><m:t>x</m:t></m:r></m:e><m:sup><m:r><m:t>2</m:t></m:r></m:sup></m:sSup>")
+    check("mm.delimit", mm.delimit("in", "(", ")"),
+        "<m:d><m:dPr><m:begChr m:val=\"(\"/><m:endChr m:val=\")\"/></m:dPr><m:e>in</m:e></m:d>")
+    var nary = mm.nary("∑", "sub", "sup", "in")
+    check("mm.nary-op", has(nary, "<m:chr m:val=\"∑\"/>"), "true")
+    check("mm.nary-limloc", has(nary, "<m:limLoc m:val=\"undOvr\"/>"), "true")
+    check("mm.nary-bounds", has(nary, "<m:sub>sub</m:sub><m:sup>sup</m:sup>"), "true")
 
-    // ---- vml：矩形/直线/组 ----
-    var shape = vm.group([vm.rect(10, 10, 120, 40, "标题"), vm.line(10, 60, 130, 60, "classic", 2)], 200, 100)
-    check("vm.rect", has(shape, "<v:rect"), "true")
-    check("vm.rect-textbox", has(shape, "<w:txbxContent>"), "true")
-    check("vm.line-arrow", has(shape, "endarrow=\"classic\""), "true")
+    // ================= vml：全部 5 个 pub 接口 =================
+    check("vm.escape", vm.escape("a&b"), "a&amp;b")
+    var rect = vm.rect(10, 10, 120, 40, "标题&备注")
+    check("vm.rect-pos", has(rect,
+        "<v:rect style=\"position:absolute;left:pt(10);top:pt(10);width:pt(120);height:pt(40)\""), "true")
+    check("vm.rect-esc", has(rect, "标题&amp;备注"), "true")
+    check("vm.rect-textbox", has(rect, "<w:txbxContent>"), "true")
+    var line = vm.line(10, 60, 130, 60, "classic", 2)
+    check("vm.line-fromto", has(line, "from=\"10,60\" to=\"130,60\""), "true")
+    check("vm.line-arrow", has(line, "endarrow=\"classic\""), "true")
+    check("vm.line-strokew", has(line, "strokeweight=\"2pt\""), "true")
+    var line2 = vm.line(1, 2, 3, 4, "", 0)
+    check("vm.line-noarrow", has(line2, "endarrow"), "false")
+    check("vm.line-nostrokew", has(line2, "strokeweight"), "false")
+    var grp = vm.group([rect, line], 200, 100)
+    check("vm.group-open",
+        has(grp, "<v:group style=\"position:relative;width:pt(200);height:pt(100)\" coordorigin=\"0,0\" coordsize=\"200,100\">"),
+        "true")
+    check("vm.group-children", has(grp, "</v:group>"), "true")
+    var tb = vm.textbox(5, 5, 80, 30, "备注")
+    check("vm.textbox-fill", has(tb, "fill=\"f\""), "true")
+    check("vm.textbox-body", has(tb, "<v:textbox><w:txbxContent>"), "true")
 
-    // ---- officeutil：日期 / CSV / 待办 / 对齐表格 ----
+    // ================= officeutil：全部 10 个 pub 接口 =================
+    check("ou.pad2-7", ou.pad2(7), "07")
+    check("ou.pad2-10", ou.pad2(10), "10")
+    check("ou.pad2-999", ou.pad2(999), "999")
+    check("ou.pad2-neg", ou.pad2(-1), "00")
     check("ou.fmt_date", ou.fmt_date(2026, 8, 5), "2026-08-05")
-    check("ou.pad2", ou.pad2(7), "07")
     check("ou.fmt_datetime", ou.fmt_datetime(2026, 8, 30, 9, 5, 7), "2026-08-30 09:05:07")
+    check("ou.csv_cell-plain", ou.csv_cell("x", ","), "x")
+    check("ou.csv_cell-sep", ou.csv_cell("b,c", ","), "\"b,c\"")
+    check("ou.csv_cell-quote", ou.csv_cell("a\"b", ","), "\"a\"\"b\"")
     var l1 = table_new_string()
     table_push(l1, "a")
     table_push(l1, "b,c")
     table_push(l1, "x")
     check("ou.csv_line-quote", ou.csv_line(l1, ","), "a,\"b,c\",x")
-    check("ou.todo", ou.todo("", ["写报告"]), "- [ ] 写报告\n")
-    check("ou.list_items", ou.list_items("", ["准备"]), "1. 准备\n")
+    var c1 = table_new_string()
+    table_push(c1, "a")
+    table_push(c1, "b")
+    var c2 = table_new_string()
+    table_push(c2, "c")
+    table_push(c2, "d")
+    var crow = [c1, c2]
+    check("ou.csv_text", ou.csv_text(crow, ","), "a,b\nc,d")
     var hd = table_new_string()
-    table_push(hd, "姓名")
-    table_push(hd, "分")
-    var tbl = ou.render_table(hd, rows, " | ", 1)
-    check("ou.render_table", has(tbl, "姓名"), "true")
+    table_push(hd, "a")
+    table_push(hd, "bb")
+    var rd = table_new_string()
+    table_push(rd, "1")
+    table_push(rd, "2")
+    var rd2 = table_new_string()
+    table_push(rd2, "3")
+    table_push(rd2, "4")
+    var rrows = [rd, rd2]
+    check("ou.render_table",
+        ou.render_table(hd, rrows, " | ", 1),
+        "a  | bb \n--------\n1  | 2  \n3  | 4  \n")
+    check("ou.todo", ou.todo("", ["写报告"]), "- [ ] 写报告\n")
+    check("ou.todo-title", ou.todo("标题", ["a", "b"]), "标题\n- [ ] a\n- [ ] b\n")
+    check("ou.todo_done", ou.todo_done("", ["准备"]), "- [x] 准备\n")
+    check("ou.list_items", ou.list_items("", ["准备"]), "1. 准备\n")
+    check("ou.list_items-title", ou.list_items("标题", ["a", "b"]), "标题\n1. a\n2. b\n")
 
     // 打印组装出的整段 docx 文档片段，供人工核对
     println("---- 组装示例 ----")
-    println(dx.root_open() + dx.paragraph("你好，tie 办公") + txml + formula + shape + dx.root_close())
+    println(dx.root_open() + dx.paragraph("你好，tie 办公") + txml +
+        mm.omath_para(ip) + grp + dx.root_close())
     println("---- 结束 ----")
 }
 

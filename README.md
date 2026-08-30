@@ -48,13 +48,16 @@ import "./officeutil.tie" as ou
 
 func main() {
     var doc = dx.root_open() +
-        dx.paragraph(dx.run_font("周报", "宋体", 22, true)) +
+        dx.paragraph_runs([dx.run_font("周报", "宋体", 22, true)]) +
         dx.tbl([[ou.fmt_date(2026,8,30), "进行中"]], [], 3000) +
         dx.root_close()
     file_write("out.xml", doc)
     println("已生成文档正文 XML")
 }
 ```
+
+> 注意：`paragraph(txt)` 接收的是**纯文本**（内部自动 run + 转义）；要插入已组装的
+> 格式 run，用 `paragraph_runs([...])`，不要把 `run_font(...)` 的输出再塞进 `paragraph()`。
 
 ## 各模块公开接口
 
