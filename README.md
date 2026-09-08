@@ -262,10 +262,10 @@ tofflib/
 │   ├── probe.tie     # 冒烟验证（导入全模块 + 断言）
 │   └── gen_docx.tie  # 端到端示例：生成 demo.docx（标题/列表/表格/页码）
 ├── .gitignore
-├── LICENSE           # Tie Public License v1.2 (TPL 1.2)
+├── LICENSE           # Tie Public License v2.0 (TPL 2.0)
 └── README.md
 ```
 
 ## 许可证
 
-tofflib 依据项目根目录 [LICENSE](LICENSE)（Tie Public License v1.2 (TPL 1.2)）发布。
+tofflib 依据项目根目录 [LICENSE](LICENSE)（Tie Public License v2.0 (TPL 2.0)）发布。
