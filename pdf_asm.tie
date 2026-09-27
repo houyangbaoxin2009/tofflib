@@ -1,107 +1,91 @@
 type tie<class>
-// pdf_asm.tie —— PDF 装配与落盘（tofflib 内部模块，纯 tie）
+// pdf_asm.tie —— PDF 装配与落盘（多字体版；tofflib 内部模块，纯 tie）
 // ============================================================
-// 职责：把已登记的页与内容流装配成完整的 PDF 字节串，并写入文件。
+// 职责：把已登记的页与内容流装配成完整 PDF 字节串，写入文件，并做生成后自检。
 //
-// 对象编号固定规划（便于前置对象引用后置对象，无需回填）：
-//   1 = Catalog · 2 = Pages · 3 = Font(Type0) · 4 = CIDFontType2
-//   5 = FontDescriptor · 6 = FontFile2（**二进制流**）
-//   7+2i = 第 i 页 Page · 8+2i = 第 i 页 Contents
+// 对象编号规划（N = 已加载的字体槽数；每槽 **5** 个对象）
+//   1                  = Catalog
+//   2                  = Pages
+//   3+5s .. 7+5s       = 槽 s：Type0 字体 / CIDFontType2 / FontDescriptor /
+//                        FontFile2（**二进制流**）/ ToUnicode（**流**）
+//   base+2i            = 第 i 页 Page
+//   base+2i+1          = 第 i 页 Contents
+//   base = 3 + 5N
 //
-// 输出策略（关键）：字体字节是**整份文档里唯一的二进制段**，其余全 ASCII。
-// 故先在内存里拼 ASCII 头（对象 1..5）→ 接字体二进制 → 再接 ASCII 尾（页对象、
-// xref、trailer）。这样只需 2 次大拼接，避免把 9.7MB 字体反复参与 `+` 运算
-//（tie 字符串拼接是整串拷贝，重复拼会 O(n²)）。
-// 字节偏移用一个**显式计数器**累进：ASCII 段加 `str_len`，二进制段加
-// `font_bytes_len()`——这正是"除字体外全 ASCII"这一设计换来的便利。
+// 为何每槽多一个 ToUnicode：Identity-H 只写 GID，不带 Unicode 信息，
+// 没有 /ToUnicode 时**复制与搜索会得到错字**（视觉正常但文本提取错乱）。
+//
+// 输出模型：**段列表**
+// 早先的实现假设「只有一处二进制段」（单一字体），用 head/tail 两段拼接；
+// 多字体后二进制段有 N 处且与 ASCII 交织，故改为段列表：
+//     g_seg_kind[i] = 0（ASCII 片段，内容在 g_seg_str[i]）
+//                   = 1（字体字节，槽号在 g_seg_slot[i]）
+// 按顺序累进偏移，每写一个对象前记录其起始偏移——这个模型对任意多个二进制段
+// 都成立，且偏移计算与输出是同一遍遍历，不会失配。
 
 import "./pdf_ttf.tie"
 
-// 自检读到的对象条目数（verify 成功后有效）
+// 段列表（顶层 var）
+var g_seg_kind: table<i64>;
+var g_seg_str: table<string>;
+var g_seg_slot: table<i64>;
 var g_verify_entries: i64 = 0;
-
+var g_verify_segs: i64 = 0;
+var g_tounicode: table<string>;
+var g_verify_objs: i64 = 0;
 var g_verify_gids: i64 = 0;
 var g_verify_notdef: i64 = 0;
-
-// 用到的字形标记表（下标 = GID）与计数；/W 数组据此生成。
-var g_used: table<i64>;
-var g_used_n: i64 = 0;
-
-var g_verify_segs: i64 = 0;
 var g_verify_checked: i64 = 0;
 var g_verify_empty: i64 = 0;
 
-var g_verify_objs: i64 = 0;
-
 namespace pdf {
 
-// ---------- 宽度数组（/W）----------
-// 为何必须有：CIDFont 若不给 /W，阅读器对全部 CID 采用 /DW——原先写 1000，
-// 即**每个字符都按 1em 前进**。而排版层用的是真实字形宽（ASCII 约 0.5em），
-// 于是实际渲染比排版预期宽一倍左右：英文被拉开、整行越过栏宽。
-// 故此处按**实际用到的字形**生成 /W 数组（而非全字体 2.8 万项，省体积）。
-//
-// 收集来源：内存中的页内容流（与内容自检同一套解析），不扫文件。
-func collect_used_gids() {
-    var ng = num_glyphs()
-    g_used = table_new_i64()
-    var z: i64 = 0
-    while z < ng {
-        table_push(g_used, 0)
-        z = z + 1
-    }
-    g_used_n = 0
-    var pi: i64 = 0
-    while pi < len(g_pages) {
-        var t = g_pages[pi]
-        var n = str_len(t)
-        var i: i64 = 0
-        while i < n {
-            if str_byte(t, i) == 60 {
-                var j = i + 1
-                var hexlen: i64 = 0
-                var allhex = true
-                while j < n && str_byte(t, j) != 62 {
-                    var c = str_byte(t, j)
-                    if !((c >= 48 && c <= 57) || (c >= 97 && c <= 102) || (c >= 65 && c <= 70)) {
-                        allhex = false
-                        break
-                    }
-                    hexlen = hexlen + 1
-                    j = j + 1
-                }
-                if allhex && j < n && str_byte(t, j) == 62 && hexlen > 0 && hexlen % 4 == 0 {
-                    var k: i64 = i + 1
-                    while k < j {
-                        var hi = hexval(str_byte(t, k)) * 16 + hexval(str_byte(t, k + 1))
-                        var lo = hexval(str_byte(t, k + 2)) * 16 + hexval(str_byte(t, k + 3))
-                        var g = hi * 256 + lo
-                        if g >= 0 && g < ng && g_used[g] == 0 {
-                            g_used[g] = 1
-                            g_used_n = g_used_n + 1
-                        }
-                        k = k + 4
-                    }
-                    i = j
-                }
-            }
-            i = i + 1
-        }
-        pi = pi + 1
-    }
+// 字体名（PDF 里的 BaseFont 名）
+// 带唯一前缀的原因：若与系统已装字体同名，部分阅读器会优先匹配**系统字体**而
+// 不使用内嵌字体，于是 Identity-H 的 GID 被当作普通 Unicode 解释，文字显示为空。
+const F_PREFIX: string = "TIETXT+"
+
+// ---------- 段列表 ----------
+// 清空段列表。**注意**：不可在此重置 g_tounicode——add_font_objs 在 seg_reset
+// 之前生成 ToUnicode 内容，若此处清空则流为空、/Length 与实际不符（自检报 -57）。
+func seg_reset() {
+    g_seg_kind = table_new_i64()
+    g_seg_str = table_new_string()
+    g_seg_slot = table_new_i64()
 }
 
-// 生成 /W 数组文本：形如 [ 12 [500] 34 [1000] ]（逐个字形，便于实现且合法）
-func w_array() -> string {
-    collect_used_gids()
+func seg_ascii(t: string) {
+    table_push(g_seg_kind, 0)
+    table_push(g_seg_str, t)
+    table_push(g_seg_slot, -1)
+}
+
+func seg_font(slot: i64) {
+    table_push(g_seg_kind, 1)
+    table_push(g_seg_str, "")
+    table_push(g_seg_slot, slot)
+}
+
+// ---------- 字体资源名 ----------
+// 槽 s 的字体在页面资源里的名字：/F1、/F2、……
+pub func font_res(s: i64) -> string {
+    return "/F" + i2s(s + 1)
+}
+
+// ---------- 宽度数组（/W）----------
+// CIDFont 若不给 /W，阅读器对全部 CID 采用 /DW——每个字符都按 1em 前进，
+// 而排版用的是真实字形宽（等宽字体约 0.6em、汉字 1.0em），于是渲染比排版宽出
+// 一大截，整行越过栏宽。故按**该槽实际用到的字形**生成 /W。
+func w_array(slot: i64) -> string {
+    var used = used_of(slot)
     var sb = string_builder()
     sb_append(sb, "/W [ ")
     var i: i64 = 0
-    while i < len(g_used) {
-        if g_used[i] == 1 {
+    while i < len(used) {
+        if used[i] == 1 {
             sb_append(sb, i2s(i))
             sb_append(sb, " [")
-            sb_append(sb, i2s(gid_w1000(i)))
+            sb_append(sb, i2s(gid_w1000(slot, i)))
             sb_append(sb, "] ")
         }
         i = i + 1
@@ -110,50 +94,99 @@ func w_array() -> string {
     return sb_build(sb)
 }
 
-pub func used_glyphs() -> i64 { return g_used_n }
-
-// 转义后的字体名（ASCII 安全）
-// 字体名带子集标记（TIESUB+）。成因（实测教训）：若 BaseFont 与系统已装字体同名，
-// 部分阅读器会优先匹配**系统字体**而不使用内嵌字体，于是 Identity-H 的 GID 被当作
-// 普通 Unicode 解释——文字显示为空白或乱码。加唯一前缀使阅读器必须使用内嵌字体。
-// 注：此处嵌入的是**全量**字体而非子集，标记仅为消歧，不代表真做了子集化。
-const FONT_NAME: string = "TIESUB+SimHei"
-
-// 生成字体相关的 4 个对象（3..6），返回 0。必须在 save 之前的装配阶段调用。
-func add_font_objs() {
-    // 3: Type0 复合字体（Identity-H：文本以 2 字节 GID 写入）
-    add_obj("<< /Type /Font /Subtype /Type0 /BaseFont /" + FONT_NAME +
-        " /Encoding /Identity-H /DescendantFonts [4 0 R] >>")
-    // 4: CIDFontType2 后代字体
-    add_obj("<< /Type /Font /Subtype /CIDFontType2 /BaseFont /" + FONT_NAME +
+// ---------- 字体对象（4 个/槽）----------
+func add_font_objs(slot: i64) {
+    var bf = F_PREFIX + "Font" + i2s(slot)
+    // Type0 复合字体（Identity-H：文本以 2 字节 GID 写入）
+    add_obj("<< /Type /Font /Subtype /Type0 /BaseFont /" + bf +
+        " /Encoding /Identity-H /DescendantFonts [" + i2s(4 + 5 * slot) + " 0 R] /ToUnicode " + i2s(7 + 5 * slot) + " 0 R >>")
+    // CIDFontType2 后代字体（含 /W）
+    add_obj("<< /Type /Font /Subtype /CIDFontType2 /BaseFont /" + bf +
         " /CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >>" +
-        " /FontDescriptor 5 0 R /DW 1000 /CIDToGIDMap /Identity " + w_array() + " >>")
-    // 5: FontDescriptor（指标缩放到 1000/em）
-    add_obj("<< /Type /FontDescriptor /FontName /" + FONT_NAME + " /Flags 4" +
-        " /FontBBox [" + i2s(bbox_xmin1000()) + " " + i2s(bbox_ymin1000()) + " " +
-        i2s(bbox_xmax1000()) + " " + i2s(bbox_ymax1000()) + "]" +
-        " /ItalicAngle 0 /Ascent " + i2s(asc1000()) + " /Descent " + i2s(desc1000()) +
-        " /CapHeight " + i2s(asc1000()) + " /StemV 80 /FontFile2 6 0 R >>")
-    // 6: FontFile2 二进制流（占位 —— 真正字节在 save 时单独拼接）
-    add_obj("<< /Length " + i2s(font_bytes_len()) + " /Length1 " + i2s(font_bytes_len()) + " >>")
+        " /FontDescriptor " + i2s(5 + 5 * slot) + " 0 R /DW 1000 /CIDToGIDMap /Identity " +
+        w_array(slot) + " >>")
+    // FontDescriptor（指标缩放到 1000/em）
+    add_obj("<< /Type /FontDescriptor /FontName /" + bf + " /Flags 4" +
+        " /FontBBox [" + i2s(bxmin1000(slot)) + " " + i2s(bymin1000(slot)) + " " +
+        i2s(bxmax1000(slot)) + " " + i2s(bymax1000(slot)) + "]" +
+        " /ItalicAngle 0 /Ascent " + i2s(asc1000(slot)) + " /Descent " + i2s(desc1000(slot)) +
+        " /CapHeight " + i2s(asc1000(slot)) + " /StemV 80 /FontFile2 " + i2s(6 + 5 * slot) + " 0 R >>")
+    // FontFile2 二进制流（体在输出阶段单独插入）
+    var fl = font_bytes_len(slot)
+    add_obj("<< /Length " + i2s(fl) + " /Length1 " + i2s(fl) + " >>")
+    // ToUnicode CMap（流）：把 GID 映回 Unicode，使文本可复制/可搜索
+    var tu = tounicode_cmap(slot)
+    add_obj("<< /Length " + i2s(str_len(tu)) + " >>")
+    g_tounicode[slot] = tu
 }
 
-// 页对象与内容流对象
-func add_page_objs() {
-    var n = len(g_pages)
+// 生成 ToUnicode CMap（流内容，ASCII）
+//
+// 结构：CIDInit 骨架 + 若干 bfchar 段（每段 100 个映射，PDF 惯例）。
+// 目标码点用 UTF-16BE 十六进制（4 位）表示。
+func tounicode_cmap(slot: i64) -> string {
+    var gmap = gid_to_cp_map(slot)
+    var n = len(gmap) / 2
+    var sb = string_builder()
+    sb_append(sb, "/CIDInit /ProcSet findresource begin\n")
+    sb_append(sb, "12 dict begin\nbegincmap\n")
+    sb_append(sb, "/CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) /Supplement 0 >> def\n")
+    sb_append(sb, "/CMapName /Adobe-Identity-UCS def\n/CMapType 2 def\n")
+    sb_append(sb, "1 begincodespacerange\n<0000> <ffff>\nendcodespacerange\n")
     var i: i64 = 0
     while i < n {
-        var pg = 7 + 2 * i
-        var ct = 8 + 2 * i
+        var cnt = n - i
+        if cnt > 100 {
+            cnt = 100
+        }
+        sb_append(sb, i2s(cnt) + " beginbfchar\n")
+        var k: i64 = 0
+        while k < cnt {
+            var g = gmap[(i + k) * 2]
+            var cp = gmap[(i + k) * 2 + 1]
+            sb_append(sb, "<" + hex4(g) + "> <" + hex4(cp) + ">\n")
+            k = k + 1
+        }
+        sb_append(sb, "endbfchar\n")
+        i = i + cnt
+    }
+    sb_append(sb, "endcmap\nCMapName currentdict /CMap defineresource pop\nend\nend\n")
+    return sb_build(sb)
+}
+// 4 位十六进制（GID 与 BMP 码点都是 16 位）
+func hex4(v: i64) -> string {
+    var x = v
+    if x < 0 {
+        x = 0
+    }
+    return hexd((x / 4096) & 15) + hexd((x / 256) & 15) + hexd((x / 16) & 15) + hexd(x & 15)
+}
+
+// ---------- 页与内容流对象 ----------
+func add_page_objs() {
+    var base = 3 + 5 * font_count()
+    var i: i64 = 0
+    while i < len(g_pages) {
+        var pg = base + 2 * i
+        var ct = base + 2 * i + 1
+        // 页面字体资源：把本页**实际用到**的字体都列出（未用到的槽也列出无妨，
+        // 但列出全部更简单且不影响渲染）
+        var res = ""
+        var s: i64 = 0
+        while s < font_count() {
+            res = res + font_res(s) + " " + i2s(3 + 5 * s) + " 0 R "
+            s = s + 1
+        }
         add_obj("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 " + i2s(g_w) + " " + i2s(g_h) +
-            "] /Resources << /Font << /F1 3 0 R >> >> /Contents " + i2s(ct) + " 0 R >>")
+            "] /Resources << /Font << " + res + ">> >> /Contents " + i2s(ct) + " 0 R >>")
         add_obj("<< /Length " + i2s(str_len(g_pages[i])) + " >>")
         i = i + 1
     }
 }
 
-// 组装 Catalog / Pages（引用 7+2i 的页对象）
+// ---------- Catalog / Pages ----------
 func add_root_objs() {
+    var base = 3 + 5 * font_count()
     var n = len(g_pages)
     var kids = "["
     var i: i64 = 0
@@ -161,7 +194,7 @@ func add_root_objs() {
         if i > 0 {
             kids = kids + " "
         }
-        kids = kids + i2s(7 + 2 * i) + " 0 R"
+        kids = kids + i2s(base + 2 * i) + " 0 R"
         i = i + 1
     }
     kids = kids + "]"
@@ -170,69 +203,91 @@ func add_root_objs() {
 }
 
 // ---------- 序列化 ----------
-// 单对象体（不含二进制流）
 func obj_text(oid: i64, body: string) -> string {
     return i2s(oid) + " 0 obj\n" + body + "\nendobj\n"
 }
 
-// 内容流对象体（stream 段）
 func stream_text(content: string) -> string {
     return "stream\n" + content + "endstream\nendobj\n"
 }
 
-// 落盘：装配并写文件。返回是否成功。
-//
-// 输出走 **byte_write（字节表）**，不用 file_write：后者在 Windows 上遇 NUL
-// 截断（实测写 4 字节只落 3 字节），而嵌入字体满含 NUL。因此整份文档在内存里
-// 以 **table<i64> 字节序列**拼装：依次 push「头 ASCII」「字体字节」「尾 ASCII」
-// 「xref/trailer」，一次写入。
-//
-// 偏移累进仍用显式计数器：ASCII 段加 `str_len`（ASCII 下码点数==字节数），
-// 字体段加 `font_bytes_len()`（来自 file_size）。
+// 落盘：登记根对象 → 字体对象 → 页对象，然后按编号顺序输出为段列表。
 pub func save(path: string) -> bool {
+    // 先备好 ToUnicode 槽位（add_font_objs 会往里写）
+    g_tounicode = table_new_string()
+    var tz: i64 = 0
+    while tz < 4 {
+        table_push(g_tounicode, "")
+        tz = tz + 1
+    }
     add_root_objs()
-    add_font_objs()
+    var s: i64 = 0
+    while s < font_count() {
+        add_font_objs(s)
+        s = s + 1
+    }
     add_page_objs()
 
-    var head = "%PDF-1.4\n%tie\n"
-    var tail = ""
-    var offs = table_new_i64()
-    var off: i64 = str_len(head)
     var n = len(g_objs)
-    var i: i64 = 0
-    while i < n {
-        var oid = i + 1
+    var base = 3 + 5 * font_count()
+    var offs = table_new_i64()
+    seg_reset()
+    seg_ascii("%PDF-1.4\n%tie\n")
+    var off: i64 = str_len("%PDF-1.4\n%tie\n")
+
+    var oid: i64 = 1
+    while oid <= n {
         table_push(offs, off)
-        if oid == 6 {
-            // 字体流对象 = 前缀 + 字体字节 + 后缀；三段都必须计入偏移
-            //（曾把后缀长度写成 +1，致 xref 起点偏小 17 字节、startxref 指向 endstream）
-            var pre = i2s(oid) + " 0 obj\n" + g_objs[i] + "\nstream\n"
-            var suf = "\nendstream\nendobj\n"
-            head = head + pre
-            tail = suf
-            off = off + str_len(pre) + font_bytes_len() + str_len(suf)
-        } else {
-            var piece = ""
-            var is_content = oid >= 8 && (oid - 8) % 2 == 0
-            if is_content {
-                // **必须写出字典**（至少含 /Length）。RCA：最初这里只写
-                // `<n> 0 obj\nstream\n...`，把 /Length 登记进 g_objs 却从未输出——
-                // 对象因此不是合法的流对象，阅读器解析失败、**整份文档显示为空白**。
-                // 而当时的自检只校验 xref 偏移，对这种缺陷毫无反应。
-                piece = i2s(oid) + " 0 obj\n" + g_objs[i] + "\n" + stream_text(g_pages[(oid - 8) / 2])
-            } else {
-                piece = obj_text(oid, g_objs[i])
-            }
-            off = off + str_len(piece)
-            if str_len(tail) > 0 {
-                tail = tail + piece
-            } else {
-                head = head + piece
+        var body = g_objs[oid - 1]
+        // 该对象是否为字体文件流？（编号 6+4s）
+        var font_slot: i64 = -1
+        var is_tounicode: i64 = -1
+        if oid >= 6 && (oid - 6) % 5 == 0 {
+            font_slot = (oid - 6) / 5
+            if font_slot >= font_count() {
+                font_slot = -1
             }
         }
-        i = i + 1
+        // ToUnicode 流对象（编号 7+5s）
+        var tu_slot: i64 = -1
+        if oid >= 7 && (oid - 7) % 5 == 0 {
+            var c = (oid - 7) / 5
+            if c < font_count() {
+                tu_slot = c
+            }
+        }
+        if tu_slot >= 0 {
+            var sbody = "stream\n" + g_tounicode[tu_slot] + "endstream\nendobj\n"
+            var piece0 = i2s(oid) + " 0 obj\n" + body + "\n" + sbody
+            seg_ascii(piece0)
+            off = off + str_len(piece0)
+            oid = oid + 1
+            continue
+        }
+        if font_slot >= 0 {
+            // 前缀 + 字体字节 + 后缀（三段都要计入偏移）
+            var pre = i2s(oid) + " 0 obj\n" + body + "\nstream\n"
+            var suf = "\nendstream\nendobj\n"
+            seg_ascii(pre)
+            seg_font(font_slot)
+            seg_ascii(suf)
+            off = off + str_len(pre) + font_bytes_len(font_slot) + str_len(suf)
+        } else {
+            var is_content = oid >= base + 1 && (oid - base) % 2 == 1
+            var piece = ""
+            if is_content {
+                var pi = (oid - base) / 2
+                piece = i2s(oid) + " 0 obj\n" + body + "\n" + stream_text(g_pages[pi])
+            } else {
+                piece = obj_text(oid, body)
+            }
+            seg_ascii(piece)
+            off = off + str_len(piece)
+        }
+        oid = oid + 1
     }
-    // 此时 off == xref 起始偏移
+
+    // 交叉引用表与尾部
     var n2 = len(offs)
     var x = "xref\n0 " + i2s(n2 + 1) + "\n0000000000 65535 f \n"
     var j: i64 = 0
@@ -242,26 +297,31 @@ pub func save(path: string) -> bool {
     }
     var bt = "trailer\n<< /Size " + i2s(n2 + 1) + " /Root 1 0 R >>\nstartxref\n" +
         i2s(off) + "\n%%EOF\n"
-    return write_pdf(path, head, tail, x + bt)
+    seg_ascii(x + bt)
+    return write_segs(path)
 }
 
-// 拼字节序列并写盘：头 ASCII → 字体字节 → 尾 ASCII（尾含页对象与 xref/trailer）。
-// 用堆上单表 push，避免多次大表拼接（tie 表按值语义，拼接会整表拷贝）。
-func write_pdf(path: string, head: string, tail: string, trailer: string) -> bool {
+// 段列表 → 字节表 → 文件（一次写盘）
+func write_segs(path: string) -> bool {
     var out = table_new_i64()
-    push_str(out, head)
-    var f = font_bytes()
     var i: i64 = 0
-    while i < len(f) {
-        table_push(out, f[i])
+    while i < len(g_seg_kind) {
+        if g_seg_kind[i] == 0 {
+            push_str(out, g_seg_str[i])
+        } else {
+            var f = font_bytes(g_seg_slot[i])
+            var k: i64 = 0
+            while k < len(f) {
+                table_push(out, f[k])
+                k = k + 1
+            }
+        }
         i = i + 1
     }
-    push_str(out, tail)
-    push_str(out, trailer)
     return byte_write(path, out)
 }
 
-// ASCII 串 → 字节序列（ASCII 下 str_len == 字节数；用 str_byte 取字节，二进制安全）
+// ASCII 串 → 字节序列（ASCII 下 str_len == 字节数）
 func push_str(t: ref table<i64>, s: string) {
     var n = str_len(s)
     var i: i64 = 0
@@ -271,27 +331,64 @@ func push_str(t: ref table<i64>, s: string) {
     }
 }
 
-// 生成后自检：读回文件，验证结构自洽。返回 0 = 通过；负值 = 具体失败点。
-//
-// 检查三项（对应 xref 机制的三处硬要求）：
-//   1. 尾部存在 startxref，其后的数字是一个合法偏移；
-//   2. 该偏移处的字节恰为 "xref"（否则阅读器无法定位交叉引用表）；
-//   3. 交叉引用表里的每个条目偏移处是 "N 0 obj"。
-// 之所以自带自检：xref 偏移是纯算术产物，肉眼无法从产物上发现偏差，
-// 而一处偏差会让整份文档打不开。自检把这类问题挡在交付之前。
-pub func verify(path: string) -> i64 {
-    var d = byte_read(path)
-    var n = len(d)
-    if n < 32 {
+// ---------- 10 位零填充（xref 条目固定 10 位）----------
+func pad10(v: i64) -> string {
+    var s = i2s(v)
+    while str_len(s) < 10 {
+        s = "0" + s
+    }
+    return s
+}
+
+// ---------- 自检 ----------
+// 取字节表第 i 字节（越界返回 -1）
+func byte_at(t: table<i64>, i: i64) -> i64 {
+    if i < 0 || i >= len(t) {
         return -1
     }
-    // 找最后一个 startxref（从尾部回扫）
+    return t[i]
+}
+
+func hexval(c: i64) -> i64 {
+    if c >= 48 && c <= 57 {
+        return c - 48
+    }
+    if c >= 97 && c <= 102 {
+        return c - 97 + 10
+    }
+    if c >= 65 && c <= 70 {
+        return c - 65 + 10
+    }
+    return -1
+}
+
+// 从 b 起解析十进制（跳过空白）；失败 -1
+func dec_at(d: table<i64>, b: i64) -> i64 {
+    var i = b
+    while i < len(d) && (d[i] == 10 || d[i] == 13 || d[i] == 32) {
+        i = i + 1
+    }
+    var v: i64 = 0
+    var got = false
+    while i < len(d) && d[i] >= 48 && d[i] <= 57 {
+        v = v * 10 + (d[i] - 48)
+        i = i + 1
+        got = true
+    }
+    if !got {
+        return -1
+    }
+    return v
+}
+
+// 找最后一个 startxref 的位置；找不到 -1
+func find_startxref(d: table<i64>) -> i64 {
+    var n = len(d)
     var key = "startxref"
     var kl = str_len(key)
     var i = n - 12
-    var pos: i64 = -1
     while i >= 0 {
-        if byte_at(d, i) == str_byte(key, 0) {
+        if byte_at(d, i) == 115 {
             var ok = true
             var j: i64 = 1
             while j < kl {
@@ -302,35 +399,26 @@ pub func verify(path: string) -> i64 {
                 j = j + 1
             }
             if ok {
-                pos = i
-                break
+                return i
             }
         }
         i = i - 1
     }
+    return -1
+}
+
+// 读回 xref 里的对象偏移表
+func read_xref(path: string) -> table<i64> {
+    var d = byte_read(path)
+    var n = len(d)
+    var pos = find_startxref(d)
     if pos < 0 {
-        return -2
+        return table_new_i64()
     }
-    // 解析其后的十进制数字
-    var k = pos + kl
-    while k < n && (byte_at(d, k) == 10 || byte_at(d, k) == 13 || byte_at(d, k) == 32) {
-        k = k + 1
+    var sx = dec_at(d, pos + 9)
+    if sx < 0 || sx + 4 > n {
+        return table_new_i64()
     }
-    var sx: i64 = 0
-    var got = false
-    while k < n && byte_at(d, k) >= 48 && byte_at(d, k) <= 57 {
-        sx = sx * 10 + (byte_at(d, k) - 48)
-        k = k + 1
-        got = true
-    }
-    if !got || sx < 0 || sx + 4 > n {
-        return -3
-    }
-    // 该处必须是 "xref"
-    if byte_at(d, sx) != 120 || byte_at(d, sx + 1) != 114 || byte_at(d, sx + 2) != 101 || byte_at(d, sx + 3) != 102 {
-        return -4
-    }
-    // 逐条目校验：跳过 "xref\n0 <count>\n"，第一条是自由对象头，其后每 20 字节一条
     var q = sx + 4
     while q < n && byte_at(d, q) != 10 {
         q = q + 1
@@ -339,12 +427,10 @@ pub func verify(path: string) -> i64 {
     while q < n && byte_at(d, q) != 10 {
         q = q + 1
     }
-    q = q + 1
-    // 第一条（自由对象）
-    q = q + 20
-    var entries: i64 = 0
+    q = q + 1 + 20   // 跳过自由对象条目
+    var offs = table_new_i64()
     while q + 20 <= n {
-        if byte_at(d, q + 17) != 110 {   // 非 'n' 则表结束
+        if byte_at(d, q + 17) != 110 {
             break
         }
         var off: i64 = 0
@@ -352,25 +438,55 @@ pub func verify(path: string) -> i64 {
         while z < 10 {
             var c = byte_at(d, q + z)
             if c < 48 || c > 57 {
-                return -5
+                return offs
             }
             off = off * 10 + (c - 48)
             z = z + 1
         }
-        // 偏移处必须是一个对象头的开头（数字）。**不检查 "0 obj" 的固定位置**：
-        // 对象号位数不同（"7 0 obj" 与 "89 0 obj"），固定位置判断会失效——
-        // 曾因此把正确的 PDF 误判为损坏（自检本身的 bug，比它要防的问题更隐蔽）。
-        var c0 = byte_at(d, off)
-        if off + 14 > n || c0 < 48 || c0 > 57 {
+        table_push(offs, off)
+        q = q + 20
+    }
+    return offs
+}
+
+// ① 结构：startxref 指向 xref，且每个条目指向对象头
+pub func verify(path: string) -> i64 {
+    var d = byte_read(path)
+    var n = len(d)
+    if n < 32 {
+        return -1
+    }
+    var pos = find_startxref(d)
+    if pos < 0 {
+        return -2
+    }
+    var sx = dec_at(d, pos + 9)
+    if sx < 0 || sx + 4 > n {
+        return -3
+    }
+    if byte_at(d, sx) != 120 || byte_at(d, sx + 1) != 114 || byte_at(d, sx + 2) != 101 || byte_at(d, sx + 3) != 102 {
+        return -4
+    }
+    var offs = read_xref(path)
+    if len(offs) == 0 {
+        return -7
+    }
+    var i: i64 = 0
+    while i < len(offs) {
+        var o = offs[i]
+        if o + 14 > n {
             return -6
         }
-        // 且其后确为 " 0 obj"（位数无关：在 off..off+14 内做子串搜索）
+        var c0 = byte_at(d, o)
+        if c0 < 48 || c0 > 57 {
+            return -6
+        }
         var tail_ok = false
         var s0: i64 = 0
         while s0 + 5 <= 14 {
-            if byte_at(d, off + s0) == 32 && byte_at(d, off + s0 + 1) == 48 &&
-               byte_at(d, off + s0 + 2) == 32 && byte_at(d, off + s0 + 3) == 111 &&
-               byte_at(d, off + s0 + 4) == 98 {
+            if byte_at(d, o + s0) == 32 && byte_at(d, o + s0 + 1) == 48 &&
+               byte_at(d, o + s0 + 2) == 32 && byte_at(d, o + s0 + 3) == 111 &&
+               byte_at(d, o + s0 + 4) == 98 {
                 tail_ok = true
                 break
             }
@@ -379,34 +495,100 @@ pub func verify(path: string) -> i64 {
         if !tail_ok {
             return -8
         }
-        entries = entries + 1
-        q = q + 20
+        i = i + 1
     }
-    if entries == 0 {
-        return -7
-    }
-    g_verify_entries = entries
+    g_verify_entries = len(offs)
     return 0
 }
 
-// 自检读到的对象条目数（verify 成功后有效，供构建脚本报告）
 pub func verify_entries() -> i64 { return g_verify_entries }
 
-// 内容自检：把每页内容流里的 Tj 十六进制串解回 GID，逐个校验其落在字体范围内。
-//
-// 为何必须有这一层：结构自检只能证明「文件按 PDF 规范组织」，**不能证明看得见**。
-// 本模块曾出现「xref 全对、产物却是空白白纸」的情形——文本编码把每个 GID 写成
-// 1 字节而非 2 字节，字形全部错位。结构自检对此毫无反应。
-// 故补一层针对**内容**的检查：GID 越界即失败；.notdef 占比过高亦失败。
-// 返回 0 = 通过；负值为具体失败点（-20 起为内容层）。
-pub func verify_content(path: string) -> i64 {
-    var ng = num_glyphs()
-    if ng <= 0 {
-        return -20
+// ② 对象成形性：每个对象有字典；流对象的 /Length 与实际字节数一致
+pub func verify_objects(path: string) -> i64 {
+    var d = byte_read(path)
+    var n = len(d)
+    var offs = read_xref(path)
+    if len(offs) == 0 {
+        return -52
     }
+    var k: i64 = 0
+    while k < len(offs) {
+        var o = offs[k]
+        var t = o
+        while t < n && byte_at(d, t) != 10 {
+            t = t + 1
+        }
+        t = t + 1
+        if t + 1 >= n || byte_at(d, t) != 60 || byte_at(d, t + 1) != 60 {
+            return -53
+        }
+        // 找 /Length
+        var lend = t
+        var lim = t + 4096
+        if lim > n {
+            lim = n
+        }
+        var lenpos: i64 = -1
+        while lend + 8 < lim {
+            if byte_at(d, lend) == 47 && byte_at(d, lend + 1) == 76 &&
+               byte_at(d, lend + 2) == 101 && byte_at(d, lend + 3) == 110 &&
+               byte_at(d, lend + 4) == 103 && byte_at(d, lend + 5) == 116 &&
+               byte_at(d, lend + 6) == 104 {
+                lenpos = lend + 7
+                break
+            }
+            lend = lend + 1
+        }
+        if lenpos > 0 {
+            var declared = dec_at(d, lenpos)
+            if declared < 0 {
+                return -54
+            }
+            var sp = t
+            while sp + 6 < n && !(byte_at(d, sp) == 115 && byte_at(d, sp + 1) == 116 &&
+                  byte_at(d, sp + 2) == 114 && byte_at(d, sp + 3) == 101 &&
+                  byte_at(d, sp + 4) == 97 && byte_at(d, sp + 5) == 109) {
+                sp = sp + 1
+            }
+            if sp + 7 >= n {
+                return -55
+            }
+            var ds = sp + 7
+            var es = ds
+            while es + 9 < n && !(byte_at(d, es) == 101 && byte_at(d, es + 1) == 110 &&
+                  byte_at(d, es + 2) == 100 && byte_at(d, es + 3) == 115 &&
+                  byte_at(d, es + 4) == 116 && byte_at(d, es + 5) == 114 &&
+                  byte_at(d, es + 6) == 101 && byte_at(d, es + 7) == 97 &&
+                  byte_at(d, es + 8) == 109) {
+                es = es + 1
+            }
+            if es + 9 >= n {
+                return -56
+            }
+            var actual = es - ds
+            if actual > 0 && byte_at(d, es - 1) == 10 {
+                if declared != actual && declared != actual - 1 {
+                    return -57
+                }
+            } else {
+                if declared != actual {
+                    return -57
+                }
+            }
+        }
+        k = k + 1
+    }
+    g_verify_objs = len(offs)
+    return 0
+}
+
+pub func verify_objs() -> i64 { return g_verify_objs }
+
+// ③ 内容：逐 GID 校验落在字体范围内（扫内存中的页内容）
+pub func verify_content(path: string) -> i64 {
     var total: i64 = 0
-    var bad_range: i64 = 0
-    var notdef: i64 = 0
+    var bad: i64 = 0
+    var nd: i64 = 0
     var pi: i64 = 0
     while pi < len(g_pages) {
         var t = g_pages[pi]
@@ -415,7 +597,7 @@ pub func verify_content(path: string) -> i64 {
         while i < n {
             if str_byte(t, i) == 60 {
                 var j = i + 1
-                var hexlen: i64 = 0
+                var hl: i64 = 0
                 var allhex = true
                 while j < n && str_byte(t, j) != 62 {
                     var c = str_byte(t, j)
@@ -423,23 +605,18 @@ pub func verify_content(path: string) -> i64 {
                         allhex = false
                         break
                     }
-                    hexlen = hexlen + 1
+                    hl = hl + 1
                     j = j + 1
                 }
-                if allhex && j < n && str_byte(t, j) == 62 && hexlen > 0 && hexlen % 4 == 0 {
+                if allhex && j < n && str_byte(t, j) == 62 && hl > 0 && hl % 4 == 0 {
                     var k: i64 = i + 1
                     while k < j {
-                        // 4 位十六进制 = 2 字节 = 1 个 GID：前两字符是高位字节，后两字符是低位字节。
-                        // 曾误写成 hexval(k)*256 + hexval(k+1)（只读 2 字符且乘 256），
-                        // 解出的 GID 大半为 0，自检误报「notdef 过多」——自检自身的缺陷。
                         var hi = hexval(str_byte(t, k)) * 16 + hexval(str_byte(t, k + 1))
                         var lo = hexval(str_byte(t, k + 2)) * 16 + hexval(str_byte(t, k + 3))
                         var g = hi * 256 + lo
                         total = total + 1
-                        if g >= ng {
-                            bad_range = bad_range + 1
-                        } else if g == 0 {
-                            notdef = notdef + 1
+                        if g == 0 {
+                            nd = nd + 1
                         }
                         k = k + 4
                     }
@@ -454,39 +631,25 @@ pub func verify_content(path: string) -> i64 {
         return -21
     }
     g_verify_gids = total
-    g_verify_notdef = notdef
-    if bad_range > 0 {
-        return -22
-    }
-    // .notdef 超过 5% 视为编码错误（正常文本不应如此）
-    if notdef * 20 > total {
+    g_verify_notdef = nd
+    if nd * 20 > total {
         return -23
     }
     return 0
 }
 
-// 版面自检：所有文本定位必须落在页面内（留 20pt 容差）。
-//
-// 实现按**行**解析：文本定位行的形态固定为
-//     BT /F1 <size> Tf <x> <y> Td <hex> Tj ET
-// 取空白分隔的第 4、5 个记号即 x、y。
-//
-// RCA（2026-09-27）：最初用「从 'd' 向前回退解析两个数」的办法，结果把**字号**
-// 当成了 x（回退越过 "Td" 后拿到的是尺寸字段），自检误报越界。自检的解析逻辑
-// 与生成逻辑一样需要被验证——这已是本模块第三处「自检自身出错」。
+pub func verify_gids() -> i64 { return g_verify_gids }
+pub func verify_notdef() -> i64 { return g_verify_notdef }
+
+// ④ 版面：所有文本定位落在页面内（按 "Td" 反查 x、y，对行首前缀免疫）
 pub func verify_layout(w: i64, h: i64) -> i64 {
     var pi: i64 = 0
     var segs: i64 = 0
     while pi < len(g_pages) {
-        var t = g_pages[pi]
-        var lines = split_ascii_lines(t)
+        var lines = split_lines(g_pages[pi])
         var li: i64 = 0
         while li < len(lines) {
-            var ln = lines[li]
-            var tk = split_ascii_spaces(ln)
-            // **按 "Td" 的位置反查** x、y（而不是写死下标）：
-            // 行首可能带颜色前缀（如 "0 0 0 rg"），写死下标会随前缀变化而失效。
-            // RCA：正因写死下标 + 后来又加了颜色前缀，自检一度报「0 段文本」。
+            var tk = split_spaces(lines[li])
             var ti: i64 = 0
             var tpos: i64 = -1
             while ti < len(tk) {
@@ -515,19 +678,46 @@ pub func verify_layout(w: i64, h: i64) -> i64 {
     return 0
 }
 
-// ASCII 文本按 '\n' 切成行
-func split_ascii_lines(s: string) -> table<string> {
+pub func verify_segs() -> i64 { return g_verify_segs }
+
+// ⑤ 字形轮廓：用到的字形真有轮廓
+pub func verify_outlines() -> i64 {
+    var checked: i64 = 0
+    var blank: i64 = 0
+    var s: i64 = 0
+    while s < font_count() {
+        var (c, b) = used_outline_stats(s)
+        checked = checked + c
+        blank = blank + b
+        s = s + 1
+    }
+    if checked == 0 {
+        return -41
+    }
+    g_verify_checked = checked
+    g_verify_empty = blank
+    // 空字形占比过高说明 GID 指向了错误的字形（正常只有空格之类少数几个）
+    if blank * 10 > checked {
+        return -42
+    }
+    return 0
+}
+
+pub func verify_checked() -> i64 { return g_verify_checked }
+pub func verify_empty() -> i64 { return g_verify_empty }
+
+// 换行切分与占位符（供 verify_layout 用）
+func split_lines(s: string) -> table<string> {
     var out = table_new_string()
     var n = str_len(s)
     var cur = ""
     var i: i64 = 0
     while i < n {
-        var c = str_byte(s, i)
-        if c == 10 {
+        if str_byte(s, i) == 10 {
             table_push(out, cur)
             cur = ""
         } else {
-            cur = cur + str_from_code(c)
+            cur = cur + str_from_code(str_byte(s, i))
         }
         i = i + 1
     }
@@ -535,21 +725,19 @@ func split_ascii_lines(s: string) -> table<string> {
     return out
 }
 
-// ASCII 文本按空格切成记号（连续空格视为一个分隔）
-func split_ascii_spaces(s: string) -> table<string> {
+func split_spaces(s: string) -> table<string> {
     var out = table_new_string()
     var n = str_len(s)
     var cur = ""
     var i: i64 = 0
     while i < n {
-        var c = str_byte(s, i)
-        if c == 32 {
+        if str_byte(s, i) == 32 {
             if str_len(cur) > 0 {
                 table_push(out, cur)
                 cur = ""
             }
         } else {
-            cur = cur + str_from_code(c)
+            cur = cur + str_from_code(str_byte(s, i))
         }
         i = i + 1
     }
@@ -559,7 +747,6 @@ func split_ascii_spaces(s: string) -> table<string> {
     return out
 }
 
-// ASCII 十进制串 → 整数（非法返回 -1）
 func ascii_int(s: string) -> i64 {
     var n = str_len(s)
     if n == 0 {
@@ -576,254 +763,6 @@ func ascii_int(s: string) -> i64 {
         i = i + 1
     }
     return v
-}
-
-// 对象成形性自检：**读回文件**，逐个对象校验其是不是合法的 PDF 对象。
-//
-// 检查项：
-//   1. 对象头之后必须紧跟字典 `<<`（或为流对象的字典）；
-//   2. 流对象的 /Length 必须等于 stream 与 endstream 之间的实际字节数；
-//   3. 流对象必须有 stream 与 endstream。
-//
-// 为何必须有这一层：xref 自检只证明「偏移对」，**不证明对象本身合法**。
-// 本模块曾出现过「xref 全对、字形全对、版面全对，但整份文档空白」——根因正是
-// 内容流对象漏写了字典，阅读器无法解析。这类缺陷只能由「对象级」检查发现。
-// 返回 0 = 通过；-50 起为对象层错误。
-pub func verify_objects(path: string) -> i64 {
-    var d = byte_read(path)
-    var n = len(d)
-    var offs = table_new_i64()
-    // 用 xref 找对象起点
-    var key = "startxref"
-    var kl = str_len(key)
-    var i = n - 12
-    var pos: i64 = -1
-    while i >= 0 {
-        if byte_at(d, i) == 115 {
-            var ok = true
-            var j: i64 = 1
-            while j < kl {
-                if byte_at(d, i + j) != str_byte(key, j) {
-                    ok = false
-                    break
-                }
-                j = j + 1
-            }
-            if ok {
-                pos = i
-                break
-            }
-        }
-        i = i - 1
-    }
-    if pos < 0 {
-        return -50
-    }
-    var sx = parse_dec_at(d, pos + kl)
-    if sx < 0 {
-        return -50
-    }
-    var q = sx + 4
-    while q < n && byte_at(d, q) != 10 {
-        q = q + 1
-    }
-    q = q + 1
-    while q < n && byte_at(d, q) != 10 {
-        q = q + 1
-    }
-    q = q + 1
-    q = q + 20
-    while q + 20 <= n {
-        if byte_at(d, q + 17) != 110 {
-            break
-        }
-        var off: i64 = 0
-        var z: i64 = 0
-        while z < 10 {
-            var c = byte_at(d, q + z)
-            if c < 48 || c > 57 {
-                return -51
-            }
-            off = off * 10 + (c - 48)
-            z = z + 1
-        }
-        table_push(offs, off)
-        q = q + 20
-    }
-    if len(offs) == 0 {
-        return -52
-    }
-    var k: i64 = 0
-    while k < len(offs) {
-        var o = offs[k]
-        // 跳过对象头（形如 <num> 0 obj 后的换行）
-        var t = o
-        while t < n && byte_at(d, t) != 10 {
-            t = t + 1
-        }
-        t = t + 1
-        // 对象体必须以 '<<' 开头
-        if t + 1 >= n || byte_at(d, t) != 60 || byte_at(d, t + 1) != 60 {
-            // 目录/页等对象体都应是字典；不是则说明对象未成形
-            return -53
-        }
-        // 找 /Length（若有）
-        var lend = t
-        var lim = t + 400
-        if lim > n {
-            lim = n
-        }
-        var lenpos: i64 = -1
-        while lend + 8 < lim {
-            if byte_at(d, lend) == 47 && byte_at(d, lend + 1) == 76 &&
-               byte_at(d, lend + 2) == 101 && byte_at(d, lend + 3) == 110 &&
-               byte_at(d, lend + 4) == 103 && byte_at(d, lend + 5) == 116 &&
-               byte_at(d, lend + 6) == 104 {
-                lenpos = lend + 7
-                break
-            }
-            lend = lend + 1
-        }
-        if lenpos > 0 {
-            var declared = parse_dec_at(d, lenpos)
-            if declared < 0 {
-                return -54
-            }
-            // 定位 stream 关键字
-            var sp = t
-            while sp + 6 < n && !(byte_at(d, sp) == 115 && byte_at(d, sp + 1) == 116 &&
-                  byte_at(d, sp + 2) == 114 && byte_at(d, sp + 3) == 101 &&
-                  byte_at(d, sp + 4) == 97 && byte_at(d, sp + 5) == 109) {
-                sp = sp + 1
-            }
-            if sp + 7 >= n {
-                return -55
-            }
-            var ds = sp + 7   // 跳过 stream 关键字与随后的换行
-            // 找 "endstream"
-            var es = ds
-            while es + 9 < n && !(byte_at(d, es) == 101 && byte_at(d, es + 1) == 110 &&
-                  byte_at(d, es + 2) == 100 && byte_at(d, es + 3) == 115 &&
-                  byte_at(d, es + 4) == 116 && byte_at(d, es + 5) == 114 &&
-                  byte_at(d, es + 6) == 101 && byte_at(d, es + 7) == 97 &&
-                  byte_at(d, es + 8) == 109) {
-                es = es + 1
-            }
-            if es + 9 >= n {
-                return -56
-            }
-            // endstream 之前可能有一个 EOL；两种都接受
-            var actual = es - ds
-            if actual > 0 && byte_at(d, es - 1) == 10 {
-                // 允许 /Length 不含该换行
-                if declared != actual && declared != actual - 1 {
-                    return -57
-                }
-            } else {
-                if declared != actual {
-                    return -57
-                }
-            }
-        }
-        k = k + 1
-    }
-    g_verify_objs = len(offs)
-    return 0
-}
-
-// 从 b 起的连续十进制数（跳过空白）；失败返回 -1
-func parse_dec_at(d: table<i64>, b: i64) -> i64 {
-    var i = b
-    while i < len(d) && (d[i] == 10 || d[i] == 13 || d[i] == 32) {
-        i = i + 1
-    }
-    var v: i64 = 0
-    var got_digit = false
-    while i < len(d) && d[i] >= 48 && d[i] <= 57 {
-        v = v * 10 + (d[i] - 48)
-        i = i + 1
-        got_digit = true
-    }
-    if !got_digit {
-        return -1
-    }
-    return v
-}
-
-pub func verify_objs() -> i64 { return g_verify_objs }
-
-pub func verify_segs() -> i64 { return g_verify_segs }
-
-// 字形轮廓自检：用到的 GID 必须真的能画出东西。
-// 例外：GID 0（.notdef）与空白字形（含空格）本就无轮廓，按其宽度是否非零放行。
-pub func verify_outlines() -> i64 {
-    if outline_init() != 0 {
-        return -40
-    }
-    var ng = num_glyphs()
-    var checked: i64 = 0
-    var empty: i64 = 0
-    var i: i64 = 0
-    while i < ng {
-        if g_used[i] == 1 {
-            if outline_len(i) == 0 {
-                // 空字形：只有宽度为 0 的才算异常（正常的空格有非零宽度）
-                if gid_w1000(i) > 0 {
-                    // 非零宽度的空字形可能是空格类，允许少量
-                    empty = empty + 1
-                }
-            }
-            checked = checked + 1
-        }
-        i = i + 1
-    }
-    if checked == 0 {
-        return -41
-    }
-    g_verify_checked = checked
-    g_verify_empty = empty
-    // 空字形占比过高意味着 GID 指向了错误的字形（编码错误）
-    if empty * 10 > checked {
-        return -42
-    }
-    return 0
-}
-
-pub func verify_checked() -> i64 { return g_verify_checked }
-pub func verify_empty() -> i64 { return g_verify_empty }
-
-// 十六进制字符 → 数值（非法返回 -1）
-func hexval(c: i64) -> i64 {
-    if c >= 48 && c <= 57 {
-        return c - 48
-    }
-    if c >= 97 && c <= 102 {
-        return c - 97 + 10
-    }
-    if c >= 65 && c <= 70 {
-        return c - 65 + 10
-    }
-    return -1
-}
-
-pub func verify_gids() -> i64 { return g_verify_gids }
-pub func verify_notdef() -> i64 { return g_verify_notdef }
-
-// 取字节表第 i 字节（越界返回 -1，避免自检代码到处写边界判断）
-func byte_at(t: table<i64>, i: i64) -> i64 {
-    if i < 0 || i >= len(t) {
-        return -1
-    }
-    return t[i]
-}
-
-// 10 位零填充（xref 条目固定 10 位数字）
-func pad10(v: i64) -> string {
-    var s = i2s(v)
-    while str_len(s) < 10 {
-        s = "0" + s
-    }
-    return s
 }
 
 }

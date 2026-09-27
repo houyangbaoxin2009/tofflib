@@ -1,7 +1,12 @@
 type tie<logic>
-// build.tie —— 《tie 语言语法规范 2026.2》构建入口（依序装配各章 → PDF）
+// build.tie —— 《tie 语言语法规范 2026.2》构建入口
+// ============================================================
+// 两遍排版（目录页码必须回填，而页码又受目录自身占页数影响）：
+//   阶段一：干跑（不产出内容）——收集章标题与页码，并量出目录占几页
+//   阶段二：正式排版——封面 → 目录（真实页码）→ 正文
+// 干跑与正式排版走同一份代码路径，故页码一致；无须迭代收敛。
 //
-// 生成方式：tiec build.tie -o build.exe && build.exe
+// 生成：tiec build.tie -o build.exe && build.exe
 // 编排：make.tsh.tie（tshell）
 import "F:/Projects/tie-repo/tofflib/spec/pdfdoc.tie" as dp
 import "F:/Projects/tie-repo/tofflib/spec/ch01_lex.tie" as c01
@@ -21,27 +26,10 @@ import "F:/Projects/tie-repo/tofflib/spec/ch14_ui.tie" as c14
 import "F:/Projects/tie-repo/tofflib/spec/ch15_tool.tie" as c15
 import "F:/Projects/tie-repo/tofflib/spec/ch16_ref.tie" as c16
 
-func main() -> i64 {
-    dp.begin()
-    dp.cover("tie 语言语法规范", "tie Language Specification", "版本 2026.2")
-    dp.pagebreak()
-    dp.toc_item("第 1 章  词法与记号", "")
-    dp.toc_item("第 2 章  类型系统", "")
-    dp.toc_item("第 3 章  运算符与表达式", "")
-    dp.toc_item("第 4 章  语句", "")
-    dp.toc_item("第 5 章  函数", "")
-    dp.toc_item("第 6 章  数据结构", "")
-    dp.toc_item("第 7 章  接口", "")
-    dp.toc_item("第 8 章  错误处理", "")
-    dp.toc_item("第 9 章  模块与导入", "")
-    dp.toc_item("第 10 章  并发", "")
-    dp.toc_item("第 11 章  不安全机制", "")
-    dp.toc_item("第 12 章  宏与元编程", "")
-    dp.toc_item("第 13 章  所有权与移动", "")
-    dp.toc_item("第 14 章  界面元素块与图语法", "")
-    dp.toc_item("第 15 章  工具链与语言服务", "")
-    dp.toc_item("第 16 章  速查表", "")
-    dp.pagebreak()
+const OUT: string = "F:/Projects/tie-repo/tofflib/spec/tie-spec-2026.pdf";
+
+// 正文全部章节（两遍排版共用同一份调用序列）
+func body() {
     c01.chapter()
     c02.chapter()
     c03.chapter()
@@ -58,49 +46,73 @@ func main() -> i64 {
     c14.chapter()
     c15.chapter()
     c16.chapter()
-    var out = "F:/Projects/tie-repo/tofflib/spec/tie-spec-2026.pdf"
-    var ok = dp.end(out)
+}
+
+func main() -> i64 {
+    dp.init()
+
+    // ---------- 阶段一：干跑，收集标题与页码，量出目录页数 ----------
+    dp.reset_doc()
+    dp.toc_clear()
+    dp.toc_on()
+    dp.dry_on()
+    body()
+    dp.dry_off()
+
+    var tocpg = dp.toc_pages()
+    // 目录里的页码 = 干跑页码 + 封面页数 + 目录自身页数
+    dp.toc_set_off(1 + tocpg)
+    println("toc entries = " + to_string(dp.toc_count()) + "  toc pages = " + to_string(tocpg))
+
+    // ---------- 阶段二：正式排版 ----------
+    dp.reset_doc()
+    dp.toc_off()
+    dp.cover("tie 语言语法规范", "tie Language Specification", "版本 2026.2")
+    dp.pagebreak()
+    dp.toc_page()
+    dp.pagebreak()
+    body()
+
+    var ok = dp.end(OUT)
     println("write = " + to_string(ok))
-    // 生成后自检：xref 结构自洽性（偏移、交叉引用表、逐对象条目）
-    var vr = dp.verify(out)
+
+    // ---------- 生成后自检（五层）----------
+var vr = dp.verify(OUT)
     if vr == 0 {
-        println("verify = OK (" + to_string(dp.verify_entries()) + " object entries)")
+        println("verify  = OK (" + to_string(dp.verify_entries()) + " object entries)")
     } else {
-        println("verify = FAILED (code " + to_string(vr) + ")")
+        println("verify  = FAILED (code " + to_string(vr) + ")")
         return 1
     }
-    // 内容自检：把内容流里的 GID 解回并校验字形存在性。
-    // 结构自检不足以保证「看得见」——本工程曾出现「xref 全对但整份空白」的情形。
-    var cr = dp.verify_content(out)
-    if cr == 0 {
-        println("content = OK (" + to_string(dp.verify_gids()) + " glyphs used, notdef " + to_string(dp.verify_notdef()) + ", widths " + to_string(dp.used_glyphs()) + ")")
-    } else {
-        println("content = FAILED (code " + to_string(cr) + ") gids=" + to_string(dp.verify_gids()) + " notdef=" + to_string(dp.verify_notdef()))
-        return 1
-    }
-    // 对象成形性自检：每个对象必须是合法 PDF 对象（字典齐备、流长度自洽）
-    var obr = dp.verify_objects(out)
+var obr = dp.verify_objects(OUT)
     if obr == 0 {
         println("objects = OK (" + to_string(dp.verify_objs()) + " objects well-formed)")
     } else {
         println("objects = FAILED (code " + to_string(obr) + ")")
         return 1
     }
-    // 版面自检：文本定位必须全在页面内
-    var lr = dp.verify_layout(595, 842)
+var cr = dp.verify_content(OUT)
+    if cr == 0 {
+        println("content = OK (" + to_string(dp.verify_gids()) + " glyphs used, notdef " + to_string(dp.verify_notdef()) + ")")
+    } else {
+        println("content = FAILED (code " + to_string(cr) + ")")
+        return 1
+    }
+var lr = dp.verify_layout(595, 842)
     if lr == 0 {
         println("layout  = OK (" + to_string(dp.verify_segs()) + " text segments in bounds)")
     } else {
         println("layout  = FAILED (code " + to_string(lr) + ")")
         return 1
     }
-    // 字形轮廓自检：用到的字形必须真能画出东西
-    var orc = dp.verify_outlines()
+var orc = dp.verify_outlines()
     if orc == 0 {
         println("outline = OK (" + to_string(dp.verify_checked()) + " glyphs checked, " + to_string(dp.verify_empty()) + " blank)")
     } else {
         println("outline = FAILED (code " + to_string(orc) + ")")
         return 1
     }
+    println("fonts   = " + to_string(dp.font_count()) + " (0.body " + to_string(dp.used_count(0)) +
+        " glyphs, 1.mono " + to_string(dp.used_count(1)) + " glyphs)")
     return 0
 }

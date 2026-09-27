@@ -21,7 +21,9 @@ type tie<class>
 import "./pdf_ttf.tie"
 
 // ---------- 文档状态（顶层 var 由本文件持有；分文件同 namespace 共享）----------
+
 var g_off: i64 = 0;          // 当前字节偏移（累进）
+var g_dry: i64 = 0;          // 干跑开关（1 = 抑制内容输出，页面仍推进）
 var g_objs: table<string>;   // 对象体（下标 0 起 = 对象 1）
 var g_pages: table<string>;  // 每页内容流
 var g_w: i64 = 595;          // A4 宽（pt）
@@ -101,21 +103,6 @@ pub func hex_bytes(bs: table<i64>) -> string {
 //   1) Identity-H 下「字符数 × 2 = 字节数」是硬约束，写 1 字节必错；
 //   2) 结构自检不足以证明「看得见」，必须另有一条**内容自检**（见 pdf_asm 的
 //      verify：逐 GID 校验其存在性）。
-pub func hex_gids(gids: table<i64>) -> string {
-    var sb = string_builder()
-    var i: i64 = 0
-    while i < len(gids) {
-        var g = gids[i]
-        if g < 0 {
-            g = 0
-        }
-        sb_append(sb, hex2((g / 256) & 255))   // 高位字节
-        sb_append(sb, hex2(g & 255))           // 低位字节
-        i = i + 1
-    }
-    return sb_build(sb)
-}
-
 // ---------- 对象与内容流 ----------
 // 登记一个对象（返回其编号 = 下标+1）。
 func add_obj(body: string) -> i64 {
@@ -163,23 +150,85 @@ pub func add_page() -> i64 {
 }
 
 // 在当前页的内容流尾部追加原始命令（内部用；调用方一般用 text_at/line_at）。
+// 在当前页的内容流尾部追加原始命令。干跑模式下丢弃。
 pub func raw(page: i64, cmd: string) {
+    if g_dry == 1 {
+        return
+    }
     g_pages[page] = g_pages[page] + cmd
 }
 
-// 在 (x,y) 处以字号 size 写一段**已编码为 GID 字节表**的文本。
-// 约定：字体 F1（嵌入的 CJK 字体，Identity-H），故文本以 2 字节 GID 的十六进制写入。
+// 干跑开关：抑制内容输出但页面照常推进（目录页码预扫用）
+pub func dry_on() { g_dry = 1 }
+pub func dry_off() { g_dry = 0 }
+
+// 在 (x,y) 处以字号 size 写出**整形后的文本**（可跨多款字体）。
 //
-// **必须显式设置文字颜色**：`fill_rect` 设置的是**非描边色**，而该颜色会持续生效到
-// 被改写为止。底纹（尤其提示框/表头那种近白色）若留在状态里，其后的正文就会用
-// 近白色绘制——**看起来就是白纸**。这是本模块第二处「结构全对但看不见」的缺陷，
-// 与 GID 编码那处同类：都是「视觉结果」没有被任何结构检查覆盖。
-// 故此处一律显式置黑，使文字颜色不依赖调用顺序。
-pub func text_at(page: i64, x: i64, y: i64, size: i64, gids: table<i64>) -> i64 {
-    var cmd = "0 0 0 rg BT /F1 " + f2s(size * 100) + " Tf " + i2s(x) + " " + i2s(y) +
-        " Td <" + hex_gids(gids) + "> Tj ET\n"
+// 整形结果 sh 的格式见 pdf_ttf.shape：若干 (槽, GID 数, GID...) 段。
+// 每一段切入对应字体对象并写一个 Tj——同一行里因此可以混排等宽与中文。
+//
+// 颜色必须显式设置：fill_rect 设置的是非描边色且会持续生效，近白底纹若留在
+// 状态里，其后正文就会用近白色绘制（看起来就是白纸）。故此处一律显式置黑。
+// 黑色文本（正文默认）
+pub func text_shaped(page: i64, x: i64, y: i64, size_pt_x100: i64, sh: table<i64>) -> i64 {
+    return text_shaped_c(page, x, y, size_pt_x100, sh, 0, 0, 0)
+}
+
+// 带颜色的整形文本输出。颜色分量 0-255（书写直觉），内部换算到 PDF 的 0-1。
+// 语法高亮即靠逐词元调用本函数着色。
+pub func text_shaped_c(page: i64, x: i64, y: i64, size_pt_x100: i64, sh: table<i64>, cr: i64, cg: i64, cb: i64) -> i64 {
+    // Tf 需要「字体名 + 字号」两个操作数，故字体名在首段一并给出
+    var cmd = f2s(cr * 100 / 255) + " " + f2s(cg * 100 / 255) + " " + f2s(cb * 100 / 255) + " rg BT\n"
+    var i: i64 = 0
+    var first = true
+    while i + 1 < len(sh) {
+        var slot = sh[i]
+        var cnt = sh[i + 1]
+        var sb = string_builder()
+        var k: i64 = 0
+        while k < cnt {
+            var g = sh[i + 2 + k]
+            if g < 0 {
+                g = 0
+            }
+            // 记录该槽实际用到的字形（供按槽生成宽度数组）
+            note_gid(slot, g)
+            sb_append(sb, hex2((g / 256) & 255))
+            sb_append(sb, hex2(g & 255))
+            k = k + 1
+        }
+        // 第一段用 Td 定位，后续段用 Td 推进（简化：每段各自绝对定位由调用方保证）
+        if first {
+            cmd = cmd + "/F" + i2s(slot + 1) + " " + f2s(size_pt_x100) + " Tf " + i2s(x) + " " + i2s(y) +
+                " Td <" + sb_build(sb) + "> Tj"
+            first = false
+        } else {
+            // 切换字体不重置文本矩阵，故后续段自然接在上一段之后
+            cmd = cmd + " /F" + i2s(slot + 1) + " " + f2s(size_pt_x100) + " Tf <" + sb_build(sb) + "> Tj"
+        }
+        i = i + 2 + cnt
+    }
+    cmd = cmd + " ET\n"
     raw(page, cmd)
     return 0
+}
+
+// 便捷入口：纯单字体文本（不整形；仅用于自检/调试）
+pub func text_at(page: i64, x: i64, y: i64, size: i64, gids: table<i64>) -> i64 {
+    return text_shaped(page, x, y, size * 100, gidgroups(0, gids))
+}
+
+// 把 GID 表包成单段整形结构（内部用）
+func gidgroups(slot: i64, gids: table<i64>) -> table<i64> {
+    var out = table_new_i64()
+    table_push(out, slot)
+    table_push(out, len(gids))
+    var i: i64 = 0
+    while i < len(gids) {
+        table_push(out, gids[i])
+        i = i + 1
+    }
+    return out
 }
 
 // 画一条水平线。线宽 w 以 **1/100 pt** 传入（如 80 = 0.8pt）——

@@ -1,65 +1,228 @@
 type tie<class>
-// pdf_ttf.tie —— TrueType 字体解析（tofflib 内部模块，纯 tie）
+// pdf_ttf.tie —— TrueType 字体解析（多字体实例版；tofflib 内部模块，纯 tie）
 // ============================================================
-// 职责：从 TTF 字节串里取出生成 PDF CIDFontType2 所需的**最小信息集**：
-//   * 表目录定位（head / hhea / maxp / hmtx / cmap）
-//   * head → unitsPerEm、FontBBox（FontDescriptor 用）
-//   * hhea → ascender / descender、numberOfHMetrics
-//   * hmtx → 每字形 advance width（排版量宽用）
-//   * cmap（format 4 / 12）→ Unicode 码点 → 字形 id（GID）
+// 职责：从字体字节里取出生成 PDF CIDFontType2 所需的最小信息集，并完成
+// 「文本 → 字形序列」的整形（含字体回退）。
 //
-// 为何要自己解析：PDF 的 `/Encoding /Identity-H` 要求文本以**2 字节 GID** 写入，
-// 而要拿到 GID 就必须查字体的 cmap——故无法只把字体原样塞进去。
+// 多字体实例
+// ----------
+// 一份文档通常需要不止一款字体（正文、等宽、可能的粗体）。本模块用**槽**区分：
+// 每个槽独立持有一套解析结果（表目录位置、cmap 索引、metrics、字形位图索引）。
+// 所有函数首参 `s` 即槽号。字体字节以 table<table<i64>> 按槽存放。
 //
-// 性能：cmap 查表做了**按码点直址缓存**（0..0x9FFF 一张表），因正文里同一字符
-// 反复出现（一份规范约 5 万字符、不同字约 1.5 千），逐次线性扫 cmap 段表会是
-// O(字符数 × 段数) 的热点。超过 0x9FFF 的码点回退逐段扫描（罕见）。
+// 槽的用途约定（由调用方设定，本模块不预设）：
+//   0 = 正文字体 · 1 = 等宽字体 · 2 = 粗体 · 3 = 备用
+//
+// 字体回退（整形）
+// ---------------
+// 一款字体未必覆盖全部字符——等宽字体通常不含汉字，某些字体缺个别符号。
+// `shape` 把文本切成**同字体的连续段**：某码点在主字体取不到字形时，改用回退
+// 槽；回退槽也取不到时用主字体的 .notdef（保持可见的「缺字」提示）。
+//
+// 为什么必须做回退：代码示例里中英混排（标识符用等宽、注释用正文），若整段
+// 用等宽字体，汉字会全部变成缺字方框；若整段用正文字体，代码失去等宽对齐。
 
-// ---------- 字体全局状态 ----------
-var g_font: table<i64>;         // 字体字节（byte_read 读入；二进制安全）
-var g_font_len: i64 = 0;        // 字节数（= file_size）
-var g_upem: i64 = 1000;         // unitsPerEm
-var g_bbox_xmin: i64 = 0;
-var g_bbox_ymin: i64 = 0;
-var g_bbox_xmax: i64 = 1000;
-var g_bbox_ymax: i64 = 1000;
-var g_asc: i64 = 800;           // hhea ascender（字体单位）
-var g_desc: i64 = -200;         // hhea descender
-var g_nhmetrics: i64 = 0;
-var g_hmtx_off: i64 = 0;
-var g_seg_count: i64 = 0;
-var g_end_off: i64 = 0;         // cmap format4 endCode 起点
-var g_start_off: i64 = 0;
-var g_delta_off: i64 = 0;
-var g_range_off: i64 = 0;
-var g_cmap_fmt: i64 = 0;        // 4 或 12
-var g_cmap12_off: i64 = 0;      // format12 groups 起点
-var g_gid_cache: table<i64>;    // 按码点直址缓存（0..0x9FFF；-1 = 未查）
-var g_cache_init: i64 = 0;
-
-// ---------- 大端读取 ----------
-
-// loca/glyf 索引状态（字形轮廓自检用）
-var g_loca: i64 = -1;
-var g_loca_fmt: i64 = 0;
-var g_nglyphs: i64 = 0;
+// ---------- 多槽状态（顶层 var：命名空间体内不允许 var）----------
+var g_slots: i64 = 0;                    // 已加载的槽数
+// 字体字节 / cmap 缓存 / 已用字形标记：**每槽一个普通表**（槽 0..2）。
+//
+// RCA（2026-09-28）：原先用 `table<table<i64>>`（嵌套表）承载这三组数据，
+// 在遍历「已用字形」时进程崩溃（段错误）。已定位到嵌套表元素在跨函数、
+// 高频读写组合下的句柄生命周期问题；改用每槽独立表后不再触发。
+// 扁平表（如 g_flen 这类按槽索引的 i64 表）不受影响。
+var g_f0: table<i64>;
+var g_f1: table<i64>;
+var g_f2: table<i64>;
+var g_c0: table<i64>;
+var g_c1: table<i64>;
+var g_c2: table<i64>;
+var g_flen: table<i64>;                  // 每槽字节数
+var g_upem: table<i64>;                  // 每槽 unitsPerEm
+var g_bxmin: table<i64>;                 // 每槽 FontBBox
+var g_bymin: table<i64>;
+var g_bxmax: table<i64>;
+var g_bymax: table<i64>;
+var g_asc: table<i64>;                   // hhea ascender / descender
+var g_desc: table<i64>;
+var g_nhm: table<i64>;                   // numberOfHMetrics
+var g_hmtx: table<i64>;                  // hmtx 表偏移
+var g_locao: table<i64>;                 // loca 表偏移（-1 = 未初始化）
+var g_locafmt: table<i64>;               // indexToLocFormat
+var g_nglyph: table<i64>;                // maxp.numGlyphs
+var g_seg: table<i64>;                   // cmap format4 段数
+var g_eoff: table<i64>;                  // endCode 起点
+var g_soff: table<i64>;                  // startCode 起点
+var g_doff: table<i64>;                  // idDelta 起点
+var g_roff: table<i64>;                  // idRangeOffset 起点
+var g_fmt: table<i64>;                   // cmap 格式（4 或 12）
+var g_c12: table<i64>;                   // format12 groups 起点
+// 每槽的**用到的 GID** 标记表（下标 = GID，值 1 = 用到）。
+// 用途：`/W` 宽度数组只需覆盖文档实际出现的字形（全字体三万余项会显著增大体积）。
+// 由上层在写出文本时调用 note_gid 记录；落盘前由装配层读取。
+var g_u0: table<i64>;
+var g_u1: table<i64>;
+var g_u2: table<i64>;
 
 namespace pdf {
 
-func rb8(o: i64) -> i64 {
-    return g_font[o]
+// ---------- 每槽表访问器（避开嵌套表）----------
+func bget(s: i64) -> table<i64> {
+    if s == 0 {
+        return g_f0
+    }
+    if s == 1 {
+        return g_f1
+    }
+    return g_f2
 }
 
-func rb16(o: i64) -> i64 {
-    return rb8(o) * 256 + rb8(o + 1)
+func bset(s: i64, t: table<i64>) {
+    if s == 0 {
+        g_f0 = t
+    } else if s == 1 {
+        g_f1 = t
+    } else {
+        g_f2 = t
+    }
 }
 
-func rb32(o: i64) -> i64 {
-    return rb16(o) * 65536 + rb16(o + 2)
+func cget(s: i64) -> table<i64> {
+    if s == 0 {
+        return g_c0
+    }
+    if s == 1 {
+        return g_c1
+    }
+    return g_c2
 }
 
-func ri16(o: i64) -> i64 {
-    var v = rb16(o)
+func cset(s: i64, t: table<i64>) {
+    if s == 0 {
+        g_c0 = t
+    } else if s == 1 {
+        g_c1 = t
+    } else {
+        g_c2 = t
+    }
+}
+
+func uget(s: i64) -> table<i64> {
+    if s == 0 {
+        return g_u0
+    }
+    if s == 1 {
+        return g_u1
+    }
+    return g_u2
+}
+
+func uset(s: i64, t: table<i64>) {
+    if s == 0 {
+        g_u0 = t
+    } else if s == 1 {
+        g_u1 = t
+    } else {
+        g_u2 = t
+    }
+}
+
+// ---------- 状态初始化 ----------
+// 必须在加载任何字体之前调用一次。槽数上限 4。
+pub func font_init() {
+    g_slots = 0
+    g_f0 = table_new_i64()
+    g_f1 = table_new_i64()
+    g_f2 = table_new_i64()
+    g_c0 = table_new_i64()
+    g_c1 = table_new_i64()
+    g_c2 = table_new_i64()
+    g_u0 = table_new_i64()
+    g_u1 = table_new_i64()
+    g_u2 = table_new_i64()
+    g_flen = table_new_i64()
+    g_upem = table_new_i64()
+    g_bxmin = table_new_i64()
+    g_bymin = table_new_i64()
+    g_bxmax = table_new_i64()
+    g_bymax = table_new_i64()
+    g_asc = table_new_i64()
+    g_desc = table_new_i64()
+    g_nhm = table_new_i64()
+    g_hmtx = table_new_i64()
+    g_locao = table_new_i64()
+    g_locafmt = table_new_i64()
+    g_nglyph = table_new_i64()
+    g_seg = table_new_i64()
+    g_eoff = table_new_i64()
+    g_soff = table_new_i64()
+    g_doff = table_new_i64()
+    g_roff = table_new_i64()
+    g_fmt = table_new_i64()
+    g_c12 = table_new_i64()
+    var i: i64 = 0
+    while i < 4 {
+        table_push(g_flen, 0)
+        table_push(g_upem, 1000)
+        table_push(g_bxmin, 0)
+        table_push(g_bymin, -200)
+        table_push(g_bxmax, 1000)
+        table_push(g_bymax, 800)
+        table_push(g_asc, 800)
+        table_push(g_desc, -200)
+        table_push(g_nhm, 0)
+        table_push(g_hmtx, 0)
+        table_push(g_locao, -1)
+        table_push(g_locafmt, 1)
+        table_push(g_nglyph, 0)
+        table_push(g_seg, 0)
+        table_push(g_eoff, 0)
+        table_push(g_soff, 0)
+        table_push(g_doff, 0)
+        table_push(g_roff, 0)
+        table_push(g_fmt, 0)
+        table_push(g_c12, 0)
+        i = i + 1
+    }
+}
+
+// 槽 s 是否已有字体
+pub func font_ready(s: i64) -> bool {
+    if s < 0 || s >= g_slots {
+        return false
+    }
+    return g_nglyph[s] > 0
+}
+
+pub func font_count() -> i64 { return g_slots }
+
+// 加载失败原因的可读说明（供调用方报告）
+pub func load_err_text(rc: i64, path: string) -> string {
+    if rc == -2 {
+        return "字体不是 TrueType 轮廓（无 glyf/loca 表，通常是 CFF/OTF 字体）：" + path +
+            "  —— 本模块按 CIDFontType2 嵌入，仅接受 TrueType 轮廓字体"
+    }
+    return "字体加载失败（rc=" + i2s(rc) + "）：" + path
+}
+
+// ---------- 大端读取（按槽）----------
+func rb8(s: i64, o: i64) -> i64 {
+    var t = bget(s)
+    if o < 0 || o >= len(t) {
+        return 0
+    }
+    return t[o]
+}
+
+func rb16(s: i64, o: i64) -> i64 {
+    return rb8(s, o) * 256 + rb8(s, o + 1)
+}
+
+func rb32(s: i64, o: i64) -> i64 {
+    return rb16(s, o) * 65536 + rb16(s, o + 2)
+}
+
+func ri16(s: i64, o: i64) -> i64 {
+    var v = rb16(s, o)
     if v >= 32768 {
         v = v - 65536
     }
@@ -67,87 +230,116 @@ func ri16(o: i64) -> i64 {
 }
 
 // ---------- 表目录 ----------
-// 返回表的字节偏移；找不到返回 -1。tag 用 4 字节拼成的 i64 比较。
-func find_table(tag: i64) -> i64 {
-    var n = rb16(4)
+func tag4(a: i64, b: i64, c: i64, d: i64) -> i64 {
+    return a * 16777216 + b * 65536 + c * 256 + d
+}
+
+func t_head() -> i64 { return tag4(104, 101, 97, 100) }
+func t_hhea() -> i64 { return tag4(104, 104, 101, 97) }
+func t_maxp() -> i64 { return tag4(109, 97, 120, 112) }
+func t_hmtx() -> i64 { return tag4(104, 109, 116, 120) }
+func t_cmap() -> i64 { return tag4(99, 109, 97, 112) }
+func t_loca() -> i64 { return tag4(108, 111, 99, 97) }
+func t_glyf() -> i64 { return tag4(103, 108, 121, 102) }
+
+// 查表偏移；找不到返回 -1
+func find_table(s: i64, tag: i64) -> i64 {
+    var n = rb16(s, 4)
     var i: i64 = 0
     while i < n {
         var rec = 12 + i * 16
-        var t = rb8(rec) * 16777216 + rb8(rec + 1) * 65536 + rb8(rec + 2) * 256 + rb8(rec + 3)
+        var t = rb8(s, rec) * 16777216 + rb8(s, rec + 1) * 65536 + rb8(s, rec + 2) * 256 + rb8(s, rec + 3)
         if t == tag {
-            return rb32(rec + 8)
+            return rb32(s, rec + 8)
         }
         i = i + 1
     }
     return -1
 }
 
-// 4 个 ASCII 字符 → tag 值（'head' 等）
-func tag4(a: i64, b: i64, c: i64, d: i64) -> i64 {
-    return a * 16777216 + b * 65536 + c * 256 + d
-}
-
-// 'cmap' 'head' 'hhea' 'maxp' 'hmtx'
-func tag_cmap() -> i64 { return tag4(99, 109, 97, 112) }
-func tag_head() -> i64 { return tag4(104, 101, 97, 100) }
-func tag_hhea() -> i64 { return tag4(104, 104, 101, 97) }
-func tag_maxp() -> i64 { return tag4(109, 97, 120, 112) }
-func tag_hmtx() -> i64 { return tag4(104, 109, 116, 120) }
-func tag_loca() -> i64 { return tag4(108, 111, 99, 97) }
-func tag_glyf() -> i64 { return tag4(103, 108, 121, 102) }
-
-// ---------- 加载与解析 ----------
-// 载入字体并解析（成功返回 0；失败返回 -1，调用方可降级到内置字体）
-pub func font_load(path: string) -> i64 {
-    // 必须用 byte_read：file_read/file_write 在 Windows 上**遇 NUL 截断**
-    //（实测写 4 字节只落 3 字节）——TTF 满含 NUL，用文本接口必然损坏。
-    g_font = byte_read(path)
-    g_font_len = file_size(path)
-    if g_font_len < 12 || len(g_font) < 12 {
+// ---------- 加载 ----------
+// 把 path 载入槽 s。成功返回 0；失败返回 -1。
+// 注意：必须用 byte_read——file_read/file_write 在 Windows 上遇 NUL 截断。
+pub func font_load(s: i64, path: string) -> i64 {
+    if s < 0 || s >= 4 {
         return -1
     }
-    var head = find_table(tag_head())
+    var bytes = byte_read(path)
+    var blen = file_size(path)
+    if blen < 12 || len(bytes) < 12 {
+        return -1
+    }
+    bset(s, bytes)
+    g_flen[s] = blen
+    var head = find_table(s, t_head())
     if head < 0 {
         return -1
     }
-    g_upem = rb16(head + 18)
-    if g_upem <= 0 {
+    g_upem[s] = rb16(s, head + 18)
+    if g_upem[s] <= 0 {
         return -1
     }
-    g_bbox_xmin = ri16(head + 36)
-    g_bbox_ymin = ri16(head + 38)
-    g_bbox_xmax = ri16(head + 40)
-    g_bbox_ymax = ri16(head + 42)
-    var hhea = find_table(tag_hhea())
+    g_bxmin[s] = ri16(s, head + 36)
+    g_bymin[s] = ri16(s, head + 38)
+    g_bxmax[s] = ri16(s, head + 40)
+    g_bymax[s] = ri16(s, head + 42)
+    g_locafmt[s] = ri16(s, head + 50)
+    var hhea = find_table(s, t_hhea())
     if hhea < 0 {
         return -1
     }
-    g_asc = ri16(hhea + 4)
-    g_desc = ri16(hhea + 6)
-    g_nhmetrics = rb16(hhea + 34)
-    var hmtx = find_table(tag_hmtx())
+    g_asc[s] = ri16(s, hhea + 4)
+    g_desc[s] = ri16(s, hhea + 6)
+    g_nhm[s] = rb16(s, hhea + 34)
+    var hmtx = find_table(s, t_hmtx())
     if hmtx < 0 {
         return -1
     }
-    g_hmtx_off = hmtx
-    var cmap = find_table(tag_cmap())
+    g_hmtx[s] = hmtx
+    var maxp = find_table(s, t_maxp())
+    if maxp < 0 {
+        return -1
+    }
+    g_nglyph[s] = rb16(s, maxp + 4)
+    // **轮廓类型守卫**：本模块以 CIDFontType2 + FontFile2（TrueType 轮廓）嵌入，
+    // 因此字体必须带 glyf/loca 表。
+    //
+    // RCA（2026-09-28）：`Noto Sans SC (TrueType).otf` 文件名虽含 TrueType，
+    // 实际用 **CFF 轮廓**（表目录里是 `CFF `，没有 glyf/loca）。按 CIDFontType2
+    // 嵌入后，阅读器把 CFF 数据按 TrueType 字形解析——**字形全部错乱**
+    //（渲染出的是别的汉字），而 PDF 结构、GID、宽度全部"正确"，任何一层结构
+    // 自检都发现不了。故此处硬性拒绝无 glyf 的字体，让选型错误在编译期暴露。
+    if find_table(s, t_glyf()) < 0 || find_table(s, t_loca()) < 0 {
+        // 返回 -2 专指「轮廓类型不受支持」，便于调用方给出可操作的提示
+        return -2
+    }
+    var loca = find_table(s, t_loca())
+    g_locao[s] = loca
+    var cmap = find_table(s, t_cmap())
     if cmap < 0 {
         return -1
     }
-    return parse_cmap(cmap)
+    var rc = parse_cmap(s, cmap)
+    if rc != 0 {
+        return -1
+    }
+    if s >= g_slots {
+        g_slots = s + 1
+    }
+    return 0
 }
 
 // cmap 子表选择：优先 (3,1) Windows BMP，其次 (3,10) UCS-4，再 (0,*)
-func parse_cmap(cmap: i64) -> i64 {
-    var n = rb16(cmap + 2)
+func parse_cmap(s: i64, cmap: i64) -> i64 {
+    var n = rb16(s, cmap + 2)
     var best: i64 = -1
     var best_rank: i64 = -1
     var i: i64 = 0
     while i < n {
         var rec = cmap + 4 + i * 8
-        var plat = rb16(rec)
-        var enc = rb16(rec + 2)
-        var off = rb32(rec + 4)
+        var plat = rb16(s, rec)
+        var enc = rb16(s, rec + 2)
+        var off = rb32(s, rec + 4)
         var rank: i64 = -1
         if plat == 3 && enc == 1 {
             rank = 3
@@ -165,45 +357,42 @@ func parse_cmap(cmap: i64) -> i64 {
     if best < 0 {
         return -1
     }
-    var fmt = rb16(best)
-    g_cmap_fmt = fmt
+    var fmt = rb16(s, best)
+    g_fmt[s] = fmt
     if fmt == 4 {
-        var segx2 = rb16(best + 6)
-        g_seg_count = segx2 / 2
-        g_end_off = best + 14
-        g_start_off = g_end_off + segx2 + 2
-        g_delta_off = g_start_off + segx2
-        g_range_off = g_delta_off + segx2
-        g_cache_init = 0
-        g_gid_cache = table_new_i64()
+        var segx2 = rb16(s, best + 6)
+        g_seg[s] = segx2 / 2
+        g_eoff[s] = best + 14
+        g_soff[s] = g_eoff[s] + segx2 + 2
+        g_doff[s] = g_soff[s] + segx2
+        g_roff[s] = g_doff[s] + segx2
+        cset(s, table_new_i64())
         return 0
     }
     if fmt == 12 {
-        g_cmap12_off = best + 16
-        g_cache_init = 0
-        g_gid_cache = table_new_i64()
+        g_c12[s] = best + 16
+        cset(s, table_new_i64())
         return 0
     }
     return -1
 }
 
 // ---------- 码点 → GID ----------
-// format 4 逐段扫描（段数通常几百）；命中的段用 idRangeOffset 或 idDelta 求 GID。
-func cmap4(cp: i64) -> i64 {
+func cmap4(s: i64, cp: i64) -> i64 {
     var i: i64 = 0
-    while i < g_seg_count {
-        var endc = rb16(g_end_off + i * 2)
+    while i < g_seg[s] {
+        var endc = rb16(s, g_eoff[s] + i * 2)
         if cp <= endc {
-            var startc = rb16(g_start_off + i * 2)
+            var startc = rb16(s, g_soff[s] + i * 2)
             if cp < startc {
                 return 0
             }
-            var delta = ri16(g_delta_off + i * 2)
-            var ro = rb16(g_range_off + i * 2)
+            var delta = ri16(s, g_doff[s] + i * 2)
+            var ro = rb16(s, g_roff[s] + i * 2)
             if ro == 0 {
                 return (cp + delta) & 65535
             }
-            var g = rb16(g_range_off + i * 2 + ro + (cp - startc) * 2)
+            var g = rb16(s, g_roff[s] + i * 2 + ro + (cp - startc) * 2)
             if g == 0 {
                 return 0
             }
@@ -214,166 +403,136 @@ func cmap4(cp: i64) -> i64 {
     return 0
 }
 
-// format 12：groups 为 (startChar, endChar, startGlyph) 三元组，二分查找更优，
-// 但组数通常很少（数百），线性足够。
-func cmap12(cp: i64) -> i64 {
-    var n = rb32(g_cmap12_off - 4)
+func cmap12(s: i64, cp: i64) -> i64 {
+    var n = rb32(s, g_c12[s] - 4)
     var i: i64 = 0
     while i < n {
-        var o = g_cmap12_off + i * 12
-        var sc = rb32(o)
+        var o = g_c12[s] + i * 12
+        var sc = rb32(s, o)
         if cp < sc {
             return 0
         }
-        var ec = rb32(o + 4)
+        var ec = rb32(s, o + 4)
         if cp <= ec {
-            return rb32(o + 8) + (cp - sc)
+            return rb32(s, o + 8) + (cp - sc)
         }
         i = i + 1
     }
     return 0
 }
 
-func cmap_raw(cp: i64) -> i64 {
-    if g_cmap_fmt == 4 {
-        return cmap4(cp)
+func cmap_raw(s: i64, cp: i64) -> i64 {
+    if g_fmt[s] == 4 {
+        return cmap4(s, cp)
     }
-    if g_cmap_fmt == 12 {
-        return cmap12(cp)
+    if g_fmt[s] == 12 {
+        return cmap12(s, cp)
     }
     return 0
 }
 
-// 初始化按码点直址缓存（0..0x9FFF 填 -1 哨兵）。一次性成本 40960 次 push。
-func cache_init() {
-    if g_cache_init == 1 {
+// 直址缓存（0..0x9FFF 一张表）：同一字符在文档里反复出现，逐次线性扫 cmap
+// 段表会退化为 O(字符数 × 段数) 的热点。
+func cache_init(s: i64) {
+    if len(cget(s)) > 0 {
         return
     }
-    g_gid_cache = table_new_i64()
+    var t = table_new_i64()
     var i: i64 = 0
     while i < 40960 {
-        table_push(g_gid_cache, -1)
+        table_push(t, -1)
         i = i + 1
     }
-    g_cache_init = 1
+    cset(s, t)
 }
 
-// 码点 → GID（带缓存；未命中返回 0 = .notdef）
-pub func gid_of(cp: i64) -> i64 {
+// 码点 → GID（0 = 缺字）
+pub func gid_of(s: i64, cp: i64) -> i64 {
+    if cp < 0 {
+        return 0
+    }
     if cp < 40960 {
-        cache_init()
-        var c = g_gid_cache[cp]
-        if c >= 0 {
-            return c
+        cache_init(s)
+        var c = cget(s)
+        var v = c[cp]
+        if v >= 0 {
+            return v
         }
-        var g = cmap_raw(cp)
-        g_gid_cache[cp] = g
+        var g = cmap_raw(s, cp)
+        c[cp] = g
         return g
     }
-    return cmap_raw(cp)
+    return cmap_raw(s, cp)
 }
 
 // ---------- 量宽 ----------
-// 字形 advance width（字体单位）。gid 越界时用最后一个 hmMetric（TTF 规范）。
-pub func gid_w(gid: i64) -> i64 {
-    if g_nhmetrics <= 0 {
+// 字形 advance width（换算到 1000/em，PDF 的 /W 单位）
+pub func gid_w1000(s: i64, gid: i64) -> i64 {
+    if g_nhm[s] <= 0 {
         return 500
     }
     var idx = gid
-    if idx >= g_nhmetrics {
-        idx = g_nhmetrics - 1
+    if idx >= g_nhm[s] {
+        idx = g_nhm[s] - 1
     }
     if idx < 0 {
         idx = 0
     }
-    return rb16(g_hmtx_off + idx * 4)
+    var u = rb16(s, g_hmtx[s] + idx * 4)
+    return u * 1000 / g_upem[s]
 }
 
-// 字符串 → GID 表（tie 的 str_char 按**码点**迭代，故无需自写 UTF-8 解码）
-pub func enc_gids(s: string) -> table<i64> {
-    var out = table_new_i64()
-    var n = str_len(s)
-    var i: i64 = 0
-    while i < n {
-        table_push(out, gid_of(char_code(str_char(s, i))))
-        i = i + 1
-    }
-    return out
-}
-
-// GID 表在给定字号下的宽度，单位 **1/100 pt**（与 f2s 同尺度）。
-pub func width_of(gids: table<i64>, size_pt: i64) -> i64 {
-    var u: i64 = 0
-    var i: i64 = 0
-    while i < len(gids) {
-        u = u + gid_w(gids[i])
-        i = i + 1
-    }
-    if g_upem <= 0 {
+// 码点在**指定槽**上的宽度（含缺字回退：缺字取 0，避免把 .notdef 宽度计入）
+pub func cp_w1000(s: i64, cp: i64) -> i64 {
+    var g = gid_of(s, cp)
+    if g == 0 {
         return 0
     }
-    // 宽度(pt) = u/upem*size；再 ×100 换成 1/100 pt 尺度
-    return u * size_pt * 100 / g_upem
+    return gid_w1000(s, g)
 }
 
-// ---------- FontDescriptor 指标（缩放到 1000/em）----------
-pub func asc1000() -> i64 { return g_asc * 1000 / g_upem }
-pub func desc1000() -> i64 { return g_desc * 1000 / g_upem }
-pub func bbox_xmin1000() -> i64 { return g_bbox_xmin * 1000 / g_upem }
-pub func bbox_ymin1000() -> i64 { return g_bbox_ymin * 1000 / g_upem }
-pub func bbox_xmax1000() -> i64 { return g_bbox_xmax * 1000 / g_upem }
-pub func bbox_ymax1000() -> i64 { return g_bbox_ymax * 1000 / g_upem }
+pub func num_glyphs(s: i64) -> i64 { return g_nglyph[s] }
+pub func upem(s: i64) -> i64 { return g_upem[s] }
 
-// 字体原始字节与长度（供嵌入 FontFile2 流）
-pub func font_bytes() -> table<i64> { return g_font }
-pub func font_bytes_len() -> i64 { return g_font_len }
+// ---------- FontDescriptor 指标（1000/em）----------
+pub func asc1000(s: i64) -> i64 { return g_asc[s] * 1000 / g_upem[s] }
+pub func desc1000(s: i64) -> i64 { return g_desc[s] * 1000 / g_upem[s] }
+pub func bxmin1000(s: i64) -> i64 { return g_bxmin[s] * 1000 / g_upem[s] }
+pub func bymin1000(s: i64) -> i64 { return g_bymin[s] * 1000 / g_upem[s] }
+pub func bxmax1000(s: i64) -> i64 { return g_bxmax[s] * 1000 / g_upem[s] }
+pub func bymax1000(s: i64) -> i64 { return g_bymax[s] * 1000 / g_upem[s] }
 
-// 该 GID 是否在字体里真实存在（0 = .notdef）
-pub func gid_exists(cp: i64) -> bool {
-    return gid_of(cp) != 0
+// ---------- 字体字节（供嵌入）----------
+pub func font_bytes(s: i64) -> table<i64> {
+    if s < 0 || s >= g_slots {
+        return table_new_i64()
+    }
+    return bget(s)
 }
 
-// ---------- 字形轮廓存在性（loca/glyf）----------
-// 用途：内容自检要证明「这些 GID 真的会画出东西」。字体表里字形数据由 loca 索引，
-// loca[i] == loca[i+1] 表示该字形为空（无轮廓）——空白页面的根因之一就是 GID
-// 全部指向空字形，而这种情况下 PDF 结构完全正常、任何结构检查都不会报错。
-// 初始化 loca/glyf 索引；成功返回 0
-pub func outline_init() -> i64 {
-    var ho = find_table(tag_head())
-    if ho < 0 {
-        return -1
+pub func font_bytes_len(s: i64) -> i64 {
+    if s < 0 || s >= g_slots {
+        return 0
     }
-    // head.indexToLocFormat 在 head+50（0 = 短格式/偏移×2，1 = 长格式）
-    g_loca_fmt = ri16(ho + 50)
-    var mp = find_table(tag_maxp())
-    if mp < 0 {
-        return -1
-    }
-    g_nglyphs = rb16(mp + 4)
-    var lo = find_table(tag_loca())
-    if lo < 0 {
-        return -1
-    }
-    g_loca = lo
-    return 0
+    return g_flen[s]
 }
 
-// 字形轮廓的字节长度（0 = 空字形；-1 = 越界）
-pub func outline_len(gid: i64) -> i64 {
-    if g_loca < 0 {
+// ---------- 字形轮廓（自检用）----------
+pub func outline_len(s: i64, gid: i64) -> i64 {
+    if g_locao[s] < 0 {
         return -1
     }
-    if gid < 0 || gid + 1 >= g_nglyphs {
+    if gid < 0 || gid + 1 >= g_nglyph[s] {
         return -1
     }
     var a: i64 = 0
     var b: i64 = 0
-    if g_loca_fmt == 0 {
-        a = rb16(g_loca + gid * 2) * 2
-        b = rb16(g_loca + gid * 2 + 2) * 2
+    if g_locafmt[s] == 0 {
+        a = rb16(s, g_locao[s] + gid * 2) * 2
+        b = rb16(s, g_locao[s] + gid * 2 + 2) * 2
     } else {
-        a = rb32(g_loca + gid * 4)
-        b = rb32(g_loca + gid * 4 + 4)
+        a = rb32(s, g_locao[s] + gid * 4)
+        b = rb32(s, g_locao[s] + gid * 4 + 4)
     }
     if b < a {
         return -1
@@ -381,29 +540,258 @@ pub func outline_len(gid: i64) -> i64 {
     return b - a
 }
 
-// unitsPerEm（head.unitsPerEm）；PDF 的宽度数组以 1000/em 为单位，需要它换算。
-pub func upem() -> i64 {
-    if g_upem <= 0 {
-        return 1000
+// ---------- 整形（字体回退）----------
+// 把文本按**字体归属**切成段，段用扁平表表示：
+//     [槽, GID数, GID..., 槽, GID数, GID..., ...]
+// 规则：码点在主槽有字形 → 用主槽；否则若回退槽有字形 → 用回退槽；否则用主槽的 0（缺字）。
+// fb < 0 表示不启用回退（全用主槽，缺字即 0）。
+pub func shape(s: i64, fb: i64, txt: string) -> table<i64> {
+    var out = table_new_i64()
+    var cur_slot: i64 = -1
+    var buf = table_new_i64()
+    var n = str_len(txt)
+    var i: i64 = 0
+    while i < n {
+        var cp = char_code(str_char(txt, i))
+        var use = s
+        var g = gid_of(s, cp)
+        if g == 0 && fb >= 0 && fb < g_slots {
+            var g2 = gid_of(fb, cp)
+            if g2 != 0 {
+                use = fb
+                g = g2
+            }
+        }
+        if use != cur_slot {
+            if cur_slot >= 0 {
+                flush_seg(out, cur_slot, buf)
+            }
+            cur_slot = use
+            buf = table_new_i64()
+        }
+        table_push(buf, g)
+        i = i + 1
     }
-    return g_upem
+    if cur_slot >= 0 {
+        flush_seg(out, cur_slot, buf)
+    }
+    return out
 }
 
-// 字形宽度换算到 1000/em（PDF 的 /W 数组单位）
-pub func gid_w1000(gid: i64) -> i64 {
-    var u = upem()
-    return gid_w(gid) * 1000 / u
+func flush_seg(out: ref table<i64>, slot: i64, buf: table<i64>) {
+    table_push(out, slot)
+    table_push(out, len(buf))
+    var i: i64 = 0
+    while i < len(buf) {
+        table_push(out, buf[i])
+        i = i + 1
+    }
 }
 
-// 字体字形总数（maxp.numGlyphs，偏移 4 处的 u16）。
-// 用途：内容自检要判断「内容流里出现的 GID 是否落在字体范围内」——
-// 编码写错（如把 GID 写成 1 字节）会产生越界或错位的 GID，这是最直接的检出点。
-pub func num_glyphs() -> i64 {
-    var mp = find_table(tag_maxp())
-    if mp < 0 {
-        return 0
+// 整形后的宽度（1/100 pt）。段可能跨槽，故按每段的槽取宽度。
+pub func shape_w1000(sh: table<i64>) -> i64 {
+    var w: i64 = 0
+    var i: i64 = 0
+    while i + 1 < len(sh) {
+        var slot = sh[i]
+        var cnt = sh[i + 1]
+        var k: i64 = 0
+        while k < cnt {
+            var g = sh[i + 2 + k]
+            if g != 0 && g < g_nglyph[slot] {
+                w = w + gid_w1000(slot, g)
+            }
+            k = k + 1
+        }
+        i = i + 2 + cnt
     }
-    return rb16(mp + 4)
+    return w
+}
+
+// 整形结果的宽度（**1/100 pt**）。
+// 推导：shape_w1000 是 1000/em 单位的宽度和；宽度(pt) = w1000 * size / 1000；
+// 换成 1/100pt 再乘 100 ⇒ w1000 * size * 100 / 1000。
+//
+// RCA（2026-09-28）：此前误写为 `* 100 / (1000 * 1000)`，多除一个 1000，
+// 宽度只有真值的千分之一。后果是两处**症状完全不同**的缺陷：
+//   * 正文换行判据（cw + w > 栏宽）永不成立 → 段落根本不断行，整段画到纸外；
+//   * 代码块按词元推进 x（x += 宽度）几乎不前进 → 同一行词元全部叠在一起。
+// 两者都表现为「排版错乱」，但根因是同一个标量错误——这也是为什么宽度函数
+// 必须有独立的自检（见 verify_widths）。
+pub func shape_width(sh: table<i64>, size_pt: i64) -> i64 {
+    return shape_w1000(sh) * size_pt * 100 / 1000
+}
+
+// 宽度函数的自检：与「按字形逐个累加」的参考实现比对。
+// 参考实现不复用 shape_w1000，因此能独立发现公式错误（如上面那个多除 1000）。
+pub func width_selfcheck(s: i64) -> i64 {
+    var txt = "func"
+    var got = shape_width(shape(s, -1, txt), 9)
+    // 参考：逐字形取 1000/em 宽度后按定义换算（用 sum 避免与保留字 ref 冲突）
+    var sum: i64 = 0
+    var n = str_len(txt)
+    var i: i64 = 0
+    while i < n {
+        var g = gid_of(s, char_code(str_char(txt, i)))
+        if g != 0 {
+            sum = sum + gid_w1000(s, g)
+        }
+        i = i + 1
+    }
+    sum = sum * 9 * 100 / 1000
+    if got != sum {
+        return -1
+    }
+    if sum <= 0 {
+        return -2
+    }
+    return 0
+}
+
+// 整形段数（自检与调试用）
+// ---------- 已用字形记录 ----------
+// 确保槽 s 的标记表可用
+pub func used_init(s: i64) {
+    var n = g_nglyph[s]
+    if n <= 0 {
+        return
+    }
+    if len(uget(s)) >= n {
+        return
+    }
+    var t = table_new_i64()
+    var i: i64 = 0
+    while i < n {
+        table_push(t, 0)
+        i = i + 1
+    }
+    uset(s, t)
+}
+
+// 标记槽 s 上某个 GID 被用到
+pub func note_gid(s: i64, g: i64) {
+    if s < 0 || s >= 4 {
+        return
+    }
+    if g <= 0 {
+        return
+    }
+    if len(uget(s)) <= g {
+        used_init(s)
+    }
+    var t = uget(s)
+    if g < len(t) {
+        t[g] = 1
+    }
+}
+
+pub func used_of(s: i64) -> table<i64> {
+    if s < 0 || s >= 4 {
+        return table_new_i64()
+    }
+    return uget(s)
+}
+
+pub func used_count(s: i64) -> i64 {
+    var t = used_of(s)
+    var c: i64 = 0
+    var i: i64 = 0
+    while i < len(t) {
+        if t[i] == 1 {
+            c = c + 1
+        }
+        i = i + 1
+    }
+    return c
+}
+
+// 遍历槽 s 的「已用字形」，统计有轮廓的个数与空轮廓个数。
+// 返回值 (checked, blank)。
+//
+// 为何把遍历放在本文件内：`g_used` 与「已用字形」的语义都属于本模块，
+// 遍历也应在此完成——上层只需拿统计结果。此前由上层直接读 `g_used[s]`
+// 再自行遍历，既泄露了内部表示，也在跨文件访问嵌套表元素时触发了崩溃
+//（详见 spec/README 的已知问题）。
+pub func used_outline_stats(s: i64) -> (checked: i64, blank: i64) {
+    var used = used_of(s)
+    var n = len(used)
+    var checked: i64 = 0
+    var blank: i64 = 0
+    var i: i64 = 0
+    while i < n {
+        if used[i] == 1 {
+            if outline_len(s, i) == 0 {
+                blank = blank + 1
+            }
+            checked = checked + 1
+        }
+        i = i + 1
+    }
+    return (checked, blank)
+}
+
+// ---------- GID → 码点反查（生成 ToUnicode 用）----------
+// PDF 的 Identity-H 只写 GID，文本不带 Unicode 信息，因此复制/搜索会得到错字。
+// 阅读器需要 /ToUnicode CMap 把 GID 映射回码点。本函数为**已用字形**建反表：
+// 线性扫 cmap 覆盖的码点区间（含 format4 的所有段），命中已用 GID 即记录。
+// 只扫已用字形对应的码点，避免为整表三万余字形建映射。
+//
+// 返回：扁平表 [gid, cp, gid, cp, ...]（按 gid 升序不一定有序，调用方排序）
+pub func gid_to_cp_map(s: i64) -> table<i64> {
+    var out = table_new_i64()
+    var used = used_of(s)
+    var ng = len(used)
+    if ng == 0 {
+        return out
+    }
+    // 码点扫描上界：BMP 基本平面（CJK 与常用符号都在此范围）
+    var cp: i64 = 32
+    while cp < 0x10000 {
+        var g = gid_of(s, cp)
+        if g > 0 && g < ng && used[g] == 1 {
+            // 只记录**最小**码点（同一 GID 可能被多个码点映射，取首个即可）
+            table_push(out, g)
+            table_push(out, cp)
+        }
+        cp = cp + 1
+    }
+    return out
+}
+
+pub func shape_segs(sh: table<i64>) -> i64 {
+    var c: i64 = 0
+    var i: i64 = 0
+    while i + 1 < len(sh) {
+        var cnt = sh[i + 1]
+        c = c + 1
+        i = i + 2 + cnt
+    }
+    return c
+}
+
+// 统计整形后的缺字数（自检用）
+pub func shape_notdef(sh: table<i64>) -> i64 {
+    var c: i64 = 0
+    var i: i64 = 0
+    while i + 1 < len(sh) {
+        var slot = sh[i]
+        var cnt = sh[i + 1]
+        var k: i64 = 0
+        while k < cnt {
+            var g = sh[i + 2 + k]
+            if g == 0 || g >= g_nglyph[slot] {
+                c = c + 1
+            }
+            k = k + 1
+        }
+        i = i + 2 + cnt
+    }
+    return c
+}
+
+// 单字符整形（工具函数；回退同 shape）
+pub func shape_one(s: i64, fb: i64, cp: i64) -> table<i64> {
+    return shape(s, fb, str_from_code(cp))
 }
 
 }
