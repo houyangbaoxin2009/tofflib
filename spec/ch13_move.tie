@@ -1,0 +1,54 @@
+type tie<logic>
+// ch13_move.tie —— 规范正文 · 第 13 章 所有权与移动
+import "F:/Projects/tie-repo/tofflib/spec/pdfdoc.tie" as dp
+
+namespace ch13 {
+
+pub func chapter() {
+    dp.h1("第 13 章  所有权与移动")
+
+    dp.p("每个值都有明确的归属。绝大多数时候归属是显然的——值属于声明它的那个变量。当值需要在变量之间转手时，语言要求这件事被写出来，而不是悄悄发生。")
+
+    // ---------------- 13.1 ----------------
+    dp.h2("13.1  默认按值")
+    dp.p("赋值与传参默认按值：新位置得到一份独立的值，原位置继续有效。两个变量此后互不影响，读写其中一方不会改变另一方。")
+    dp.codeblock(dp.src(["var a: i64 = 1", "var b = a", "b = 2", "println(to_string(a))   // 1"]))
+
+    // ---------------- 13.2 ----------------
+    dp.h2("13.2  显式移动")
+    dp.p("当不需要保留原变量、且希望避免复制开销时，用移动记号把所有权转出。此后原变量处于「已移动」状态。")
+    dp.codeblock(dp.src(["var big = collect()", "var owned = big        // 复制或转移，按类型语义", "consume(owned)"]))
+    dp.p("参数声明为 move 时，调用即转移：形参约定本身就表达了「这个值交给被调方」，调用方不必在调用点重写记号。")
+    dp.codeblock(dp.src(["func take(move t: table<i64>) -> i64 { return len(t) }", "", "var xs = table_new_i64()", "table_push(xs, 1)", "var n = take(xs)", "// 此后 xs 不可再用"]))
+
+    // ---------------- 13.3 ----------------
+    dp.h2("13.3  已移动状态")
+    dp.p("变量被移出之后再次使用会被检出。这条检查覆盖直接读取、再次传入、以及作为表达式的一部分使用。")
+    dp.codeblock(dp.src(["var n = take(xs)", "println(to_string(len(xs)))    // 错误：变量已移出"]))
+    dp.p("检出发生在编译期，因此这类错误不会在运行期以「读到已释放对象」的形式出现。需要保留原值继续使用时不使用移动，改用按值或借用。")
+
+    // ---------------- 13.4 ----------------
+    dp.h2("13.4  借用与转移的取舍")
+    dp.p("三种做法对应三种需求，选择依据是「调用方还需要这个值吗」。")
+
+    var w = table_new_i64()
+    table_push(w, 150)
+    table_push(w, 301)
+    var h = table_new_string()
+    table_push(h, "需求")
+    table_push(h, "做法")
+    var r: table<table<string>> = []
+    table_push(r, dp.kvrow("调用方不需要继续用", "声明 move，把所有权交给被调方"))
+    table_push(r, dp.kvrow("调用方继续用，只读取", "声明 immut，避免复制"))
+    table_push(r, dp.kvrow("调用方继续用，且要被调方修改", "声明 ref，写回原对象"))
+    table_push(r, dp.kvrow("双方各持一份，互不影响", "按值，接受一次复制"))
+    dp.tbl(h, r, w)
+
+    // ---------------- 13.5 ----------------
+    dp.h2("13.5  复制与克隆")
+    dp.p("按值传递对小的标量代价为零；对表这类动态结构则是一次真实的数据复制。需要明确表达「我要一个独立的副本」时使用克隆，使复制的成本在代码里可见。")
+    dp.codeblock(dp.src(["var snapshot = xs.clone()"]))
+    dp.note("可写借用不产生副本，因此能修改原对象；但它有生命周期限制——借用不能被闭包捕获带走（见第 5 章），也无法越过函数边界长期存在。这组限制共同保证借用指向的对象始终有效。")
+}
+
+}

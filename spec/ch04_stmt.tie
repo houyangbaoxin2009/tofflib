@@ -1,0 +1,63 @@
+type tie<logic>
+// ch04_stmt.tie —— 规范正文 · 第 4 章 语句
+import "F:/Projects/tie-repo/tofflib/spec/pdfdoc.tie" as dp
+
+namespace ch04 {
+
+pub func chapter() {
+    dp.h1("第 4 章  语句")
+
+    dp.p("语句描述控制流与状态的改变。本章逐一说明各类语句，并给出它们在书写上的一致做法。语句之间以自动分号分隔（见 1.10），因此不必为每行补分号，也不应依赖缩进决定结构。")
+
+    // ---------------- 4.1 ----------------
+    dp.h2("4.1  变量声明")
+    dp.p("变量用 var 声明，常量用 const 声明。常量必须在声明处确定取值，此后不可重新绑定。")
+    dp.codeblock(dp.src(["var count = 0", "var name: string = \"tie\"", "const MAX = 1024"]))
+    dp.h3("作用域")
+    dp.p("变量在所在块内可见，块结束时消失。内层块可以声明与外层同名的变量，此时内层遮蔽外层；编译器对遮蔽给出提示，因为它常是笔误。")
+    dp.p("函数参数与函数体的局部变量处于同一作用域。闭包可以读取其外层函数的变量，规则见第 5 章。")
+
+    // ---------------- 4.2 ----------------
+    dp.h2("4.2  赋值")
+    dp.p("赋值把右侧的值写入左侧的目标。复合赋值形式把运算与写入合并。")
+    dp.codeblock(dp.src(["count = 10", "count += 1        // 自增", "count *= 2        // 倍增", "count %%= 5       // 原地取余并写回"]))
+    dp.p("赋值目标的类型与右侧表达式必须相容。语言不做隐式的窄化转换，需要窄化时显式书写转换。")
+
+    // ---------------- 4.3 ----------------
+    dp.h2("4.3  条件分支")
+    dp.p("if 接受一个布尔表达式。else if 串接多个条件，else 收尾。条件必须严格是 bool——语言不接受用整数代表真伪，这排除了把赋值误写成比较的一类错误。")
+    dp.codeblock(dp.src(["if score >= 90 {", "    grade = \"A\"", "} else if score >= 60 {", "    grade = \"B\"", "} else {", "    grade = \"C\"", "}"]))
+
+    // ---------------- 4.4 ----------------
+    dp.h2("4.4  循环")
+    dp.p("循环有三种形态：条件循环、范围循环、集合循环。三者覆盖了绝大多数遍历需求，因此不需要通用的三段式循环语句。")
+    dp.codeblock(dp.src(["while running {", "    step()", "}", "", "for i in 0..10 {", "    println(to_string(i))", "}", "", "for item in items {", "    handle(item)", "}"]))
+    dp.p("遍历文本使用码点迭代，这样多字节字符不会被切断：")
+    dp.codeblock(dp.src(["for ch in text.chars() {", "    // ch 是一个完整字符", "}"]))
+    dp.h3("循环标签")
+    dp.p("嵌套循环中，若需要从内层直接跳出到外层之外，用标签指明目标。标签写在循环语句之前。")
+    dp.codeblock(dp.src(["outer: for a in 0..10 {", "    for b in 0..10 {", "        if b == 5 { break outer }", "        if b == 2 { continue outer }", "    }", "}"]))
+    dp.p("无标签的 break 与 continue 作用于最近一层循环。带标签的跳转在编译期校验目标存在，标签未匹配即报错。")
+
+    // ---------------- 4.5 ----------------
+    dp.h2("4.5  多分支选择")
+    dp.p("switch 按值分派到若干分支。每个分支自动结束，不存在落入下一分支的情况，因此不需要 break。")
+    dp.codeblock(dp.src(["switch code {", "    case 1, 2:", "        println(\"小\")", "    case 3..7:", "        println(\"中\")", "    default:", "        println(\"其他\")", "}"]))
+    dp.p("分支可以匹配枚举并同时取出其携带的数据，此时编译器要求所有分支被覆盖，遗漏即报错。这是把「几种情况之一」的数据处理写完整的主要手段。")
+    dp.codeblock(dp.src(["switch shape {", "    case Shape.Circle(r):", "        println(to_string(r))", "    case Shape.Rect(w, h):", "        println(to_string(w * h))", "}"]))
+
+    // ---------------- 4.6 ----------------
+    dp.h2("4.6  跳转")
+    dp.p("return 结束当前函数并带回值；yield 在生成器中产出一个值并继续执行；panic 报告不可恢复的错误并终止当前执行流（见第 8 章）。")
+    dp.codeblock(dp.src(["func pick(xs: table<i64>) -> i64 {", "    for x in xs {", "        if x > 0 { return x }", "    }", "    return 0", "}", "", "func counter(n: i64) -> table<i64> {", "    for i in 0..n {", "        yield i", "    }", "}"]))
+    dp.p("goto 在需要把多层嵌套的清理路径收敛到一处时使用。它只允许在同一个函数内跳转，且不允许跳入循环或分支的内部——这两条限制使它不会破坏块作用域。")
+    dp.codeblock(dp.src(["    if open_a() != 0 { goto cleanup_a }", "    if open_b() != 0 { goto cleanup_b }", "    // ...", "cleanup_b:", "    close_b()", "cleanup_a:", "    close_a()"]))
+
+    // ---------------- 4.7 ----------------
+    dp.h2("4.7  表达式语句")
+    dp.p("一个表达式后面接语句结束，构成表达式语句。它用于调用有副作用的函数。")
+    dp.codeblock(dp.src(["println(\"hello\")", "items -> sort -> print_all"]))
+    dp.p("没有副作用的表达式语句通常意味着书写疏漏，编译器会对此给出提示。")
+}
+
+}

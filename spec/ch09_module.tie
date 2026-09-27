@@ -1,0 +1,65 @@
+type tie<logic>
+// ch09_module.tie —— 规范正文 · 第 9 章 模块与导入
+import "F:/Projects/tie-repo/tofflib/spec/pdfdoc.tie" as dp
+
+namespace ch09 {
+
+pub func chapter() {
+    dp.h1("第 9 章  模块与导入")
+
+    dp.p("程序由多个文件组成，文件之间通过导入建立依赖。本章说明导入的语法、可见性规则与命名空间的角色。")
+
+    // ---------------- 9.1 ----------------
+    dp.h2("9.1  导入")
+    dp.p("导入把另一个文件的内容引入当前文件，并可选地给它一个别名。别名用于限定访问，使来源在调用点清晰可见。")
+    dp.codeblock(dp.src(["import \"./geometry.tie\" as geo", "import \"./format.tie\"", "", "var d = geo.distance(a, b)"]))
+    dp.p("不写别名时，被导入文件的公开名称直接进入当前作用域，适合导入内容很少的文件。来源较多时使用别名，避免名称冲突。")
+
+    // ---------------- 9.2 ----------------
+    dp.h2("9.2  命名空间")
+    dp.p("命名空间把一组函数组织在同一个名称之下。命名空间可以跨越多个文件：若干文件声明同一个命名空间时，它们的内容合并为一份。")
+    dp.codeblock(dp.src(["namespace math {", "    pub func gcd(a: i64, b: i64) -> i64 {", "        if b == 0 { return a }", "        return gcd(b, a % b)", "    }", "}"]))
+    dp.p("命名空间可以嵌套，形成层次化的名称。嵌套的层级同时表达归属关系：内层命名空间只在外层可见的范围内被引用。")
+    dp.note("跨文件的分片需要由主文件显式导入分片，命名空间才会合并。只在别处导入分片而主文件未导入它，会得到「名称未定义」——这是导入关系的正常结果，不是缺陷。")
+
+    // ---------------- 9.3 ----------------
+    dp.h2("9.3  可见性")
+    dp.p("声明默认是私有的，只有标注 pub 才对外可见。可见性在导入边界上检查：被导入文件的私有名称不出现在导入方的作用域中。")
+    dp.codeblock(dp.src(["func helper() { }        // 仅本文件可见", "pub func api() { }       // 对外可见"]))
+    dp.p("私有是本语言在处理跨文件访问时的默认选择。理由很实际：默认私有使得一个文件内部的调整不会意外影响其他文件，公开面需要显式付出决策成本。")
+
+    // ---------------- 9.4 ----------------
+    dp.h2("9.4  标准库")
+    dp.p("标准库以模块为单位提供。常用模块与其职责如下。")
+
+    var w = table_new_i64()
+    table_push(w, 150)
+    table_push(w, 301)
+    var h = table_new_string()
+    table_push(h, "模块")
+    table_push(h, "职责")
+    var r: table<table<string>> = []
+    table_push(r, dp.kvrow("string", "文本查找、切分、替换、大小写"))
+    table_push(r, dp.kvrow("utf", "码点与字节的转换、字符分类"))
+    table_push(r, dp.kvrow("collection", "表与映射的常用操作"))
+    table_push(r, dp.kvrow("sort", "排序与查找"))
+    table_push(r, dp.kvrow("math", "数值函数与统计"))
+    table_push(r, dp.kvrow("regex", "正则匹配与替换"))
+    table_push(r, dp.kvrow("fs", "文件与目录"))
+    table_push(r, dp.kvrow("path", "路径拼接与分解"))
+    table_push(r, dp.kvrow("json", "数据交换格式的读写"))
+    table_push(r, dp.kvrow("time", "时间与日期"))
+    table_push(r, dp.kvrow("random", "随机数"))
+    table_push(r, dp.kvrow("process", "进程与环境"))
+    table_push(r, dp.kvrow("net", "网络通信"))
+    table_push(r, dp.kvrow("crypto", "散列与加密"))
+    dp.tbl(h, r, w)
+
+    // ---------------- 9.5 ----------------
+    dp.h2("9.5  依赖与版本")
+    dp.p("包管理器按版本解析依赖，并把解析结果与校验信息记录在项目文件中。依赖的引入应当在项目级完成，而不是在源文件中按路径直接引用。")
+    dp.codeblock(dp.src(["// 项目文件中记录依赖与版本约束", "tie.pkg", "    name: my-project", "    require: json ^2.1, net ~1.4"]))
+    dp.p("版本约束使用语义化的范围记号，使得依赖升级的边界在文件里可见。")
+}
+
+}

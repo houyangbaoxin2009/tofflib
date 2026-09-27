@@ -1,0 +1,73 @@
+type tie<logic>
+// build.tie —— 《tie 语言语法规范 2026》构建入口（依序装配各章 → PDF）
+//
+// 生成方式：tiec build.tie -o build.exe && build.exe
+// 编排：make.tsh.tie（tshell）
+import "F:/Projects/tie-repo/tofflib/spec/pdfdoc.tie" as dp
+import "F:/Projects/tie-repo/tofflib/spec/ch01_lex.tie" as c01
+import "F:/Projects/tie-repo/tofflib/spec/ch02_types.tie" as c02
+import "F:/Projects/tie-repo/tofflib/spec/ch03_expr.tie" as c03
+import "F:/Projects/tie-repo/tofflib/spec/ch04_stmt.tie" as c04
+import "F:/Projects/tie-repo/tofflib/spec/ch05_func.tie" as c05
+import "F:/Projects/tie-repo/tofflib/spec/ch06_data.tie" as c06
+import "F:/Projects/tie-repo/tofflib/spec/ch07_port.tie" as c07
+import "F:/Projects/tie-repo/tofflib/spec/ch08_error.tie" as c08
+import "F:/Projects/tie-repo/tofflib/spec/ch09_module.tie" as c09
+import "F:/Projects/tie-repo/tofflib/spec/ch10_conc.tie" as c10
+import "F:/Projects/tie-repo/tofflib/spec/ch11_unsafe.tie" as c11
+import "F:/Projects/tie-repo/tofflib/spec/ch12_macro.tie" as c12
+import "F:/Projects/tie-repo/tofflib/spec/ch13_move.tie" as c13
+import "F:/Projects/tie-repo/tofflib/spec/ch14_ui.tie" as c14
+import "F:/Projects/tie-repo/tofflib/spec/ch15_tool.tie" as c15
+import "F:/Projects/tie-repo/tofflib/spec/ch16_ref.tie" as c16
+
+func main() -> i64 {
+    dp.begin()
+    dp.cover("tie 语言语法规范", "tie Language Specification", "版本 2026")
+    dp.pagebreak()
+    dp.toc_item("第 1 章  词法与记号", "")
+    dp.toc_item("第 2 章  类型系统", "")
+    dp.toc_item("第 3 章  运算符与表达式", "")
+    dp.toc_item("第 4 章  语句", "")
+    dp.toc_item("第 5 章  函数", "")
+    dp.toc_item("第 6 章  数据结构", "")
+    dp.toc_item("第 7 章  接口", "")
+    dp.toc_item("第 8 章  错误处理", "")
+    dp.toc_item("第 9 章  模块与导入", "")
+    dp.toc_item("第 10 章  并发", "")
+    dp.toc_item("第 11 章  不安全机制", "")
+    dp.toc_item("第 12 章  宏与元编程", "")
+    dp.toc_item("第 13 章  所有权与移动", "")
+    dp.toc_item("第 14 章  界面元素块与图语法", "")
+    dp.toc_item("第 15 章  工具链与语言服务", "")
+    dp.toc_item("第 16 章  速查表", "")
+    dp.pagebreak()
+    c01.chapter()
+    c02.chapter()
+    c03.chapter()
+    c04.chapter()
+    c05.chapter()
+    c06.chapter()
+    c07.chapter()
+    c08.chapter()
+    c09.chapter()
+    c10.chapter()
+    c11.chapter()
+    c12.chapter()
+    c13.chapter()
+    c14.chapter()
+    c15.chapter()
+    c16.chapter()
+    var out = "F:/Projects/tie-repo/tofflib/spec/tie-spec-2026.pdf"
+    var ok = dp.end(out)
+    println("write = " + to_string(ok))
+    // 生成后自检：xref 结构自洽性（偏移、交叉引用表、逐对象条目）
+    var vr = dp.verify(out)
+    if vr == 0 {
+        println("verify = OK (" + to_string(dp.verify_entries()) + " object entries)")
+    } else {
+        println("verify = FAILED (code " + to_string(vr) + ")")
+        return 1
+    }
+    return 0
+}

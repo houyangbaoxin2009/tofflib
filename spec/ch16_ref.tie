@@ -1,0 +1,64 @@
+type tie<logic>
+// ch16_ref.tie —— 规范正文 · 第 16 章 速查表
+import "F:/Projects/tie-repo/tofflib/spec/pdfdoc.tie" as dp
+
+namespace ch16 {
+
+pub func chapter() {
+    dp.h1("第 16 章  速查表")
+
+    dp.p("本章把全书的形态汇总成查阅表，供书写时快速定位。语义细节见对应章节。")
+
+    // ---------------- 16.1 ----------------
+    dp.h2("16.1  文件与角色")
+    dp.codeblock(dp.src(["type tie               // 泛型入口（Type 角色）", "type tie<logic>        // 逻辑代码（默认）", "type tie<class>        // 类库", "type tie<script>       // 脚本", "type tie<data>         // 纯数据", "type tie<ui>           // 界面", "type tie<db>           // 数据库", "type tie<port>         // 接口", "type tie<ir>           // 中间表示"]))
+
+    // ---------------- 16.2 ----------------
+    dp.h2("16.2  声明形态")
+    dp.codeblock(dp.src(["var x = 1                       // 变量", "const K = 10                    // 常量", "func f(a: i64) -> i64 { }       // 函数", "pub func g() { }                // 公开函数", "struct S { var n: i64 = 0 }     // 结构", "enum E { A(x: i64) }            // 枚举", "namespace ns { }                // 命名空间", "port P { pub func m(self) }     // 接口", "impl P for S { }                // 实现", "actor A { var n: i64 = 0 }      // 状态单元", "macro m(x: code) -> code { }    // 宏", "import \"./m.tie\" as m           // 导入", "extern func e(a: i64) -> i64    // 外部函数"]))
+
+    // ---------------- 16.3 ----------------
+    dp.h2("16.3  参数约定")
+    dp.codeblock(dp.src(["func f(a: i64)                  // 按值", "func f(ref t: table<i64>)       // 可写借用", "func f(immut t: table<i64>)     // 只读借用", "func f(move t: table<i64>)      // 所有权转移", "func f(a: i64, b: i64 = 10)     // 默认值（须连续居尾）", "func f(a: i64, b: i64, c: i64)  // 调用：f(a: 1, c: 3) 命名并跳过 b", "func f(rest: ...i64)            // 变长参数"]))
+
+    // ---------------- 16.4 ----------------
+    dp.h2("16.4  表达式记号")
+    dp.codeblock(dp.src(["a -> f                  // 数据流管道", "t -> t + 1              // 短闭包（要求函数值的位置）", "x in m                  // 成员判定", "x not in m              // 成员取反", "v ?: 10                 // 安全默认值", "v?                      // 存在判定", "p\\                      // 解引用", "n %% 1                  // 原地修改", "a ** b                  // 幂", "a **? b                 // 带检查的幂", "0..10   0..=10          // 范围"]))
+
+    // ---------------- 16.5 ----------------
+    dp.h2("16.5  语句形态")
+    dp.codeblock(dp.src(["if cond { } else { }", "while cond { }", "for i in 0..10 { }", "for x in xs { }", "for c in s.chars() { }", "lbl: for i in 0..10 { break lbl }", "switch v { case 1: }", "return v", "yield v", "break    continue", "goto cleanup", "panic(\"msg\")"]))
+
+    // ---------------- 16.6 ----------------
+    dp.h2("16.6  常用内建")
+    dp.codeblock(dp.src(["println(s)              // 输出一行", "to_string(v)            // 转文本", "str_len(s)              // 码点数", "len(t)                  // 元素数或字节数", "str_char(s, i)          // 取第 i 个码点", "char_code(c)            // 取码点的数值", "table_new_i64()         // 新建动态表", "table_push(t, v)        // 追加", "map_new()               // 新建映射", "file_read(p)  file_write(p, s)", "byte_read(p)  byte_write(p, t)   // 二进制安全", "load_library(n)  get_proc(h, n)  dyn_call(p, ...)"]))
+
+    // ---------------- 16.7 ----------------
+    dp.h2("16.7  诊断编号")
+    dp.p("诊断编号按类别分段，便于按区间检索。")
+
+    var w = table_new_i64()
+    table_push(w, 150)
+    table_push(w, 301)
+    var h = table_new_string()
+    table_push(h, "区间")
+    table_push(h, "类别")
+    var r: table<table<string>> = []
+    table_push(r, dp.kvrow("E00000 - E00099", "语法与词法"))
+    table_push(r, dp.kvrow("E00100 - E00199", "内建函数调用形态"))
+    table_push(r, dp.kvrow("E00200 - E00399", "类型与调用匹配"))
+    table_push(r, dp.kvrow("E00400 - E00499", "导入、声明与作用域"))
+    table_push(r, dp.kvrow("E00500 - E00699", "借用、移动与捕获"))
+    table_push(r, dp.kvrow("E00700 及以上", "并发、宏与不安全区"))
+    table_push(r, dp.kvrow("W00001 - W00099", "警告：可疑但合法"))
+    dp.tbl(h, r, w)
+
+    dp.note("编号稳定是工具链的前提：编辑器、CI 与回归语料都按编号引用诊断，重排编号会同时破坏这三者。因此新增诊断一律取新号，不复用旧号。")
+
+    // ---------------- 16.8 ----------------
+    dp.h2("16.8  设计要点回顾")
+    dp.p("本书的规则可以收敛成若干条彼此呼应的立场，它们共同构成语言的性格。")
+    dp.bullet(["参数约定写在声明处，四种划分互斥且完备——读签名即知实参的去向", "命名实参可跳过带默认值的参数，使「只改一处」的调用最短", "闭包捕获除可写借用外一律按值，因此不产生共享可变状态", "并发通过消息与任务图表达，共享不通过共享内存偶然发生", "不安全操作写在标记区内，审计可按文本搜索完成", "常见的书写意图有专有记号：管道、短闭包、成员判定、原地修改、安全默认值"])
+}
+
+}

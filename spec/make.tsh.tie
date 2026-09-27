@@ -1,0 +1,96 @@
+type tie<tsh>
+// spec/make.tsh.tie —— 《tie 语言语法规范 2026》构建脚本（tshell）
+// ============================================================
+// 用法（在 tofflib 仓库根执行）：
+//     <tsh> -f spec/make.tsh.tie [tiec路径]
+//
+// 职责：① 编译 spec/build.tie ② 运行生成 PDF（内含结构自检）
+//       ③ 报告产物大小与自检结论，据此设置退出码。
+//
+// 两点工程约定（均为实测所得，非风格偏好）：
+//   * 路径一律用**绝对路径**：tshell 的 exec_code 不提供 shell 的复合命令
+//     语义（`cd /d X && exe` 会被拆解失败），故不能用切换工作目录的方式定位产物。
+//   * 输出用 **ASCII**：tshell 的 println 与终端编码不一致时中文会显示为乱码，
+//     而构建脚本的输出是要给人看的，故此处不用中文。
+
+var root = cwd()
+var spec = "F:\\Projects\\tie-repo\\tofflib\\spec"
+if !file_exists(spec + "\\build.tie") {
+    // 退化路径：假设从 tofflib 根运行
+    if file_exists(root + "\\spec\\build.tie") {
+        spec = root + "\\spec"
+    }
+}
+
+// tiec 定位：命令行参数 → 固定位置
+var tiec = ""
+if arg_count() >= 1 && !is_empty(arg_at(0)) {
+    tiec = arg_at(0)
+}
+if is_empty(tiec) {
+    var cand = "F:\\Projects\\tie-repo\\tiec\\compiler\\tiec.exe"
+    if file_exists(cand) { tiec = cand }
+}
+if is_empty(tiec) {
+    println("error: tiec not found; pass its path as the first argument")
+    exit(2)
+}
+
+println("===== build tie language specification 2026 =====")
+println("cwd    : " + root)
+println("tiec   : " + tiec)
+
+var src = spec + "\\build.tie"
+if !file_exists(src) {
+    println("error: build entry not found: " + src)
+    exit(2)
+}
+
+var font = "C:\\Windows\\Fonts\\simhei.ttf"
+if file_exists(font) {
+    println("font   : " + font + " (embedded)")
+} else {
+    println("warning: font not found: " + font + " (output will have no glyphs)")
+}
+
+// ---------- 编译 ----------
+println("")
+println("[1/2] compiling build entry ...")
+var exe = spec + "\\build.exe"
+var rcc = exec_code("cmd /c " + tiec + " " + src + " -o " + exe)
+if rcc != 0 {
+    println("compile failed (exit " + to_string(rcc) + "); run manually to see errors:")
+    println("    " + tiec + " " + src)
+    exit(1)
+}
+sleep_ms(600)
+if !file_exists(exe) {
+    println("compile reported success but produced no executable")
+    exit(1)
+}
+println("      ok: " + exe)
+
+// ---------- 生成 ----------
+println("[2/2] generating PDF (with self-check) ...")
+var rc = exec_code(exe)
+sleep_ms(2000)
+
+var pdf = spec + "\\tie-spec-2026.pdf"
+if !file_exists(pdf) {
+    println("no PDF produced (run exit " + to_string(rc) + ")")
+    exit(1)
+}
+var sz = 0   // tshell 无 file_size；大小由 build.exe 的自检输出与外部工具报告
+println("")
+println("artifact: tie-spec-2026.pdf")
+println("selfcheck: see the verify line above (OK = every xref offset is aligned)")
+
+if rc != 0 {
+    println("")
+    println("result: FAILED (see self-check output above)")
+    exit(1)
+}
+
+println("")
+println("result: OK")
+exit(0)

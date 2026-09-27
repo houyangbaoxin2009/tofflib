@@ -1,0 +1,44 @@
+type tie<logic>
+// ch07_port.tie —— 规范正文 · 第 7 章 接口
+import "F:/Projects/tie-repo/tofflib/spec/pdfdoc.tie" as dp
+
+namespace ch07 {
+
+pub func chapter() {
+    dp.h1("第 7 章  接口")
+
+    dp.p("接口描述一组能力：满足这组签名要求的类型，就可以被当作这个接口使用。接口是泛型约束与多态的基础，也是模块之间约定边界的主要手段。")
+
+    // ---------------- 7.1 ----------------
+    dp.h2("7.1  声明")
+    dp.p("接口用 port 声明，其中列出方法签名。签名只写参数与返回类型，不含实现。")
+    dp.codeblock(dp.src(["port Drawable {", "    pub func draw(self, ctx: i64) -> string", "    pub func bounds(self) -> i64", "}"]))
+    dp.p("self 是接收者占位，实现时由具体类型替换。")
+
+    // ---------------- 7.2 ----------------
+    dp.h2("7.2  实现")
+    dp.p("类型通过 impl 块声明它实现某个接口，并在其中给出各方法。接口要求的每个方法都必须实现，遗漏在编译期报告。")
+    dp.codeblock(dp.src(["struct Button {", "    var label: string = \"\"", "    var w: i64 = 0", "    var h: i64 = 0", "}", "", "impl Drawable for Button {", "    pub func draw(self, ctx: i64) -> string {", "        return \"Button(\" + self.label + \")\"", "    }", "    pub func bounds(self) -> i64 {", "        return self.w * self.h", "    }", "}"]))
+    dp.p("实现块中的 self 指向实现类型本身，因此实现体可以直接访问该类型的字段。")
+
+    // ---------------- 7.3 ----------------
+    dp.h2("7.3  作为约束")
+    dp.p("泛型参数可以标注接口约束。约束在编译期检查：传入的类型必须实现了该接口，否则报错。")
+    dp.codeblock(dp.src(["func render_all<T: Drawable>(items: table<T>, ctx: i64) {", "    for it in items {", "        it.draw(ctx)", "    }", "}"]))
+    dp.p("带约束的泛型在编译期为每个具体类型生成一份实现。因此调用没有间接跳转，也能被内联——接口在这里不带来运行期开销。")
+
+    // ---------------- 7.4 ----------------
+    dp.h2("7.4  作为对象")
+    dp.p("接口也可以作为运行期的对象类型使用：把不同具体类型的值放入同一个接口类型的变量或表中，调用时按实际类型分派。")
+    dp.codeblock(dp.src(["var items: table<Drawable> = table_new_Drawable()", "table_push(items, button)", "table_push(items, label)", "for it in items {", "    it.draw(0)", "}"]))
+    dp.p("这一形态在需要异质集合时使用，例如界面中混合放置不同控件。开销与任何动态分派方案相同，因此在不必要时优先使用泛型约束的形态。")
+    dp.note("两种形态共用同一份接口声明。选择哪一种取决于调用点是否需要异质集合：类型在编译期全部已知，用约束；需要把不同类型放进同一个容器，用对象。")
+
+    // ---------------- 7.5 ----------------
+    dp.h2("7.5  接口的组合")
+    dp.p("接口可以要求另一个接口，从而在能力之上再叠能力。实现时必须同时满足全部要求。")
+    dp.codeblock(dp.src(["port Focusable {", "    pub func focus(self) -> bool", "}", "", "port Control {", "    pub func draw(self, ctx: i64) -> string", "    pub func focus(self) -> bool", "}"]))
+    dp.p("组合让约束可以按能力分片：小接口易于实现也易于复用，大接口由小接口拼成，实现方仍只需提供具体方法。")
+}
+
+}

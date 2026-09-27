@@ -1,0 +1,46 @@
+type tie<logic>
+// ch14_ui.tie —— 规范正文 · 第 14 章 界面元素块与图语法
+import "F:/Projects/tie-repo/tofflib/spec/pdfdoc.tie" as dp
+
+namespace ch14 {
+
+pub func chapter() {
+    dp.h1("第 14 章  界面元素块与图语法")
+
+    dp.p("有两类结构，用函数调用写出来会显著失去可读性：嵌套很深的界面元素树，以及需要表达拓扑关系的图。语言为二者提供专门的记号，使代码的形态接近它描述的结构本身。")
+
+    // ---------------- 14.1 ----------------
+    dp.h2("14.1  元素块的写法")
+    dp.p("元素块以 @ 记号引入，块内书写元素与属性。元素之间的嵌套关系由书写的层次表达，不需要括号配对。")
+    dp.codeblock(dp.src(["@ window \"设置\" {", "    size: 480 x 320", "    @ panel {", "        @ label \"服务地址\"", "        @ input host: \"localhost\"", "        @ row {", "            @ button \"保存\" on_click: save", "            @ button \"取消\" on_click: cancel", "        }", "    }", "}"]))
+    dp.p("这段写法与它描述的界面同构：外层窗口包含一个面板，面板包含一行文本、一个输入框与一个按钮行。改结构时改动的位置与视觉上的位置一致。")
+
+    // ---------------- 14.2 ----------------
+    dp.h2("14.2  属性与绑定")
+    dp.p("元素的属性写在元素之后，形式为名称与值。值可以是字面量、变量或表达式；写表达式时用花括号界定，与字符串插值同一形态。")
+    dp.codeblock(dp.src(["@ label title", "@ progress value: done * 100 / total", "@ input host: config.host"]))
+    dp.p("属性可以分行书写，也可以放在同一行。分行时每个属性独占一行，便于对齐与增删。")
+
+    // ---------------- 14.3 ----------------
+    dp.h2("14.3  事件")
+    dp.p("事件用 on_事件名 的形式绑定到一个函数值。绑定接受具名函数，也接受短闭包。")
+    dp.codeblock(dp.src(["@ button \"重试\" on_click: retry", "@ button \"清空\" on_click: t -> clear_all()", "@ input host: \"localhost\" on_change: host_changed"]))
+    dp.p("事件处理函数是普通函数，参数与返回类型由事件类型决定。由于函数值遵循第 5 章的捕获规则，事件处理只携带值快照，不持有对界面外部状态的可写引用。")
+
+    // ---------------- 14.4 ----------------
+    dp.h2("14.4  数据与界面")
+    dp.p("界面元素可以引用所在作用域的值。值的更新触发界面刷新，刷新范围由引用关系决定——读取了某个值的元素才会重建，其余部分保持不动。")
+    dp.codeblock(dp.src(["func view(state: AppState) -> i64 {", "    @ window \"计数器\" {", "        @ label \"计数：\" + to_string(state.n)", "        @ button \"加一\" on_click: bump", "    }", "    return 0", "}"]))
+
+    // ---------------- 14.5 ----------------
+    dp.h2("14.5  图语法")
+    dp.p("图语法用于描述节点与它们之间的连接。节点声明与边声明分开书写：先给节点起名，再用箭头描述连接方向。")
+    dp.codeblock(dp.src(["graph Pipeline {", "    node fetch", "    node parse", "    node store", "", "    fetch -> parse", "    parse -> store", "    store -> fetch", "}"]))
+    dp.p("箭头方向即数据或控制流的流向。需要给边附加条件或权重时，在箭头之后书写。")
+    dp.codeblock(dp.src(["    parse -> store when valid", "    parse -> fetch   when invalid"]))
+    dp.p("图作为值可以构造、组合与执行：构造产生图对象，组合把两个图按同名节点连接起来，执行按拓扑顺序推进。由于图是不可变的，组合不会修改原图，而是产生新图——这使得图可以在多个调用点之间安全共享。")
+
+    dp.note("元素块与图语法都不是独立语言，而是同一套表达式的书写形态。二者内部可以出现普通表达式、函数调用与闭包，也可以被普通代码构造出来。")
+}
+
+}

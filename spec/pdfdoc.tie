@@ -1,0 +1,540 @@
+type tie<class>
+// pdfdoc.tie —— 规范文档的**排版层**（tofflib 内部模块，纯 tie）
+// ============================================================
+// 职责：把「内容块」流式排到 A4 页面上——自动换行、自动分页、块间距。
+// 上层（章节内容）只关心「写什么」，不关心坐标。
+//
+// 版式约定（pt）
+//   A4 595×842；页边距 左/右 72、上 72、下 60；正文栏宽 = 451
+//   基准字号：正文 10 · 代码 9 · 表格 9 · h3 12 · h2 14 · h1 19 · 封面 30
+//   行距 ≈ 字号的 1.55 倍
+//
+// 分页策略
+//   * 正文段落跨页允许；**代码块与表格不跨页**（整块放不下即移到下一页）——
+//     这既让底纹/网格一次画完（实现简单），也是专业文档的常规观感。
+//   * 单块高于整页时（极端）硬断，避免死循环。
+//
+// 文本编码：一律经 pdf_ttf 的 `enc_gids` 转 GID 表，按 Identity-H 写入。
+
+import "F:/Projects/tie-repo/tofflib/pdf.tie"
+
+// ---------- 版面常量与游标（顶层 var：命名空间体内不允许 var）----------
+var dp_page: i64 = 0;        // 当前页序号
+var dp_y: i64 = 0;           // 当前基线 y（自上而下递减）
+var dp_col: i64 = 0;         // 正文颜色（0-255 灰阶）
+
+const DP_W: i64 = 595;
+const DP_H: i64 = 842;
+const DP_ML: i64 = 72;
+const DP_MR: i64 = 72;
+const DP_MT: i64 = 72;
+const DP_MB: i64 = 60;
+const DP_COLW: i64 = 451;    // 595 - 72 - 72
+const DP_BOTTOM: i64 = 60;   // 基线不得低于此值
+
+const SZ_BODY: i64 = 10;
+const SZ_CODE: i64 = 9;
+const SZ_TBL: i64 = 9;
+const LH_BODY: i64 = 16;
+const LH_CODE: i64 = 13;
+const LH_TBL: i64 = 14;
+
+namespace docp {
+
+// 字符串按换行切成行表
+func split_lines(s: string) -> table<string> {
+    var out = table_new_string()
+    var n = str_len(s)
+    var cur = ""
+    var i: i64 = 0
+    while i < n {
+        var c = str_char(s, i)
+        if c == "\n" {
+            table_push(out, cur)
+            cur = ""
+        } else {
+            cur = cur + c
+        }
+        i = i + 1
+    }
+    table_push(out, cur)
+    return out
+}
+
+// ---------- 初始化与收尾 ----------
+// 正文字体路径（嵌入用）。simhei 为纯 TTF（非 ttc 集合），解析最省事。
+// 嵌入后 PDF 自带字形，阅读端无需安装中文字体。
+const DP_FONT: string = "C:/Windows/Fonts/simhei.ttf"
+
+pub func begin() {
+    if pdf.font_bytes_len() == 0 {
+        var rc = pdf.font_load(DP_FONT)
+        if rc != 0 {
+            println("[pdfdoc] 警告：字体加载失败，输出将无字形")
+        }
+    }
+    pdf.begin_doc(DP_W, DP_H)
+    dp_page = pdf.add_page()
+    dp_y = DP_H - DP_MT
+    dp_col = 0
+}
+
+// 新页（并写页脚页码）
+pub func new_page() {
+    dp_page = pdf.add_page()
+    dp_y = DP_H - DP_MT
+    footer()
+}
+
+func footer() {
+    var n = dp_page + 1
+    var t = "第 " + pdf.i2s(n) + " 页"
+    var g = pdf.enc_gids(t)
+    var w = pdf.width_of(g, 8)
+    var x = (DP_W - w / 100) / 2
+    pdf.text_at(dp_page, x, 36, 8, g)
+}
+
+pub func end(path: string) -> bool {
+    return pdf.save(path)
+}
+
+// 生成后自检（转发）
+pub func verify(path: string) -> i64 {
+    return pdf.verify(path)
+}
+
+pub func verify_entries() -> i64 {
+    return pdf.verify_entries()
+}
+
+// 分页：需要 h 高度，剩余不足则换页
+pub func need(h: i64) {
+    if dp_y - h < DP_BOTTOM {
+        new_page()
+    }
+}
+
+pub func pagebreak() {
+    new_page()
+}
+
+// 空白（块间距）
+pub func gap(h: i64) {
+    dp_y = dp_y - h
+}
+
+// ---------- 通用文本 ----------
+// 写一行（不换行、不分页；调用方保证位置）
+func line_at(x: i64, y: i64, size: i64, s: string) {
+    var g = pdf.enc_gids(s)
+    pdf.text_at(dp_page, x, y, size, g)
+}
+
+// 按块切分：CJK/标点逐字成块；ASCII 连续串（无空格）成一个"词"块；空格单独成块。
+// 这样英文单词不会被拆开，中文可任意换行。
+func split_chunks(s: string) -> table<table<i64>> {
+    var out: table<table<i64>> = []
+    var cur = table_new_i64()
+    var n = str_len(s)
+    var i: i64 = 0
+    while i < n {
+        var c = str_char(s, i)
+        var cp = char_code(c)
+        if cp > 127 {
+            // CJK/全角：单字成块（先收尾当前 ASCII 词）
+            if len(cur) > 0 {
+                table_push(out, cur)
+                cur = table_new_i64()
+            }
+            var one = table_new_i64()
+            var cg = pdf.enc_gids(c)
+            table_push(one, cg[0])
+            table_push(out, one)
+        } else if cp == 32 {
+            if len(cur) > 0 {
+                table_push(out, cur)
+                cur = table_new_i64()
+            }
+            var sp = table_new_i64()
+            table_push(sp, pdf.gid_of(32))
+            table_push(out, sp)
+        } else {
+            table_push(cur, pdf.gid_of(cp))
+        }
+        i = i + 1
+    }
+    if len(cur) > 0 {
+        table_push(out, cur)
+    }
+    return out
+}
+
+// 全部 GID 合并成一行字节表
+func join_gids(parts: table<table<i64>>) -> table<i64> {
+    var out = table_new_i64()
+    var i: i64 = 0
+    while i < len(parts) {
+        var p = parts[i]
+        var j: i64 = 0
+        while j < len(p) {
+            table_push(out, p[j])
+            j = j + 1
+        }
+        i = i + 1
+    }
+    return out
+}
+
+// 换行：把一段文本按栏宽切成若干行（GID 表）。
+// **单位**：max_w 以 pt 传入（与版面常量一致），内部乘 100 对齐
+// width_of 的 1/100pt 尺度——曾漏乘导致「每字一行」、页数虚高（实测 365 页 → 修正后 60 余页）。
+func wrap(s: string, size: i64, max_w: i64) -> table<table<i64>> {
+    var lim = max_w * 100
+    var lines: table<table<i64>> = []
+    var cs = split_chunks(s)
+    var cur: table<table<i64>> = []
+    var cw: i64 = 0
+    var i: i64 = 0
+    while i < len(cs) {
+        var g = cs[i]
+        var w = pdf.width_of(g, size)
+        if cw + w > lim && len(cur) > 0 {
+            // 行尾空格丢弃
+            var last = cur[len(cur) - 1]
+            if len(last) == 1 && last[0] == pdf.gid_of(32) {
+                cur = pop_last(cur)
+            }
+            table_push(lines, join_gids(cur))
+            cur = []
+            cw = 0
+            // 起始处若是空格则跳过（避免行首缩进错位）
+            if len(g) == 1 && g[0] == pdf.gid_of(32) {
+                i = i + 1
+                continue
+            }
+        }
+        table_push(cur, g)
+        cw = cw + w
+        i = i + 1
+    }
+    if len(cur) > 0 {
+        table_push(lines, join_gids(cur))
+    }
+    if len(lines) == 0 {
+        var empty = table_new_i64()
+        table_push(lines, empty)
+    }
+    return lines
+}
+
+// 去掉表尾元素（返回新表；tie 表按值，直接构造）
+func pop_last(t: table<table<i64>>) -> table<table<i64>> {
+    var out: table<table<i64>> = []
+    var i: i64 = 0
+    while i + 1 < len(t) {
+        table_push(out, t[i])
+        i = i + 1
+    }
+    return out
+}
+
+// ---------- 块级元素 ----------
+// 正文段落（自动换行；跨页续排）
+pub func p(s: string) {
+    para(s, SZ_BODY, LH_BODY, 0)
+}
+
+// 带缩进段落（次级说明/列表续行）
+pub func p_ind(s: string, ind: i64) {
+    para(s, SZ_BODY, LH_BODY, ind)
+}
+
+func para(s: string, size: i64, lh: i64, ind: i64) {
+    var lines = wrap(s, size, DP_COLW - ind)
+    var i: i64 = 0
+    while i < len(lines) {
+        if dp_y - lh < DP_BOTTOM {
+            new_page()
+        }
+        pdf.text_at(dp_page, DP_ML + ind, dp_y, size, lines[i])
+        dp_y = dp_y - lh
+        i = i + 1
+    }
+    dp_y = dp_y - 4
+}
+
+// 一级标题（前面留白 + 上分隔线）
+pub func h1(s: string) {
+    if dp_y < DP_H - DP_MT - 1 {
+        need(90)
+    }
+    dp_y = dp_y - 8
+    pdf.hline(dp_page, DP_ML, dp_y + 12, DP_W - DP_MR, 80)
+    dp_y = dp_y - 8
+    line_at(DP_ML, dp_y, 19, s)
+    dp_y = dp_y - 26
+}
+
+// 二级标题
+pub func h2(s: string) {
+    need(60)
+    dp_y = dp_y - 14
+    line_at(DP_ML, dp_y, 14, s)
+    dp_y = dp_y - 21
+}
+
+// 三级标题
+pub func h3(s: string) {
+    need(46)
+    dp_y = dp_y - 10
+    line_at(DP_ML, dp_y, 12, s)
+    dp_y = dp_y - 18
+}
+
+// 把「行列表」拼成带换行的源码串——正文里写代码示例用这个形态：
+//     dp.codeblock(dp.src([ "func f() -> i64 {", "    return 1", "}" ]))
+// 比在单个大字符串里写 \n 更易读、更不易错（也少一层引号转义）。
+pub func src(xs: table<string>) -> string {
+    var out = ""
+    var i: i64 = 0
+    while i < len(xs) {
+        if i > 0 {
+            out = out + "\n"
+        }
+        out = out + xs[i]
+        i = i + 1
+    }
+    return out
+}
+
+// 代码块（底纹 + 不跨页）
+pub func codeblock(txt: string) {
+    var raw = split_lines(txt)
+    // 逐行硬断到栏宽（代码不按词断，超长直接断）
+    var lines: table<string> = []
+    var i: i64 = 0
+    while i < len(raw) {
+        var ln = raw[i]
+        var g = pdf.enc_gids(ln)
+        var w = pdf.width_of(g, SZ_CODE)
+        if w <= (DP_COLW - 20) * 100 {
+            table_push(lines, ln)
+        } else {
+            // 硬断：按字符累积到栏宽
+            var cur = ""
+            var cwg = table_new_i64()
+            var cw: i64 = 0
+            var j: i64 = 0
+            while j < str_len(ln) {
+                var ch = str_char(ln, j)
+                var chg = pdf.enc_gids(ch)
+                var chw = pdf.width_of(chg, SZ_CODE)
+                if cw + chw > (DP_COLW - 20) * 100 && len(cwg) > 0 {
+                    table_push(lines, cur)
+                    cur = ""
+                    cwg = []
+                    cw = 0
+                }
+                cur = cur + ch
+                table_push(cwg, chg[0])
+                cw = cw + chw
+                j = j + 1
+            }
+            if str_len(cur) > 0 {
+                table_push(lines, cur)
+            }
+        }
+        i = i + 1
+    }
+    var block_h = len(lines) * LH_CODE + 14
+    // 不跨页：整块放不下则移下一页；仍放不下（超整页）则就地硬排
+    if block_h <= DP_H - DP_MT - DP_BOTTOM {
+        need(block_h + 6)
+    }
+    // 底纹
+    var top = dp_y + 10
+    var bot = dp_y - (len(lines) - 1) * LH_CODE - 8
+    pdf.fill_rect(dp_page, DP_ML - 6, bot, DP_COLW + 12, top - bot, 96, 96, 96)
+    var k: i64 = 0
+    while k < len(lines) {
+        if dp_y - LH_CODE < DP_BOTTOM {
+            new_page()
+        }
+        pdf.text_at(dp_page, DP_ML + 2, dp_y, SZ_CODE, pdf.enc_gids(lines[k]))
+        dp_y = dp_y - LH_CODE
+        k = k + 1
+    }
+    dp_y = dp_y - 10
+}
+
+// 提示框（浅底纹 + 左边框感的单段）
+pub func note(s: string) {
+    var lines = wrap(s, SZ_BODY, DP_COLW - 24)
+    var block_h = len(lines) * LH_BODY + 12
+    if block_h <= DP_H - DP_MT - DP_BOTTOM {
+        need(block_h)
+    }
+    var top = dp_y + 9
+    var bot = dp_y - (len(lines) - 1) * LH_BODY - 7
+    pdf.fill_rect(dp_page, DP_ML - 4, bot, DP_COLW + 8, top - bot, 226, 234, 242)
+    var i: i64 = 0
+    while i < len(lines) {
+        if dp_y - LH_BODY < DP_BOTTOM {
+            new_page()
+        }
+        pdf.text_at(dp_page, DP_ML + 8, dp_y, SZ_BODY, lines[i])
+        dp_y = dp_y - LH_BODY
+        i = i + 1
+    }
+    dp_y = dp_y - 8
+}
+
+// 项目符号清单
+pub func bullet(xs: table<string>) {
+    var i: i64 = 0
+    while i < len(xs) {
+        var lines = wrap(xs[i], SZ_BODY, DP_COLW - 16)
+        var j: i64 = 0
+        while j < len(lines) {
+            if dp_y - LH_BODY < DP_BOTTOM {
+                new_page()
+            }
+            if j == 0 {
+                pdf.text_at(dp_page, DP_ML, dp_y, SZ_BODY, pdf.enc_gids("· "))
+            }
+            pdf.text_at(dp_page, DP_ML + 14, dp_y, SZ_BODY, lines[j])
+            dp_y = dp_y - LH_BODY
+            j = j + 1
+        }
+        dp_y = dp_y - 2
+        i = i + 1
+    }
+    dp_y = dp_y - 4
+}
+
+// 表格（表头底纹 + 横线；不跨页）
+// widths 为各列宽（pt），合计应 ≈ DP_COLW
+pub func tbl(hdr: table<string>, rows: table<table<string>>, widths: table<i64>) {
+    var ncol = len(widths)
+    // 预计算行高
+    var hd_h = row_height(hdr, widths)
+    var body_h: i64 = 0
+    var ri: i64 = 0
+    var heights = table_new_i64()
+    while ri < len(rows) {
+        var h = row_height(rows[ri], widths)
+        table_push(heights, h)
+        body_h = body_h + h
+        ri = ri + 1
+    }
+    var total = hd_h + body_h + 6
+    if len(hdr) > 0 {
+        total = total + hd_h
+    }
+    if total <= DP_H - DP_MT - DP_BOTTOM {
+        need(total + 6)
+    }
+    var y_top = dp_y + 8
+    // 表头
+    if len(hdr) > 0 {
+        pdf.fill_rect(dp_page, DP_ML - 4, dp_y - hd_h + 4, DP_COLW + 8, hd_h, 217, 226, 243)
+        draw_row(hdr, widths, dp_y, hd_h, true)
+        dp_y = dp_y - hd_h
+    }
+    ri = 0
+    while ri < len(rows) {
+        var rh = heights[ri]
+        if dp_y - rh < DP_BOTTOM {
+            new_page()
+        }
+        draw_row(rows[ri], widths, dp_y, rh, false)
+        pdf.hline(dp_page, DP_ML - 4, dp_y - rh + 4, DP_ML - 4 + DP_COLW + 8, 60)
+        dp_y = dp_y - rh
+        ri = ri + 1
+    }
+    dp_y = dp_y - 10
+}
+
+func row_height(cells: table<string>, widths: table<i64>) -> i64 {
+    var mx: i64 = 1
+    var i: i64 = 0
+    while i < len(cells) && i < len(widths) {
+        var n = len(wrap(cells[i], SZ_TBL, widths[i] - 12))
+        if n > mx {
+            mx = n
+        }
+        i = i + 1
+    }
+    return mx * LH_TBL + 8
+}
+
+func draw_row(cells: table<string>, widths: table<i64>, y: i64, rh: i64, bold: bool) {
+    var x = DP_ML
+    var i: i64 = 0
+    while i < len(cells) && i < len(widths) {
+        var lines = wrap(cells[i], SZ_TBL, widths[i] - 12)
+        var j: i64 = 0
+        while j < len(lines) {
+            pdf.text_at(dp_page, x + 6, y - j * LH_TBL, SZ_TBL, lines[j])
+            j = j + 1
+        }
+        x = x + widths[i]
+        i = i + 1
+    }
+}
+
+// 构造一行两列表格单元（正文里最多用的形态）
+pub func kvrow(a: string, b: string) -> table<string> {
+    var r = table_new_string()
+    table_push(r, a)
+    table_push(r, b)
+    return r
+}
+
+// 两列键值表（常用形态的快捷）
+pub func kv(rows: table<table<string>>) {
+    var w = table_new_i64()
+    table_push(w, 130)
+    table_push(w, DP_COLW - 130)
+    var hdr = table_new_string()
+    table_push(hdr, "项")
+    table_push(hdr, "说明")
+    tbl(hdr, rows, w)
+}
+
+// 封面
+pub func cover(title: string, sub: string, ver: string) {
+    dp_y = DP_H - 260
+    line_at(DP_ML, dp_y, 30, title)
+    dp_y = dp_y - 34
+    line_at(DP_ML, dp_y, 14, sub)
+    dp_y = dp_y - 22
+    line_at(DP_ML, dp_y, 11, ver)
+    dp_y = dp_y - 40
+    pdf.hline(dp_page, DP_ML, dp_y, DP_W - DP_MR, 120)
+}
+
+// 目录项（标题 + 点线 + 页码占位；页码不自动回填，故仅作结构展示）
+pub func toc_item(title: string, pg: string) {
+    need(20)
+    var g = pdf.enc_gids(title)
+    pdf.text_at(dp_page, DP_ML, dp_y, SZ_BODY, g)
+    var w = pdf.width_of(g, SZ_BODY)
+    var px = DP_ML + w / 100 + 6
+    var pgw = pdf.width_of(pdf.enc_gids(pg), SZ_BODY)
+    var dots = ""
+    var dw = DP_ML + DP_COLW - pgw / 100 - px
+    var acc: i64 = 0
+    while acc < dw - 4 {
+        dots = dots + "."
+        acc = acc + 3
+    }
+    if str_len(dots) > 0 {
+        pdf.text_at(dp_page, px, dp_y, SZ_BODY, pdf.enc_gids(dots))
+    }
+    pdf.text_at(dp_page, DP_ML + DP_COLW - pgw / 100, dp_y, SZ_BODY, pdf.enc_gids(pg))
+    dp_y = dp_y - LH_BODY
+}
+
+}

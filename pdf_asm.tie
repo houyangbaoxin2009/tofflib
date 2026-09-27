@@ -17,6 +17,9 @@ type tie<class>
 
 import "./pdf_ttf.tie"
 
+// 自检读到的对象条目数（verify 成功后有效）
+var g_verify_entries: i64 = 0;
+
 namespace pdf {
 
 // 转义后的字体名（ASCII 安全）
@@ -168,6 +171,135 @@ func push_str(t: ref table<i64>, s: string) {
         table_push(t, str_byte(s, i))
         i = i + 1
     }
+}
+
+// 生成后自检：读回文件，验证结构自洽。返回 0 = 通过；负值 = 具体失败点。
+//
+// 检查三项（对应 xref 机制的三处硬要求）：
+//   1. 尾部存在 startxref，其后的数字是一个合法偏移；
+//   2. 该偏移处的字节恰为 "xref"（否则阅读器无法定位交叉引用表）；
+//   3. 交叉引用表里的每个条目偏移处是 "N 0 obj"。
+// 之所以自带自检：xref 偏移是纯算术产物，肉眼无法从产物上发现偏差，
+// 而一处偏差会让整份文档打不开。自检把这类问题挡在交付之前。
+pub func verify(path: string) -> i64 {
+    var d = byte_read(path)
+    var n = len(d)
+    if n < 32 {
+        return -1
+    }
+    // 找最后一个 startxref（从尾部回扫）
+    var key = "startxref"
+    var kl = str_len(key)
+    var i = n - 12
+    var pos: i64 = -1
+    while i >= 0 {
+        if byte_at(d, i) == str_byte(key, 0) {
+            var ok = true
+            var j: i64 = 1
+            while j < kl {
+                if byte_at(d, i + j) != str_byte(key, j) {
+                    ok = false
+                    break
+                }
+                j = j + 1
+            }
+            if ok {
+                pos = i
+                break
+            }
+        }
+        i = i - 1
+    }
+    if pos < 0 {
+        return -2
+    }
+    // 解析其后的十进制数字
+    var k = pos + kl
+    while k < n && (byte_at(d, k) == 10 || byte_at(d, k) == 13 || byte_at(d, k) == 32) {
+        k = k + 1
+    }
+    var sx: i64 = 0
+    var got = false
+    while k < n && byte_at(d, k) >= 48 && byte_at(d, k) <= 57 {
+        sx = sx * 10 + (byte_at(d, k) - 48)
+        k = k + 1
+        got = true
+    }
+    if !got || sx < 0 || sx + 4 > n {
+        return -3
+    }
+    // 该处必须是 "xref"
+    if byte_at(d, sx) != 120 || byte_at(d, sx + 1) != 114 || byte_at(d, sx + 2) != 101 || byte_at(d, sx + 3) != 102 {
+        return -4
+    }
+    // 逐条目校验：跳过 "xref\n0 <count>\n"，第一条是自由对象头，其后每 20 字节一条
+    var q = sx + 4
+    while q < n && byte_at(d, q) != 10 {
+        q = q + 1
+    }
+    q = q + 1
+    while q < n && byte_at(d, q) != 10 {
+        q = q + 1
+    }
+    q = q + 1
+    // 第一条（自由对象）
+    q = q + 20
+    var entries: i64 = 0
+    while q + 20 <= n {
+        if byte_at(d, q + 17) != 110 {   // 非 'n' 则表结束
+            break
+        }
+        var off: i64 = 0
+        var z: i64 = 0
+        while z < 10 {
+            var c = byte_at(d, q + z)
+            if c < 48 || c > 57 {
+                return -5
+            }
+            off = off * 10 + (c - 48)
+            z = z + 1
+        }
+        // 偏移处必须是一个对象头的开头（数字）。**不检查 "0 obj" 的固定位置**：
+        // 对象号位数不同（"7 0 obj" 与 "89 0 obj"），固定位置判断会失效——
+        // 曾因此把正确的 PDF 误判为损坏（自检本身的 bug，比它要防的问题更隐蔽）。
+        var c0 = byte_at(d, off)
+        if off + 14 > n || c0 < 48 || c0 > 57 {
+            return -6
+        }
+        // 且其后确为 " 0 obj"（位数无关：在 off..off+14 内做子串搜索）
+        var tail_ok = false
+        var s0: i64 = 0
+        while s0 + 5 <= 14 {
+            if byte_at(d, off + s0) == 32 && byte_at(d, off + s0 + 1) == 48 &&
+               byte_at(d, off + s0 + 2) == 32 && byte_at(d, off + s0 + 3) == 111 &&
+               byte_at(d, off + s0 + 4) == 98 {
+                tail_ok = true
+                break
+            }
+            s0 = s0 + 1
+        }
+        if !tail_ok {
+            return -8
+        }
+        entries = entries + 1
+        q = q + 20
+    }
+    if entries == 0 {
+        return -7
+    }
+    g_verify_entries = entries
+    return 0
+}
+
+// 自检读到的对象条目数（verify 成功后有效，供构建脚本报告）
+pub func verify_entries() -> i64 { return g_verify_entries }
+
+// 取字节表第 i 字节（越界返回 -1，避免自检代码到处写边界判断）
+func byte_at(t: table<i64>, i: i64) -> i64 {
+    if i < 0 || i >= len(t) {
+        return -1
+    }
+    return t[i]
 }
 
 // 10 位零填充（xref 条目固定 10 位数字）

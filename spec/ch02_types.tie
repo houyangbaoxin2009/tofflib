@@ -1,0 +1,114 @@
+type tie<logic>
+// ch02_types.tie —— 规范正文 · 第 2 章 类型系统
+import "F:/Projects/tie-repo/tofflib/spec/pdfdoc.tie" as dp
+
+namespace ch02 {
+
+pub func chapter() {
+    dp.h1("第 2 章  类型系统")
+
+    dp.p("tie 是静态类型语言：每个表达式在编译期有确定的类型，类型错误在编译期报告，不进入运行期。类型系统同时承担两件事——描述数据的形状，以及表达访问权限（谁可以写、谁只能读、谁拥有所有权）。后者见第 5 章与第 13 章。")
+    dp.p("类型分为若干族：基本类型、复合类型（表、元组、映射）、聚合类型（结构、枚举）、函数与接口类型、以及两种特殊类型（宽类型与动态类型）。")
+
+    // ---------------- 2.1 ----------------
+    dp.h2("2.1  基本类型")
+    dp.p("基本类型直接对应机器表示，没有隐藏的分配与间接层。")
+
+    var w = table_new_i64()
+    table_push(w, 160)
+    table_push(w, 291)
+    var h = table_new_string()
+    table_push(h, "类型")
+    table_push(h, "含义")
+    var r: table<table<string>> = []
+    table_push(r, dp.kvrow("i8 i16 i32 i64", "有符号整数，宽度以位计"))
+    table_push(r, dp.kvrow("u8 u16 u32 u64", "无符号整数"))
+    table_push(r, dp.kvrow("i128 u128", "128 位整数"))
+    table_push(r, dp.kvrow("f32 f64", "浮点数"))
+    table_push(r, dp.kvrow("bool", "布尔，取值 true / false"))
+    table_push(r, dp.kvrow("trit", "平衡三进制，取值正 / 零 / 负（见 2.3）"))
+    table_push(r, dp.kvrow("char", "单个字符，按码点计"))
+    table_push(r, dp.kvrow("string", "不可变文本，UTF-8 存储"))
+    table_push(r, dp.kvrow("void", "无值，仅作函数返回类型"))
+    table_push(r, dp.kvrow("code", "编译期代码片段，无运行期实体（见第 12 章）"))
+    dp.tbl(h, r, w)
+
+    dp.p("整数默认类型为 i64，浮点默认类型为 f64。字面量在需要的上下文中会按目标类型调整。")
+
+    // ---------------- 2.2 ----------------
+    dp.h2("2.2  平衡三进制 trit")
+    dp.p("trit 是一个三值类型，取值正、零、负。它用于三路比较、三值逻辑与平衡三进制数论。与布尔相比，它多了一个「未知」状态，因此比两者择一更贴近真实判定。")
+    dp.codeblock(dp.src(["var cmp: trit = compare(a, b)   // 正 表示 a>b，零 表示相等，负 表示 a<b", "if cmp == zero {", "    // 相等分支", "}"]))
+    dp.p("三值逻辑的运算规则与布尔一致地推广：与运算取小、或运算取大、非运算取反。混合 trit 与整数的运算按提升规则转为整数，除法与取余对 trit 不开放。")
+
+    // ---------------- 2.3 ----------------
+    dp.h2("2.3  宽类型")
+    dp.p("宽类型是一组类型的类别名，用于在书写时省略具体宽度，或在多种数值类型间统一处理。它只存在于编译期：变量在参与运算时使用推导出的具体类型。")
+
+    var w2 = table_new_i64()
+    table_push(w2, 130)
+    table_push(w2, 321)
+    var h2k = table_new_string()
+    table_push(h2k, "关键词")
+    table_push(h2k, "覆盖范围")
+    var r2: table<table<string>> = []
+    table_push(r2, dp.kvrow("num", "全部数值类型：整数与浮点"))
+    table_push(r2, dp.kvrow("text", "文本类型：string 与 char"))
+    table_push(r2, dp.kvrow("misc", "其余类型：bool、void、code 等"))
+    dp.tbl(h2k, r2, w2)
+
+    dp.codeblock(dp.src(["var a: num = 42        // 推导为 i64", "var b: num = 3.14      // 推导为 f64", "var s: text = \"hi\"     // 推导为 string"]))
+    dp.p("宽类型最常见的用途是编写同时接受多种数值宽度的函数，例如统计与格式化工具。")
+
+    // ---------------- 2.4 ----------------
+    dp.h2("2.4  表类型")
+    dp.p("表是动态长度的同质序列，元素类型写在尖括号内。表有两种创建方式：字面量表（长度固定，元素在书写时确定）与动态表（可增长，用构造器创建）。")
+    dp.codeblock(dp.src(["var fixed: table<i64> = [1, 2, 3]        // 字面量表", "var dyn = table_new_i64()                 // 动态表，先用后增", "table_push(dyn, 1)", "table_push(dyn, 2)", "table_push(dyn, 30)"]))
+    dp.p("表可嵌套，形成多维结构。遍历使用 for-in，长度用 len。")
+    dp.codeblock(dp.src(["var grid: table<table<i64>> = [[1, 2], [3, 4]]", "for row in grid {", "    for cell in row {", "        println(to_string(cell))", "    }", "}"]))
+
+    // ---------------- 2.5 ----------------
+    dp.h2("2.5  映射类型")
+    dp.p("映射是以键索引的集合，键与值都有类型。键可以是文本、整数或枚举。")
+    dp.codeblock(dp.src(["var age: map<i64> = [\"alice\": 3, \"bob\": 5]", "age[\"carol\"] = 7", "if age.has(\"alice\") {", "    println(to_string(age[\"alice\"]))", "}"]))
+    dp.p("映射的字面量语法与表一致，区别在于元素写成「键: 值」。当键为字符串时，可用点号访问其值，这在表达结构化数据时更易读。")
+
+    // ---------------- 2.6 ----------------
+    dp.h2("2.6  元组类型")
+    dp.p("元组把若干个类型组合成一个值，位置固定、类型可不同。元组用于返回多个结果，或表达「这几个值一起才有意义」的场合。")
+    dp.codeblock(dp.src(["func min_max(xs: table<i64>) -> (lo: i64, hi: i64) {", "    // ...", "    return 1, 9", "}", "", "var lo, hi = min_max([3, 1, 9])"]))
+    dp.p("元组可命名分量，命名同时作为文档与解构依据。也可不命名，此时用位置访问。")
+
+    // ---------------- 2.7 ----------------
+    dp.h2("2.7  类型标注与推导")
+    dp.p("变量声明可以写类型，也可以省略。省略时编译器从初始化表达式推导类型。")
+    dp.codeblock(dp.src(["var n: i64 = 0          // 显式标注", "var m = 0               // 推导为 i64", "var s = \"text\"          // 推导为 string"]))
+    dp.p("类型标注在需要跨模块契约、或者推导结果与意图不符时使用。函数签名必须写参数与返回类型——接口边界上的类型不做推导。")
+
+    // ---------------- 2.8 ----------------
+    dp.h2("2.8  泛型")
+    dp.p("泛型让类型与算法解耦。类型参数写在尖括号中，编译期为每个具体类型生成一份实现，因此运行期没有额外开销，也没有虚表跳转。")
+    dp.codeblock(dp.src(["func max_of<T>(a: T, b: T) -> T {", "    if a > b { return a }", "    return b", "}", "", "struct Box<T> {", "    var value: T", "}"]))
+    dp.p("类型参数可带约束，约束由接口描述（见第 7 章）。约束在编译期检查，不满足即报错。")
+    dp.codeblock(dp.src(["func render_all<T: Drawable>(items: table<T>) {", "    for it in items {", "        it.draw(0)", "    }", "}"]))
+
+    // ---------------- 2.9 ----------------
+    dp.h2("2.9  枚举")
+    dp.p("枚举是标签联合：一个值要么是这个标签、要么是那个标签，并可按标签携带数据。它用于表达「几种情况之一」的数据，比用整数代号更安全——每个分支都被检查。")
+    dp.codeblock(dp.src(["enum Shape {", "    Circle(r: f64)", "    Rect(w: f64, h: f64)", "}", "", "func area(s: Shape) -> f64 {", "    switch s {", "        case Shape.Circle(r):", "            return 3.14159 * r * r", "        case Shape.Rect(w, h):", "            return w * h", "    }", "}"]))
+    dp.p("枚举也可以做通用型参数，用于表达可能失败或可能缺失的结果，这是第 8 章错误处理的基础。")
+
+    // ---------------- 2.10 ----------------
+    dp.h2("2.10  动态类型")
+    dp.p("any 表示「任意类型」。它在需要容纳异质数据的场合使用，例如配置表、序列化中间结果。任何值都可以赋给 any，取用时需要显式转换。")
+    dp.codeblock(dp.src(["var v: any = 42", "v = \"text\"", "if is_num(v) {", "    var n = as_i64(v)", "}"]))
+    dp.note("静态类型是默认选择。any 把类型错误的发现从编译期推迟到运行期，因此只在确实需要异质容器时使用，而不是作为绕过类型检查的手段。")
+
+    // ---------------- 2.11 ----------------
+    dp.h2("2.11  类型转换")
+    dp.p("数值类型之间的转换是显式的。窄化转换可能丢失信息，语言要求书写者明确表达意图。")
+    dp.codeblock(dp.src(["var a: i64 = 1000", "var b = to_i32(a)        // 窄化：显式", "var c: f64 = to_f64(a)   // 整数到浮点", "var d = to_string(a)     // 到文本"]))
+    dp.p("指针与整数之间的转换只在 unsafe 上下文中允许（见第 11 章）。聚合类型与动态类型之间的转换由各自的构造与匹配机制承担。")
+}
+
+}

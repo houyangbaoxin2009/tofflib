@@ -1,0 +1,51 @@
+type tie<logic>
+// ch08_error.tie —— 规范正文 · 第 8 章 错误处理
+import "F:/Projects/tie-repo/tofflib/spec/pdfdoc.tie" as dp
+
+namespace ch08 {
+
+pub func chapter() {
+    dp.h1("第 8 章  错误处理")
+
+    dp.p("tie 把「可预期的失败」与「不可恢复的故障」分开处理。前者是返回值的一部分，调用方必须面对；后者终止执行并给出位置信息。这样区分的原因是二者的处理方式根本不同：前者需要分支决策，后者需要诊断信息。")
+
+    // ---------------- 8.1 ----------------
+    dp.h2("8.1  可预期的失败")
+    dp.p("可能失败的函数把失败编码进返回类型。语言提供两个通用型别用于此目的：一个表示「有值或无值」，一个表示「成功值或错误值」。")
+    dp.codeblock(dp.src(["func find(xs: table<i64>, target: i64) -> Option<i64> {", "    for x in xs {", "        if x == target { return Option.Some(x) }", "    }", "    return Option.None", "}", "", "func parse_port(s: string) -> Result<i64, string> {", "    if str_len(s) == 0 { return Result.Err(\"空输入\") }", "    return Result.Ok(to_int(s))", "}"]))
+
+    // ---------------- 8.2 ----------------
+    dp.h2("8.2  传播")
+    dp.p("当函数无法就地处理失败、需要把它交给调用方时，用问号后缀传播：成功则取出值继续，失败则立即返回。")
+    dp.codeblock(dp.src(["func config_port(cfg: map<i64>) -> Result<i64, string> {", "    var raw = cfg[\"port\"]?", "    var port = parse_port(raw)?", "    return Result.Ok(port)", "}"]))
+    dp.p("传播记号把「错误向上传递」这条最常见路径写成一个字符，从而让函数体里的正常路径保持直线——不必为每一层调用写一段相同的分支。")
+
+    // ---------------- 8.3 ----------------
+    dp.h2("8.3  分支处理")
+    dp.p("需要针对具体情况分别处理时，用多分支匹配展开结果类型。编译器要求覆盖全部情形。")
+    dp.codeblock(dp.src(["switch parse_port(input) {", "    case Result.Ok(v):", "        println(\"端口 \" + to_string(v))", "    case Result.Err(msg):", "        println(\"失败：\" + msg)", "}"]))
+    dp.p("对于「缺失则取默认」这一常见需求，用安全默认值记号直接表达，不必展开分支。")
+    dp.codeblock(dp.src(["var port = cfg[\"port\"] ?: 8080"]))
+
+    // ---------------- 8.4 ----------------
+    dp.h2("8.4  标准组合子")
+    dp.p("标准库提供一组转换与组合函数，用于在结果类型之间衔接，减少手写分支。")
+    dp.codeblock(dp.src(["var doubled = parse_port(s) -> map_result(v -> v * 2)", "var len_ok = parse_port(s) -> and_then(validate_range)"]))
+
+    // ---------------- 8.5 ----------------
+    dp.h2("8.5  不可恢复的故障")
+    dp.p("当故障意味着「程序状态已经不可信」时，用 panic 终止。它携带一条消息，用于定位问题。")
+    dp.codeblock(dp.src(["if len(buf) == 0 {", "    panic(\"缓冲区不应为空\")", "}"]))
+    dp.p("在明确划定边界的场合可以捕获 panic 并转为普通错误，例如服务的请求处理循环：单个请求的故障不应终止整个进程。捕获点应当少而集中，且必须能说明为什么在此处恢复是安全的。")
+
+    dp.h3("内建检查")
+    dp.p("数组越界、除零、整数溢出（在带检查的运算中）会触发内建检查并报告位置。这些检查不可关闭，因为它们的成本相对故障后果可以忽略。")
+
+    // ---------------- 8.6 ----------------
+    dp.h2("8.6  错误信息")
+    dp.p("错误值应当说明发生了什么、在哪一步发生。把上下文带在错误里，比在每一层重新描述问题更有用。")
+    dp.codeblock(dp.src(["return Result.Err(\"读取配置失败：字段 \" + name + \" 缺失\")"]))
+    dp.note("错误类型的选取遵循一条经验：能枚举的用枚举，不能枚举的用文本。当调用方需要按类别分支时用枚举；当调用方只是向上传递或打印时用文本。")
+}
+
+}

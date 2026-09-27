@@ -1,0 +1,164 @@
+type tie<logic>
+// ch01_lex.tie —— 规范正文 · 第 1 章 词法与记号
+import "F:/Projects/tie-repo/tofflib/spec/pdfdoc.tie" as dp
+
+namespace ch01 {
+
+pub func chapter() {
+    dp.h1("第 1 章  词法与记号")
+
+    dp.p("本章定义一个 tie 源文件的物理形态：如何组织、如何切分为记号、哪些记号有意义。词法层是其余一切章节的基础——语法分析只看到本章定义的记号流，而不关心源文件的字节细节。")
+
+    // ---------------- 1.1 ----------------
+    dp.h2("1.1  源文件结构：头部与内容")
+    dp.p("一个 tie 源文件由两部分组成：头部声明本文件是什么，内容承载真正的代码或数据。两者职责分离，头部只占最前面几行。")
+    dp.codeblock(dp.src(["type tie<logic>          // 头部：声明文件角色", "                        // （其后为内容区）", "func main() {", "    println(\"hello\")", "}"]))
+    dp.p("头部是真正的语法行，而不再是以注释形式书写的编译器指令。头部必须位于文件最前若干行，连续排列（其间允许空行），直到第一个非头部行为止。")
+
+    dp.h3("头部语法")
+    dp.p("头部由关键字 type、语言名 tie 与可选的尖括号子类型构成：")
+    dp.bullet(["type tie<logic>  —— 带子类型的完整形式", "type tie          —— 裸形式，表示 Type 角色本身"])
+    dp.p("子类型写在尖括号内，只允许写一个。若文件未声明头部，按 logic 处理。")
+
+    dp.h3("文件名与角色的一致性")
+    dp.p("文件名可以采用 xxx.角色.tie 的形式声明默认角色。当文件名与头部声明不一致时，以头部为准，并给出一条警告。这样既允许用文件名快速辨别用途，又不让文件名凌驾于显式声明之上。")
+
+    // ---------------- 1.2 ----------------
+    dp.h2("1.2  文件角色")
+    dp.p("角色决定编译器如何解析与生成该文件。角色是文件的第一属性，它决定了后续内容允许出现什么构造。")
+
+    var w = table_new_i64()
+    table_push(w, 110)
+    table_push(w, 341)
+    var hdr = table_new_string()
+    table_push(hdr, "头部")
+    table_push(hdr, "角色与允许的内容")
+    var rows: table<table<string>> = []
+    table_push(rows, dp.kvrow("type tie<logic>", "逻辑代码。可含函数、结构、模块级声明；可编译为可执行程序或静态库。默认角色。"))
+    table_push(rows, dp.kvrow("type tie<class>", "类库文件。与 logic 同为逻辑代码，但只编译为静态库，不产生入口。"))
+    table_push(rows, dp.kvrow("type tie<script>", "脚本。顶层语句按书写顺序直接执行，不要求显式入口。"))
+    table_push(rows, dp.kvrow("type tie<data>", "纯数据。只允许数据声明与字面量，不允许函数体；可被其他文件导入作为常量源。"))
+    table_push(rows, dp.kvrow("type tie<ui>", "界面文件。声明界面元素树与事件处理函数，由编译器生成界面代码。"))
+    table_push(rows, dp.kvrow("type tie<db>", "数据库文件。声明表结构，编译器生成建表与读写代码。"))
+    table_push(rows, dp.kvrow("type tie<port>", "接口文件。声明对外契约（方法签名集合），不含实现。"))
+    table_push(rows, dp.kvrow("type tie<ir>", "中间表示文件。直接产出中间代码，不再经过后续优化与链接阶段。"))
+    dp.tbl(hdr, rows, w)
+
+    dp.note("角色不是注释、不是标记，而是编译器分派解析与生成策略的依据。这正是头部必须在最前面且被词法层正式识别的原因。")
+
+    // ---------------- 1.3 ----------------
+    dp.h2("1.3  字符集与编码")
+    dp.p("源文件以 UTF-8 编码。字符串内部同样以 UTF-8 存储，但语言层面区分两个尺度：")
+    dp.bullet(["str_len(s) / str_char(s, i) —— 以码点为单位。中文、emoji 都算一个。", "len(s) —— 以字节为单位。一个汉字占 3 字节。"])
+    dp.p("遍历文本一律使用码点尺度；按字节遍历会把多字节字符切碎。这一约定贯穿标准库的文本处理函数。")
+    dp.codeblock(dp.src(["var s = \"你好\"", "str_len(s)   // 2   码点", "len(s)       // 6   字节", "str_char(s, 0)   // \"你\""]))
+
+    // ---------------- 1.4 ----------------
+    dp.h2("1.4  注释")
+    dp.p("注释有两种形态，二者在词法阶段被丢弃，不进入记号流。")
+    dp.codeblock(dp.src(["// 行注释：自 // 起至本行结束", "/* 块注释：可跨行 */"]))
+    dp.p("文档注释以三条斜线书写，绑定到紧随其后的声明上，可被工具提取。")
+    dp.codeblock(dp.src(["/// 计算两数之和。", "/// 文档注释绑定到下面的函数。", "func add(a: i64, b: i64) -> i64 { return a + b }"]))
+
+    // ---------------- 1.5 ----------------
+    dp.h2("1.5  标识符")
+    dp.p("标识符由字母、下划线或 Unicode 字母开头，其后可接字母、数字与下划线。语言同时接受 Unicode 标识符，中文可以直接用作标识符。")
+    dp.codeblock(dp.src(["count, _tmp, 用户数, 结果1"]))
+    dp.p("约定：类型名以大写字母开头，函数与变量以小写字母或下划线开头。这是约定而非强制，编译器不做检查，但工具链会据此提供提示。")
+
+    // ---------------- 1.6 ----------------
+    dp.h2("1.6  关键字")
+    dp.p("关键字是保留字，不可用作标识符。它们按用途分组如下。")
+
+    var w2 = table_new_i64()
+    table_push(w2, 130)
+    table_push(w2, 321)
+    var h2k = table_new_string()
+    table_push(h2k, "用途")
+    table_push(h2k, "关键字")
+    var r2: table<table<string>> = []
+    table_push(r2, dp.kvrow("声明", "type, var, const, func, struct, namespace, port, impl, import, as, pub, unsafe, extern, macro"))
+    table_push(r2, dp.kvrow("类型", "i8 i16 i32 i64 u8 u16 u32 u64 i128 u128 f32 f64 bool trit char string void code table map num text misc any self"))
+    table_push(r2, dp.kvrow("语句", "if else while for in switch case default break continue return yield goto"))
+    table_push(r2, dp.kvrow("修饰", "ref immut move inline retry with when extends alias"))
+    table_push(r2, dp.kvrow("字面量", "true false zero"))
+    table_push(r2, dp.kvrow("并发与运行", "actor async spawn await panic"))
+    dp.tbl(h2k, r2, w2)
+
+    dp.note("关键字表是封闭的：任何新关键字都只在语言版本升级时加入。语言预留了少量保留词，它们当前没有语义，但同样不可用作标识符，以便未来扩展时不必破坏既有代码。")
+
+    // ---------------- 1.7 ----------------
+    dp.h2("1.7  数值字面量")
+    dp.p("整数支持四种进制，允许用下划线分组以提高可读性。小数与指数形式构成浮点字面量。")
+
+    var w3 = table_new_i64()
+    table_push(w3, 150)
+    table_push(w3, 301)
+    var h3k = table_new_string()
+    table_push(h3k, "形态")
+    table_push(h3k, "含义")
+    var r3: table<table<string>> = []
+    table_push(r3, dp.kvrow("42", "十进制整数，默认类型 i64"))
+    table_push(r3, dp.kvrow("0xFF  /  0xff", "十六进制"))
+    table_push(r3, dp.kvrow("0b1011", "二进制"))
+    table_push(r3, dp.kvrow("0o755", "八进制"))
+    table_push(r3, dp.kvrow("1_000_000", "下划线分组，等价于 1000000"))
+    table_push(r3, dp.kvrow("3.14  /  1.5e3", "浮点，默认类型 f64"))
+    table_push(r3, dp.kvrow("1.2f32", "带后缀，显式指定为 f32"))
+    dp.tbl(h3k, r3, w3)
+
+    // ---------------- 1.8 ----------------
+    dp.h2("1.8  布尔与三值字面量")
+    dp.p("true 与 false 构成 bool。语言另有一个三值类型 trit，取值为正、零、负，其字面量复用 true / zero / false，在 trit 上下文中适配为三值。")
+    dp.codeblock(dp.src(["var b: bool = true", "var p: trit = true     // 正", "var z: trit = zero     // 零", "var n: trit = false    // 负"]))
+
+    // ---------------- 1.9 ----------------
+    dp.h2("1.9  字符与字符串字面量")
+    dp.p("字符字面量以单引号界定，字符串字面量以双引号界定。二者都支持转义序列。")
+    dp.codeblock(dp.src(["var c: char = 'A'", "var s: string = \"hello\"", "var esc: string = \"tab:\\t  quote:\\\"  backslash:\\\\  newline:\\n\""]))
+    dp.p("字符串可用花括号插入表达式，插入的内容会被转换为文本后拼入。")
+    // 注意：示例里要**展示**插值语法本身，故花括号不能用字面量写
+    //（写在字符串字面量里会被解析器当成真插值求值）——用字符构造函数拼出。
+    dp.codeblock(dp.src(["var user = \"tie\"", "var msg = \"hello, " + lb() + "user" + rb() + "!  n=" + lb() + "str_len(user)" + rb() + "\""]))
+    dp.note("在需要字面花括号的场合（例如书写 JSON 片段），用字符构造函数拼接，或先将该片段存入变量，避免与插值语法冲突。")
+
+    // ---------------- 1.10 ----------------
+    dp.h2("1.10  自动分号")
+    dp.p("tie 不要求每条语句以分号结尾。编译器在词法阶段按规则补全语句结束，这一机制称为自动分号插入。")
+    dp.bullet(["当一行结束后，若下一个记号不能延续当前语句，则在此处插入语句结束。", "当一行以逗号、二元运算符、左括号等「明显未结束」的记号结尾时，不插入。", "显式书写分号始终合法，可与自动补全混用。"])
+    dp.p("这条规则让代码更接近日常书写的文本，同时保持分析的确定性——判定只看记号，不依赖缩进或换行风格。")
+
+    // ---------------- 1.11 ----------------
+    dp.h2("1.11  运算符记号")
+    dp.p("下表汇总全部运算符记号。含义与结合性见第 3 章。")
+
+    var w4 = table_new_i64()
+    table_push(w4, 150)
+    table_push(w4, 301)
+    var h4k = table_new_string()
+    table_push(h4k, "记号")
+    table_push(h4k, "用途")
+    var r4: table<table<string>> = []
+    table_push(r4, dp.kvrow("+  -  *  /  %", "算术"))
+    table_push(r4, dp.kvrow("**  **?", "幂；**? 为带检查的幂"))
+    table_push(r4, dp.kvrow("==  !=  <  >  <=  >=", "比较"))
+    table_push(r4, dp.kvrow("&&  ||  !", "逻辑（对 trit 为三值逻辑）"))
+    table_push(r4, dp.kvrow("&  |  ^  <<  >>  ~", "位运算"))
+    table_push(r4, dp.kvrow("=  +=  -=  *=  /=  %=", "赋值与复合赋值"))
+    table_push(r4, dp.kvrow("%%", "原地修改（见第 3 章）"))
+    table_push(r4, dp.kvrow("->", "数据流管道；在函数值位置为短闭包"))
+    table_push(r4, dp.kvrow("in  not in", "成员判定"))
+    table_push(r4, dp.kvrow("?:", "安全默认值"))
+    table_push(r4, dp.kvrow("?  ??", "存在判定与空值合并"))
+    table_push(r4, dp.kvrow("\\", "解引用"))
+    table_push(r4, dp.kvrow("..  ..=", "范围（左闭右开 / 左闭右闭）"))
+    table_push(r4, dp.kvrow(":  ::  .  ,  ;", "分隔与路径"))
+    table_push(r4, dp.kvrow("@  #  $", "元素块、编译期指令、宏插值"))
+    dp.tbl(h4k, r4, w4)
+}
+
+// 左/右花括号的字符串形态（文档里展示插值语法时用，避免被当真插值求值）
+func lb() -> string { return str_from_code(123) }
+func rb() -> string { return str_from_code(125) }
+
+}
