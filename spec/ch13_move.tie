@@ -19,7 +19,7 @@ pub func chapter() {
     dp.p("当不需要保留原变量、且希望避免复制开销时，用移动记号把所有权转出。此后原变量处于「已移动」状态。")
     dp.codeblock(dp.src(["var big = collect()", "var owned = big        // 复制或转移，按类型语义", "consume(owned)"]))
     dp.p("参数声明为 move 时，调用即转移：形参约定本身就表达了「这个值交给被调方」，调用方不必在调用点重写记号。")
-    dp.codeblock(dp.src(["func take(move t: table<i64>) -> i64 { return len(t) }", "", "var xs = table_new_i64()", "table_push(xs, 1)", "var n = take(xs)", "// 此后 xs 不可再用"]))
+    dp.codeblock(dp.src(["func take(move t: table<i64>) -> i64 " + lb() + " return len(t) " + rb() + "", "", "var xs = table_new_i64()", "table_push(xs, 1)", "var n = take(xs)", "// 此后 xs 不可再用"]))
 
     // ---------------- 13.3 ----------------
     dp.h2("13.3  已移动状态")
@@ -50,5 +50,9 @@ pub func chapter() {
     dp.codeblock(dp.src(["var snapshot = xs.clone()"]))
     dp.note("可写借用不产生副本，因此能修改原对象；但它有生命周期限制——借用不能被闭包捕获带走（见第 5 章），也无法越过函数边界长期存在。这组限制共同保证借用指向的对象始终有效。")
 }
+
+// 左右花括号的字符串形态（展示含花括号的代码示例时用）
+func lb() -> string { return str_from_code(123) }
+func rb() -> string { return str_from_code(125) }
 
 }

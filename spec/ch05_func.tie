@@ -12,7 +12,7 @@ pub func chapter() {
     // ---------------- 5.1 ----------------
     dp.h2("5.1  定义与调用")
     dp.p("函数定义给出名称、参数与返回类型；返回类型不可省略。函数体是语句块，最后一条语句通常是 return。")
-    dp.codeblock(dp.src(["func add(a: i64, b: i64) -> i64 {", "    return a + b", "}", "", "var s = add(1, 2)"]))
+    dp.codeblock(dp.src(["func add(a: i64, b: i64) -> i64 " + lb() + "", "    return a + b", "" + rb() + "", "", "var s = add(1, 2)"]))
     dp.p("对外可见的函数标注 pub。可见性同时受模块与命名空间约束（见第 9 章）。")
 
     // ---------------- 5.2 ----------------
@@ -32,7 +32,7 @@ pub func chapter() {
     table_push(r, dp.kvrow("move x: T", "所有权转移。实参的所有权移交被调方，调用方此后不得再使用该变量。"))
     dp.tbl(h, r, w)
 
-    dp.codeblock(dp.src(["func by_value(x: i64) -> i64 { return x }", "func by_ref(ref t: table<i64>) -> i64 { table_push(t, 1); return len(t) }", "func by_read(immut t: table<i64>) -> i64 { return len(t) }", "func by_move(move t: table<i64>) -> i64 { return len(t) }"]))
+    dp.codeblock(dp.src(["func by_value(x: i64) -> i64 " + lb() + " return x " + rb() + "", "func by_ref(ref t: table<i64>) -> i64 " + lb() + " table_push(t, 1); return len(t) " + rb() + "", "func by_read(immut t: table<i64>) -> i64 " + lb() + " return len(t) " + rb() + "", "func by_move(move t: table<i64>) -> i64 " + lb() + " return len(t) " + rb() + ""]))
 
     dp.h3("约定的互斥与组合")
     dp.p("可写借用与只读借用互斥：同一个参数不能既允许写又声明只写。所有权转移与两者也互斥：所有权已经交出，无从借用。同一个修饰重复书写视为笔误，编译器报告错误。")
@@ -48,7 +48,7 @@ pub func chapter() {
     // ---------------- 5.3 ----------------
     dp.h2("5.3  默认参数")
     dp.p("参数可以带默认值。带默认值的参数必须连续排在参数表末尾，因此调用方只需按顺序给出前面的实参。")
-    dp.codeblock(dp.src(["func connect(host: string, port: i64 = 8080, timeout: i64 = 30) -> i64 {", "    // ...", "    return 0", "}", "", "connect(\"localhost\")            // port 与 timeout 取默认", "connect(\"localhost\", 9090)      // timeout 取默认", "connect(\"localhost\", 9090, 60)  // 全部给定"]))
+    dp.codeblock(dp.src(["func connect(host: string, port: i64 = 8080, timeout: i64 = 30) -> i64 " + lb() + "", "    // ...", "    return 0", "" + rb() + "", "", "connect(\"localhost\")            // port 与 timeout 取默认", "connect(\"localhost\", 9090)      // timeout 取默认", "connect(\"localhost\", 9090, 60)  // 全部给定"]))
     dp.p("默认值在编译期确定，因此它必须是常量表达式——不含副作用，也不依赖调用点的作用域。这一限制使得默认值可以安全地在多个调用点之间共享。")
     dp.p("可写借用与所有权转移的参数不带默认值：借用需要一个真实对象，所有权转移需要一个真实来源，两者都无法凭空构造。")
 
@@ -65,26 +65,26 @@ pub func chapter() {
     // ---------------- 5.5 ----------------
     dp.h2("5.5  变长参数")
     dp.p("参数表末尾可声明变长参数，接收零个或多个同类型实参。变长参数不带默认值，也不能是借用。")
-    dp.codeblock(dp.src(["func sum(rest: ...i64) -> i64 {", "    var total = 0", "    for x in rest {", "        total += x", "    }", "    return total", "}", "", "sum()", "sum(1, 2, 3)"]))
+    dp.codeblock(dp.src(["func sum(rest: ...i64) -> i64 " + lb() + "", "    var total = 0", "    for x in rest " + lb() + "", "        total += x", "    " + rb() + "", "    return total", "" + rb() + "", "", "sum()", "sum(1, 2, 3)"]))
     dp.p("调用时可用展开记号把一个表摊开成实参序列。")
     dp.codeblock(dp.src(["var xs: table<i64> = [1, 2, 3]", "var t = sum(xs...)"]))
 
     // ---------------- 5.6 ----------------
     dp.h2("5.6  返回值")
     dp.p("函数可以返回多个值，返回类型写成元组。调用方解构接收。")
-    dp.codeblock(dp.src(["func divmod(a: i64, b: i64) -> (q: i64, r: i64) {", "    return a / b, a % b", "}", "", "var q, r = divmod(7, 3)"]))
+    dp.codeblock(dp.src(["func divmod(a: i64, b: i64) -> (q: i64, r: i64) " + lb() + "", "    return a / b, a % b", "" + rb() + "", "", "var q, r = divmod(7, 3)"]))
     dp.p("元组分量的名称是可选的，但推荐书写：它同时作为调用点的解构依据与文档。")
 
     // ---------------- 5.7 ----------------
     dp.h2("5.7  一等函数")
     dp.p("函数可以作为值传递、返回与存放。函数类型的写法是 fn(参数类型...) -> 返回类型。")
-    dp.codeblock(dp.src(["func apply(g: fn(i64) -> i64, v: i64) -> i64 {", "    return g(v)", "}", "", "func twice(g: fn(i64) -> i64, x: i64) -> i64 {", "    return g(g(x))", "}"]))
+    dp.codeblock(dp.src(["func apply(g: fn(i64) -> i64, v: i64) -> i64 " + lb() + "", "    return g(v)", "" + rb() + "", "", "func twice(g: fn(i64) -> i64, x: i64) -> i64 " + lb() + "", "    return g(g(x))", "" + rb() + ""]))
     dp.p("具名函数可直接用作函数值，不需要额外的取地址或包装。")
 
     // ---------------- 5.8 ----------------
     dp.h2("5.8  闭包")
     dp.p("闭包是携带环境的函数值。它由函数字面量产生，可以读取其定义处的变量。")
-    dp.codeblock(dp.src(["var base = 100", "var bump: fn(i64) -> i64 = func(t) -> i64 { return t + base }", "println(to_string(bump(1)))   // 101"]))
+    dp.codeblock(dp.src(["var base = 100", "var bump: fn(i64) -> i64 = func(t) -> i64 " + lb() + " return t + base " + rb() + "", "println(to_string(bump(1)))   // 101"]))
     dp.p("闭包字面量的参数类型在上下文给出函数类型时可以省略，由上下文补齐。没有上下文时报错，而不是猜测一个类型。")
 
     // ---------------- 5.9 ----------------
@@ -112,7 +112,7 @@ pub func chapter() {
     dp.tbl(h2k, r2, w2)
 
     dp.p("可写借用参数不在白名单内，这是本章最需要记住的一条。原因不是书写风格，而是语义：可写借用不是副本，而是指向调用方对象的引用。若闭包捕获了它并逃逸出去，引用所指的对象可能已经不存在。")
-    dp.codeblock(dp.src(["// 错误：闭包捕获可写借用参数", "func make(ref t: table<i64>) -> fn() -> i64 {", "    return func() -> i64 { return len(t) }", "}"]))
+    dp.codeblock(dp.src(["// 错误：闭包捕获可写借用参数", "func make(ref t: table<i64>) -> fn() -> i64 " + lb() + "", "    return func() -> i64 " + lb() + " return len(t) " + rb() + "", "" + rb() + ""]))
     dp.p("在不安全上下文中，这条限制放宽——那里由书写者承担引用有效性的责任（见第 11 章）。")
 
     dp.h3("捕获的语义")
@@ -124,6 +124,28 @@ pub func chapter() {
     dp.p("extern 声明外部实现的函数，用于调用操作系统或第三方库。声明给出名称与签名，不含函数体。")
     dp.codeblock(dp.src(["extern func getenv(name: string) -> i64"]))
     dp.p("外部函数可能返回指针或写入调用方的缓冲区，因此调用点通常需要不安全上下文。对系统调用与 C 库的封装应当集中在少数模块内，其余代码使用封装后的安全接口。")
+
+    // ---------------- 5.12 ----------------
+    dp.h2("5.12  等号体与表达式体")
+    dp.p("函数体有两种简洁形态：体是单个表达式时，可以省略花括号直接写在等号之后；或者写在花括号内而不写返回语句。二者语义相同——都等价于把该表达式的值返回。")
+    dp.codeblock(dp.src(["func twice(x: i64) -> i64 = x * 2", "func square(x: i64) -> i64 " + lb() + " x * x " + rb() + "", "func log(x: i64) = println(to_string(x))   // 无返回值：值被丢弃"]))
+    dp.p("返回类型必须显式标注，不因体简化而省略——返回值是函数契约的一部分，不应当需要读者去推导。需要多条语句、或需要提前返回时，仍使用完整的块体。")
+
+    // ---------------- 5.13 ----------------
+    dp.h2("5.13  隐式单参闭包")
+    dp.p("短闭包还有一种更短的形态：单参数的闭包可以省略参数名，直接使用约定的名字指代该参数。适用的场合是上下文已经给出函数类型、而参数名对可读性无所增益时。")
+    dp.codeblock(dp.src(["var doubled = map(xs, " + lb() + " it * 2 " + rb() + ")", "var names = map(users, " + lb() + " it.name " + rb() + ")"]))
+    dp.p("参数类型与返回类型由上下文的函数类型推定。上下文不明确时报错，而不是猜测一个类型——这是语言在「简洁」与「可诊断」之间的固定取舍。")
+
+    // ---------------- 5.14 ----------------
+    dp.h2("5.14  实参展开")
+    dp.p("调用时可以把一个表的元素铺开成多个实参，用于把已有数据转交给变长形参。展开记号在元素前后均可使用，多个展开可以并列。")
+    dp.codeblock(dp.src(["var xs: table<i64> = [1, 2, 3]", "var t = sum(xs...)            // 全部铺开", "var u = cat(5, 6, xs..., 100)  // 与固定实参混用，展开在中间", "var v = sum_all(a..., b...)    // 多个展开依序平铺"]))
+
 }
+
+// 左右花括号的字符串形态（展示含花括号的代码示例时用）
+func lb() -> string { return str_from_code(123) }
+func rb() -> string { return str_from_code(125) }
 
 }

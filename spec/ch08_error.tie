@@ -12,18 +12,18 @@ pub func chapter() {
     // ---------------- 8.1 ----------------
     dp.h2("8.1  可预期的失败")
     dp.p("可能失败的函数把失败编码进返回类型。语言提供两个通用型别用于此目的：一个表示「有值或无值」，一个表示「成功值或错误值」。")
-    dp.codeblock(dp.src(["func find(xs: table<i64>, target: i64) -> Option<i64> {", "    for x in xs {", "        if x == target { return Option.Some(x) }", "    }", "    return Option.None", "}", "", "func parse_port(s: string) -> Result<i64, string> {", "    if str_len(s) == 0 { return Result.Err(\"空输入\") }", "    return Result.Ok(to_int(s))", "}"]))
+    dp.codeblock(dp.src(["func find(xs: table<i64>, target: i64) -> Option<i64> " + lb() + "", "    for x in xs " + lb() + "", "        if x == target " + lb() + " return Option.Some(x) " + rb() + "", "    " + rb() + "", "    return Option.None", "" + rb() + "", "", "func parse_port(s: string) -> Result<i64, string> " + lb() + "", "    if str_len(s) == 0 " + lb() + " return Result.Err(\"空输入\") " + rb() + "", "    return Result.Ok(to_int(s))", "" + rb() + ""]))
 
     // ---------------- 8.2 ----------------
     dp.h2("8.2  传播")
     dp.p("当函数无法就地处理失败、需要把它交给调用方时，用问号后缀传播：成功则取出值继续，失败则立即返回。")
-    dp.codeblock(dp.src(["func config_port(cfg: map<i64>) -> Result<i64, string> {", "    var raw = cfg[\"port\"]?", "    var port = parse_port(raw)?", "    return Result.Ok(port)", "}"]))
+    dp.codeblock(dp.src(["func config_port(cfg: map<i64>) -> Result<i64, string> " + lb() + "", "    var raw = cfg[\"port\"]?", "    var port = parse_port(raw)?", "    return Result.Ok(port)", "" + rb() + ""]))
     dp.p("传播记号把「错误向上传递」这条最常见路径写成一个字符，从而让函数体里的正常路径保持直线——不必为每一层调用写一段相同的分支。")
 
     // ---------------- 8.3 ----------------
     dp.h2("8.3  分支处理")
     dp.p("需要针对具体情况分别处理时，用多分支匹配展开结果类型。编译器要求覆盖全部情形。")
-    dp.codeblock(dp.src(["switch parse_port(input) {", "    case Result.Ok(v):", "        println(\"端口 \" + to_string(v))", "    case Result.Err(msg):", "        println(\"失败：\" + msg)", "}"]))
+    dp.codeblock(dp.src(["switch parse_port(input) " + lb() + "", "    case Result.Ok(v):", "        println(\"端口 \" + to_string(v))", "    case Result.Err(msg):", "        println(\"失败：\" + msg)", "" + rb() + ""]))
     dp.p("对于「缺失则取默认」这一常见需求，用安全默认值记号直接表达，不必展开分支。")
     dp.codeblock(dp.src(["var port = cfg[\"port\"] ?: 8080"]))
 
@@ -35,7 +35,7 @@ pub func chapter() {
     // ---------------- 8.5 ----------------
     dp.h2("8.5  不可恢复的故障")
     dp.p("当故障意味着「程序状态已经不可信」时，用 panic 终止。它携带一条消息，用于定位问题。")
-    dp.codeblock(dp.src(["if len(buf) == 0 {", "    panic(\"缓冲区不应为空\")", "}"]))
+    dp.codeblock(dp.src(["if len(buf) == 0 " + lb() + "", "    panic(\"缓冲区不应为空\")", "" + rb() + ""]))
     dp.p("在明确划定边界的场合可以捕获 panic 并转为普通错误，例如服务的请求处理循环：单个请求的故障不应终止整个进程。捕获点应当少而集中，且必须能说明为什么在此处恢复是安全的。")
 
     dp.h3("内建检查")
@@ -47,5 +47,9 @@ pub func chapter() {
     dp.codeblock(dp.src(["return Result.Err(\"读取配置失败：字段 \" + name + \" 缺失\")"]))
     dp.note("错误类型的选取遵循一条经验：能枚举的用枚举，不能枚举的用文本。当调用方需要按类别分支时用枚举；当调用方只是向上传递或打印时用文本。")
 }
+
+// 左右花括号的字符串形态（展示含花括号的代码示例时用）
+func lb() -> string { return str_from_code(123) }
+func rb() -> string { return str_from_code(125) }
 
 }

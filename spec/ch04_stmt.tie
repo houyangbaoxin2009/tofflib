@@ -26,38 +26,95 @@ pub func chapter() {
     // ---------------- 4.3 ----------------
     dp.h2("4.3  条件分支")
     dp.p("if 接受一个布尔表达式。else if 串接多个条件，else 收尾。条件必须严格是 bool——语言不接受用整数代表真伪，这排除了把赋值误写成比较的一类错误。")
-    dp.codeblock(dp.src(["if score >= 90 {", "    grade = \"A\"", "} else if score >= 60 {", "    grade = \"B\"", "} else {", "    grade = \"C\"", "}"]))
+    dp.codeblock(dp.src(["if score >= 90 " + lb() + "", "    grade = \"A\"", "" + rb() + " else if score >= 60 " + lb() + "", "    grade = \"B\"", "" + rb() + " else " + lb() + "", "    grade = \"C\"", "" + rb() + ""]))
 
     // ---------------- 4.4 ----------------
     dp.h2("4.4  循环")
     dp.p("循环有三种形态：条件循环、范围循环、集合循环。三者覆盖了绝大多数遍历需求，因此不需要通用的三段式循环语句。")
-    dp.codeblock(dp.src(["while running {", "    step()", "}", "", "for i in 0..10 {", "    println(to_string(i))", "}", "", "for item in items {", "    handle(item)", "}"]))
+    dp.codeblock(dp.src(["while running " + lb() + "", "    step()", "" + rb() + "", "", "for i in 0..10 " + lb() + "", "    println(to_string(i))", "" + rb() + "", "", "for item in items " + lb() + "", "    handle(item)", "" + rb() + ""]))
     dp.p("遍历文本使用码点迭代，这样多字节字符不会被切断：")
-    dp.codeblock(dp.src(["for ch in text.chars() {", "    // ch 是一个完整字符", "}"]))
+    dp.codeblock(dp.src(["for ch in text.chars() " + lb() + "", "    // ch 是一个完整字符", "" + rb() + ""]))
     dp.h3("循环标签")
     dp.p("嵌套循环中，若需要从内层直接跳出到外层之外，用标签指明目标。标签写在循环语句之前。")
-    dp.codeblock(dp.src(["outer: for a in 0..10 {", "    for b in 0..10 {", "        if b == 5 { break outer }", "        if b == 2 { continue outer }", "    }", "}"]))
+    dp.codeblock(dp.src(["outer: for a in 0..10 " + lb() + "", "    for b in 0..10 " + lb() + "", "        if b == 5 " + lb() + " break outer " + rb() + "", "        if b == 2 " + lb() + " continue outer " + rb() + "", "    " + rb() + "", "" + rb() + ""]))
     dp.p("无标签的 break 与 continue 作用于最近一层循环。带标签的跳转在编译期校验目标存在，标签未匹配即报错。")
 
     // ---------------- 4.5 ----------------
     dp.h2("4.5  多分支选择")
     dp.p("switch 按值分派到若干分支。每个分支自动结束，不存在落入下一分支的情况，因此不需要 break。")
-    dp.codeblock(dp.src(["switch code {", "    case 1, 2:", "        println(\"小\")", "    case 3..7:", "        println(\"中\")", "    default:", "        println(\"其他\")", "}"]))
+    dp.codeblock(dp.src(["switch code " + lb() + "", "    case 1, 2:", "        println(\"小\")", "    case 3..7:", "        println(\"中\")", "    default:", "        println(\"其他\")", "" + rb() + ""]))
     dp.p("分支可以匹配枚举并同时取出其携带的数据，此时编译器要求所有分支被覆盖，遗漏即报错。这是把「几种情况之一」的数据处理写完整的主要手段。")
-    dp.codeblock(dp.src(["switch shape {", "    case Shape.Circle(r):", "        println(to_string(r))", "    case Shape.Rect(w, h):", "        println(to_string(w * h))", "}"]))
+    dp.codeblock(dp.src(["switch shape " + lb() + "", "    case Shape.Circle(r):", "        println(to_string(r))", "    case Shape.Rect(w, h):", "        println(to_string(w * h))", "" + rb() + ""]))
 
     // ---------------- 4.6 ----------------
     dp.h2("4.6  跳转")
     dp.p("return 结束当前函数并带回值；yield 在生成器中产出一个值并继续执行；panic 报告不可恢复的错误并终止当前执行流（见第 8 章）。")
-    dp.codeblock(dp.src(["func pick(xs: table<i64>) -> i64 {", "    for x in xs {", "        if x > 0 { return x }", "    }", "    return 0", "}", "", "func counter(n: i64) -> table<i64> {", "    for i in 0..n {", "        yield i", "    }", "}"]))
+    dp.codeblock(dp.src(["func pick(xs: table<i64>) -> i64 " + lb() + "", "    for x in xs " + lb() + "", "        if x > 0 " + lb() + " return x " + rb() + "", "    " + rb() + "", "    return 0", "" + rb() + "", "", "func counter(n: i64) -> table<i64> " + lb() + "", "    for i in 0..n " + lb() + "", "        yield i", "    " + rb() + "", "" + rb() + ""]))
     dp.p("goto 在需要把多层嵌套的清理路径收敛到一处时使用。它只允许在同一个函数内跳转，且不允许跳入循环或分支的内部——这两条限制使它不会破坏块作用域。")
-    dp.codeblock(dp.src(["    if open_a() != 0 { goto cleanup_a }", "    if open_b() != 0 { goto cleanup_b }", "    // ...", "cleanup_b:", "    close_b()", "cleanup_a:", "    close_a()"]))
+    dp.codeblock(dp.src(["    if open_a() != 0 " + lb() + " goto cleanup_a " + rb() + "", "    if open_b() != 0 " + lb() + " goto cleanup_b " + rb() + "", "    // ...", "cleanup_b:", "    close_b()", "cleanup_a:", "    close_a()"]))
 
     // ---------------- 4.7 ----------------
     dp.h2("4.7  表达式语句")
     dp.p("一个表达式后面接语句结束，构成表达式语句。它用于调用有副作用的函数。")
     dp.codeblock(dp.src(["println(\"hello\")", "items -> sort -> print_all"]))
     dp.p("没有副作用的表达式语句通常意味着书写疏漏，编译器会对此给出提示。")
+
+    // ---------------- 4.8 ----------------
+    dp.h2("4.8  条件解构")
+    dp.p("当条件涉及「取值可能失败」的类型时，条件与解构可以合并书写：匹配成功则进入分支并取出内部值，失败则走另一支。")
+    dp.codeblock(dp.src(["if let Some(v) = find(xs, target) " + lb() + "", "    println(\"找到 \" + to_string(v))", "" + rb() + " else " + lb() + "", "    println(\"未找到\")", "" + rb() + ""]))
+    dp.p("这一形式省去了「先判断、再取值」的两步写法，并保证取值只在匹配成立的路径上发生——判断与取值之间不存在状态变化的窗口。")
+
+    // ---------------- 4.9 ----------------
+    dp.h2("4.9  前置条件")
+    dp.p("guard 在函数开头声明「必须满足什么才能继续」。条件不成立时执行给定的收尾块（通常是返回或报错），成立则继续往下走。")
+    dp.codeblock(dp.src(["func transfer(from: string, amount: i64) -> bool " + lb() + "", "    guard amount > 0 else " + lb() + " return false " + rb() + "", "    guard from != \"\" else " + lb() + " return false " + rb() + "", "    // 走到这里，两个条件都已成立", "    return true", "" + rb() + ""]))
+    dp.p("与 if 的差别在阅读顺序：guard 把前置条件与随后的正常流程分开，使正常路径保持在同一缩进层级，不必层层深入。收尾块必须以跳转语句结束（返回、报错或跳出），否则条件不成立时无法离开当前流程。")
+
+    // ---------------- 4.10 ----------------
+    dp.h2("4.10  作用域收尾")
+    dp.p("defer 登记一段在离开当前作用域时执行的代码。多段收尾按登记的**逆序**执行，因此「先申请后释放」的对应关系自然成立。")
+    dp.codeblock(dp.src(["func process(path: string) " + lb() + "", "    var h = open(path)", "    defer " + lb() + " close(h) " + rb() + "", "    var buf = acquire()", "    defer " + lb() + " release(buf) " + rb() + "", "    // 离开作用域时：先 release(buf)，再 close(h)", "    use(h, buf)", "" + rb() + ""]))
+    dp.p("把释放写在申请的下一行，是这一记号的主要用法：申请与释放成对出现在同一屏内，中间无论有多少条提前返回的路径，都不会漏掉释放。")
+
+    // ---------------- 4.11 ----------------
+    dp.h2("4.11  错误聚合块")
+    dp.p("一段代码中若有多处可能失败的操作，可以把它们放进一个块内统一处理：块内每个可能失败的操作后面写传播记号，块本身可以取到最后一个表达式的值。")
+    dp.codeblock(dp.src(["var total = try " + lb() + "", "    var a = read_first() ?", "    var b = read_second() ?", "    a + b", "" + rb() + ""]))
+
+    // ---------------- 4.12 ----------------
+    dp.h2("4.12  跳转与标签")
+    dp.p("在需要把多层嵌套的清理路径收敛到一处时使用跳转。标签声明某处可以被跳转抵达，跳转语句引用该标签。")
+    dp.codeblock(dp.src(["#[tag.retry]", "    var r = read()", "    if r == 0 " + lb() + " unsafe goto #retry " + rb() + "   // 回到同一块的开头重试", "#[tag.done]", "    finish(r)"]))
+    dp.p("跳转受三条限制：只能在同一函数内跳转；只能跳到同一块或已经执行过的外层块；不得跳过变量初始化进入其作用域。这三条共同保证跳转不会破坏作用域的有效性。跳转属不安全操作，需要显式标注。")
+
+    // ---------------- 4.13 ----------------
+    dp.h2("4.13  分支即表达式")
+    dp.p("多分支不仅可以作语句，也可以作表达式：每个分支给出一个值，整个分支结构即具有该值。它使「按情形取值」不必先声明变量再逐个赋值。")
+    dp.codeblock(dp.src(["var label = switch n " + lb() + "", "    0 -> \"零\"", "    1..9 -> \"个位\"", "    _ -> \"多位\"", "" + rb() + ""]))
+    dp.p("作表达式时分枝用箭头书写；分支必须穷尽，未覆盖的情形由通配分支承接。作语句时分支用冒号书写，形态见 4.5。")
+
+    // ---------------- 4.14 ----------------
+    dp.h2("4.14  解构")
+    dp.p("把复合值的各分量一次绑定到多个名字，称为解构。语言在四种位置支持解构，形态一致。")
+    var w6 = table_new_i64()
+    table_push(w6, 150)
+    table_push(w6, 301)
+    var h6 = table_new_string()
+    table_push(h6, "位置")
+    table_push(h6, "写法")
+    var r6: table<table<string>> = []
+    table_push(r6, dp.kvrow("声明", "var (a, b) = pair"))
+    table_push(r6, dp.kvrow("声明（剩余）", "var (a, ...rest) = xs"))
+    table_push(r6, dp.kvrow("遍历", "for (k, v) in pairs " + lb() + " " + rb() + ""))
+    table_push(r6, dp.kvrow("赋值", "(a, b) <- pair"))
+    dp.tbl(h6, r6, w6)
+    dp.p("剩余形态把未被列举的尾部收进一个表，用于「取头部若干项、其余整体处理」的场合。")
+
 }
+
+// 左右花括号的字符串形态（展示含花括号的代码示例时用）
+func lb() -> string { return str_from_code(123) }
+func rb() -> string { return str_from_code(125) }
 
 }

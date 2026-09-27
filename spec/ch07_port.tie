@@ -12,33 +12,56 @@ pub func chapter() {
     // ---------------- 7.1 ----------------
     dp.h2("7.1  声明")
     dp.p("接口用 port 声明，其中列出方法签名。签名只写参数与返回类型，不含实现。")
-    dp.codeblock(dp.src(["port Drawable {", "    pub func draw(self, ctx: i64) -> string", "    pub func bounds(self) -> i64", "}"]))
+    dp.codeblock(dp.src(["port Drawable " + lb() + "", "    pub func draw(self, ctx: i64) -> string", "    pub func bounds(self) -> i64", "" + rb() + ""]))
     dp.p("self 是接收者占位，实现时由具体类型替换。")
 
     // ---------------- 7.2 ----------------
     dp.h2("7.2  实现")
     dp.p("类型通过 impl 块声明它实现某个接口，并在其中给出各方法。接口要求的每个方法都必须实现，遗漏在编译期报告。")
-    dp.codeblock(dp.src(["struct Button {", "    var label: string = \"\"", "    var w: i64 = 0", "    var h: i64 = 0", "}", "", "impl Drawable for Button {", "    pub func draw(self, ctx: i64) -> string {", "        return \"Button(\" + self.label + \")\"", "    }", "    pub func bounds(self) -> i64 {", "        return self.w * self.h", "    }", "}"]))
+    dp.codeblock(dp.src(["struct Button " + lb() + "", "    var label: string = \"\"", "    var w: i64 = 0", "    var h: i64 = 0", "" + rb() + "", "", "impl Drawable for Button " + lb() + "", "    pub func draw(self, ctx: i64) -> string " + lb() + "", "        return \"Button(\" + self.label + \")\"", "    " + rb() + "", "    pub func bounds(self) -> i64 " + lb() + "", "        return self.w * self.h", "    " + rb() + "", "" + rb() + ""]))
     dp.p("实现块中的 self 指向实现类型本身，因此实现体可以直接访问该类型的字段。")
 
     // ---------------- 7.3 ----------------
     dp.h2("7.3  作为约束")
     dp.p("泛型参数可以标注接口约束。约束在编译期检查：传入的类型必须实现了该接口，否则报错。")
-    dp.codeblock(dp.src(["func render_all<T: Drawable>(items: table<T>, ctx: i64) {", "    for it in items {", "        it.draw(ctx)", "    }", "}"]))
+    dp.codeblock(dp.src(["func render_all<T: Drawable>(items: table<T>, ctx: i64) " + lb() + "", "    for it in items " + lb() + "", "        it.draw(ctx)", "    " + rb() + "", "" + rb() + ""]))
     dp.p("带约束的泛型在编译期为每个具体类型生成一份实现。因此调用没有间接跳转，也能被内联——接口在这里不带来运行期开销。")
 
     // ---------------- 7.4 ----------------
     dp.h2("7.4  作为对象")
     dp.p("接口也可以作为运行期的对象类型使用：把不同具体类型的值放入同一个接口类型的变量或表中，调用时按实际类型分派。")
-    dp.codeblock(dp.src(["var items: table<Drawable> = table_new_Drawable()", "table_push(items, button)", "table_push(items, label)", "for it in items {", "    it.draw(0)", "}"]))
+    dp.codeblock(dp.src(["var items: table<Drawable> = table_new_Drawable()", "table_push(items, button)", "table_push(items, label)", "for it in items " + lb() + "", "    it.draw(0)", "" + rb() + ""]))
     dp.p("这一形态在需要异质集合时使用，例如界面中混合放置不同控件。开销与任何动态分派方案相同，因此在不必要时优先使用泛型约束的形态。")
     dp.note("两种形态共用同一份接口声明。选择哪一种取决于调用点是否需要异质集合：类型在编译期全部已知，用约束；需要把不同类型放进同一个容器，用对象。")
 
     // ---------------- 7.5 ----------------
     dp.h2("7.5  接口的组合")
     dp.p("接口可以要求另一个接口，从而在能力之上再叠能力。实现时必须同时满足全部要求。")
-    dp.codeblock(dp.src(["port Focusable {", "    pub func focus(self) -> bool", "}", "", "port Control {", "    pub func draw(self, ctx: i64) -> string", "    pub func focus(self) -> bool", "}"]))
+    dp.codeblock(dp.src(["port Focusable " + lb() + "", "    pub func focus(self) -> bool", "" + rb() + "", "", "port Control " + lb() + "", "    pub func draw(self, ctx: i64) -> string", "    pub func focus(self) -> bool", "" + rb() + ""]))
     dp.p("组合让约束可以按能力分片：小接口易于实现也易于复用，大接口由小接口拼成，实现方仍只需提供具体方法。")
+
+    // ---------------- 7.6 ----------------
+    dp.h2("7.6  两种接口")
+    dp.p("接口有两种形态，区别在于**要求是否必须被显式声明**。")
+
+    var w2 = table_new_i64()
+    table_push(w2, 170)
+    table_push(w2, 281)
+    var h2 = table_new_string()
+    table_push(h2, "形态")
+    table_push(h2, "要求")
+    var r2: table<table<string>> = []
+    table_push(r2, dp.kvrow("名义接口", "类型必须显式声明它实现了该接口。声明与实现分开书写，实现块中逐方法给出定义。"))
+    table_push(r2, dp.kvrow("结构接口", "只要类型具备接口要求的方法，即视为满足。无需显式声明。"))
+    dp.tbl(h2, r2, w2)
+
+    dp.codeblock(dp.src(["// 名义接口：必须 impl", "port Drawable " + lb() + " pub func draw(self, ctx: i64) -> string " + rb() + "", "impl Drawable for Button " + lb() + " pub func draw(self, ctx: i64) -> string " + lb() + " return \"B\" " + rb() + " " + rb() + "", "", "// 结构接口：具备方法即可", "interface Named " + lb() + " pub func name(self) -> string " + rb() + "", "// 任何有 name(self) -> string 的类型都满足 Named"]))
+    dp.p("选择依据是意图。名义接口用于表达「这是一份契约，实现方必须知情」；结构接口用于表达「这个算法只要求这些能力」，此时关心的是能力而非声明。二者的约束检查都在编译期完成，也都能作为泛型约束使用。")
+
 }
+
+// 左右花括号的字符串形态（展示含花括号的代码示例时用）
+func lb() -> string { return str_from_code(123) }
+func rb() -> string { return str_from_code(125) }
 
 }

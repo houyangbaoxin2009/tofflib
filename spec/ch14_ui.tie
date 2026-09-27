@@ -12,7 +12,7 @@ pub func chapter() {
     // ---------------- 14.1 ----------------
     dp.h2("14.1  元素块的写法")
     dp.p("元素块以 @ 记号引入，块内书写元素与属性。元素之间的嵌套关系由书写的层次表达，不需要括号配对。")
-    dp.codeblock(dp.src(["@ window \"设置\" {", "    size: 480 x 320", "    @ panel {", "        @ label \"服务地址\"", "        @ input host: \"localhost\"", "        @ row {", "            @ button \"保存\" on_click: save", "            @ button \"取消\" on_click: cancel", "        }", "    }", "}"]))
+    dp.codeblock(dp.src(["@ window \"设置\" " + lb() + "", "    size: 480 x 320", "    @ panel " + lb() + "", "        @ label \"服务地址\"", "        @ input host: \"localhost\"", "        @ row " + lb() + "", "            @ button \"保存\" on_click: save", "            @ button \"取消\" on_click: cancel", "        " + rb() + "", "    " + rb() + "", "" + rb() + ""]))
     dp.p("这段写法与它描述的界面同构：外层窗口包含一个面板，面板包含一行文本、一个输入框与一个按钮行。改结构时改动的位置与视觉上的位置一致。")
 
     // ---------------- 14.2 ----------------
@@ -30,17 +30,59 @@ pub func chapter() {
     // ---------------- 14.4 ----------------
     dp.h2("14.4  数据与界面")
     dp.p("界面元素可以引用所在作用域的值。值的更新触发界面刷新，刷新范围由引用关系决定——读取了某个值的元素才会重建，其余部分保持不动。")
-    dp.codeblock(dp.src(["func view(state: AppState) -> i64 {", "    @ window \"计数器\" {", "        @ label \"计数：\" + to_string(state.n)", "        @ button \"加一\" on_click: bump", "    }", "    return 0", "}"]))
+    dp.codeblock(dp.src(["func view(state: AppState) -> i64 " + lb() + "", "    @ window \"计数器\" " + lb() + "", "        @ label \"计数：\" + to_string(state.n)", "        @ button \"加一\" on_click: bump", "    " + rb() + "", "    return 0", "" + rb() + ""]))
 
     // ---------------- 14.5 ----------------
     dp.h2("14.5  图语法")
     dp.p("图语法用于描述节点与它们之间的连接。节点声明与边声明分开书写：先给节点起名，再用箭头描述连接方向。")
-    dp.codeblock(dp.src(["graph Pipeline {", "    node fetch", "    node parse", "    node store", "", "    fetch -> parse", "    parse -> store", "    store -> fetch", "}"]))
+    dp.codeblock(dp.src(["graph Pipeline " + lb() + "", "    node fetch", "    node parse", "    node store", "", "    fetch -> parse", "    parse -> store", "    store -> fetch", "" + rb() + ""]))
     dp.p("箭头方向即数据或控制流的流向。需要给边附加条件或权重时，在箭头之后书写。")
     dp.codeblock(dp.src(["    parse -> store when valid", "    parse -> fetch   when invalid"]))
     dp.p("图作为值可以构造、组合与执行：构造产生图对象，组合把两个图按同名节点连接起来，执行按拓扑顺序推进。由于图是不可变的，组合不会修改原图，而是产生新图——这使得图可以在多个调用点之间安全共享。")
 
     dp.note("元素块与图语法都不是独立语言，而是同一套表达式的书写形态。二者内部可以出现普通表达式、函数调用与闭包，也可以被普通代码构造出来。")
+    // ---------------- 14.6 ----------------
+    dp.h2("14.6  界面单元")
+    dp.p("界面由若干**单元**组成：页面级的视图、可复用的组件、以及样式与主题的声明单元。单元是文件的顶层声明，与函数、结构并列。")
+    var w2 = table_new_i64()
+    table_push(w2, 130)
+    table_push(w2, 321)
+    var h2 = table_new_string()
+    table_push(h2, "单元")
+    table_push(h2, "作用")
+    var r2: table<table<string>> = []
+    table_push(r2, dp.kvrow("视图", "页面级界面单元。有输入（属性）与输出（动作契约），把外部状态映射为界面结构。"))
+    table_push(r2, dp.kvrow("组件", "可复用界面单元。与视图同构，额外支持内容插槽，使调用方可以填入子内容。"))
+    table_push(r2, dp.kvrow("样式", "选择器规则与分层声明。见 14.8。"))
+    table_push(r2, dp.kvrow("主题", "设计变量的取值表。见 14.8。"))
+    table_push(r2, dp.kvrow("动作", "交互契约：只声明有哪些交互，不写实现。实现由外部提供。"))
+    dp.tbl(h2, r2, w2)
+    dp.p("把界面写成声明而不是构造调用，目的是让界面结构与它的视觉形态保持同构：嵌套关系由缩进表达，层次一目了然。")
+    dp.codeblock(dp.src([r"view Counter(count: i64, history: table<string>) -> (Dec, Inc, Reset) {", r"    @Column {", r"        @Text ""计数："" + to_string(count)", r"", r"        if count > 2 {", r"            @Badge ""偏大""", r"        }", r"", r"        for h in history {", r"            @Text h .muted", r"        }", r"", r"        @Row {", r"            @Button ""-1"" .lg -> Dec", r"            @Button ""+1"" .lg -> Inc", r"        }", r"    }", r"}"]))
+    dp.p("视图的入端口是属性，出端口是动作契约。出端口决定这个视图可以向外部发出哪些交互——使用方据此提供实现，视图本身不关心交互如何被处理。")
+    // ---------------- 14.7 ----------------
+    dp.h2("14.7  元素与控制流")
+    dp.p("元素用 @ 引入，写在界面单元的块内。元素语句之间可以穿插**原生控制流**：条件、遍历与分支直接写在界面里，表达「按条件显示」「按集合重复」——不需要为界面另造一套条件指令。")
+    dp.p("元素的内容形式有两种：字符串字面量可以省略括号，其他表达式保留括号。")
+    dp.codeblock(dp.src([r"@Text ""直接写字面量""        // 省略括号", r"@Text(to_string(count))      // 表达式保留括号", r"@Text ""计数："" + to_string(count)"]))
+    dp.p("控制流在界面里与在函数里语义完全一致：条件为真才纳入该元素，遍历按集合逐项展开。这种一致性免去了「界面里的条件与代码里的条件规则不同」这类需要额外记忆的地方。")
+    // ---------------- 14.8 ----------------
+    dp.h2("14.8  修饰与事件")
+    dp.p("元素可以带修饰链，用于给出外观与档位。修饰分两类：外观钩子与语义档位。")
+    dp.bullet(["外观钩子：含义由样式表给出。结构文件里不出现颜色、字号这类具体取值，只出现名字。", "语义档位：含义由组件库给出，表示尺寸、密度等结构性选择。"])
+    dp.codeblock(dp.src([r"@Text ""标题"" .title", r"@Text ""说明"" .muted", r"@Button ""+1"" .lg -> Inc"]))
+    dp.p("事件用箭头把元素连到动作：箭头右侧是动作名，表示「这个元素被触发时发出该动作」。控制流的流向与数据流的写法一致，因此界面的交互路径与数据变换路径用同一套阅读方式。")
+    dp.h3("分层与作用域")
+    dp.p("样式按层组织，层的先后由声明顺序决定：后声明的层覆盖先声明的层；同层内按书写顺序，后者胜出。语言不做选择器权重计算——同一规则在不同层级的胜负关系一眼可见，不需要推算特异性分数。")
+    dp.codeblock(dp.src([r"@layer base, components, overrides", r"", r"@scope Card {", r"    .title { 前景: 表面色 }", r"}"]))
+    dp.p("主题是一张变量取值表，样式规则引用变量而不写死取值。因此换肤只需换主题，样式规则不动。")
+    dp.codeblock(dp.src([r"@theme dark {", r"    表面色 = 深灰900", r"    强调色 = 蓝400", r"}"]))
+    dp.p("这样的分工使三件事各自独立：结构决定有什么，样式决定长什么样，主题决定用什么色。改动其中一项不影响另外两项。")
+
 }
+
+// 左右花括号的字符串形态（展示含花括号的代码示例时用）
+func lb() -> string { return str_from_code(123) }
+func rb() -> string { return str_from_code(125) }
 
 }

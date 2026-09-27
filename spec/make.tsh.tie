@@ -1,5 +1,5 @@
 type tie<tsh>
-// spec/make.tsh.tie —— 《tie 语言语法规范 2026》构建脚本（tshell）
+// spec/make.tsh.tie —— 《tie 语言语法规范 2026.2》构建脚本（tshell）
 // ============================================================
 // 用法（在 tofflib 仓库根执行）：
 //     <tsh> -f spec/make.tsh.tie [tiec路径]
@@ -36,7 +36,7 @@ if is_empty(tiec) {
     exit(2)
 }
 
-println("===== build tie language specification 2026 =====")
+println("===== build tie language specification 2026.2 =====")
 println("cwd    : " + root)
 println("tiec   : " + tiec)
 

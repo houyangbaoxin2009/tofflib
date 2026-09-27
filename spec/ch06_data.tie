@@ -51,6 +51,38 @@ pub func chapter() {
     dp.h2("6.7  与元组的关系")
     dp.p("元组适合表达「几个值临时组合」；结构适合表达有名字、会长期存在、有自己行为的概念。判据是命名与复用：需要按名字取用、需要在多处传递，就用结构。")
     dp.codeblock(dp.src(["// 临时组合：用元组", "var lo, hi = min_max(xs)", "", "// 长期概念：用结构", "struct Interval { var lo: i64 = 0", "    var hi: i64 = 0 }"]))
+
+    // ---------------- 6.8 ----------------
+    dp.h2("6.8  运算约定")
+    dp.p("结构可以定义运算符的含义。做法是在同名命名空间里提供约定名称的函数，编译器在遇到相应运算时调用它。这样自定义类型可以像内建类型一样书写，而不必到处写方法调用。")
+    var w2 = table_new_i64()
+    table_push(w2, 170)
+    table_push(w2, 281)
+    var h2 = table_new_string()
+    table_push(h2, "约定名")
+    table_push(h2, "触发的运算")
+    var r2: table<table<string>> = []
+    table_push(r2, dp.kvrow("add / sub / mul / div", "相应的二元算术"))
+    table_push(r2, dp.kvrow("neg", "一元取负"))
+    table_push(r2, dp.kvrow("eq / cmp", "相等比较与大小比较"))
+    table_push(r2, dp.kvrow("index / index_set", "下标读取与下标赋值"))
+    table_push(r2, dp.kvrow("to_string", "转为文本"))
+    dp.tbl(h2, r2, w2)
+    dp.codeblock(dp.src([r"namespace Vec2 {", r"    pub func add(a: Vec2, b: Vec2) -> Vec2 {", r"        return Vec2(a.x + b.x, a.y + b.y)", r"    }", r"    pub func eq(a: Vec2, b: Vec2) -> bool {", r"        return a.x == b.x && a.y == b.y", r"    }", r"}", r"", r"var v = p + q          // 调用 Vec2::add", r"if p == q { }          // 调用 Vec2::eq"]))
+    dp.p("约定名称是一份固定清单，不接受任意名称。约定函数是普通函数，可以单独调用——运算符只是它的另一种写法，不存在只能通过运算符访问的行为。")
+
+    // ---------------- 6.9 ----------------
+    dp.h2("6.9  计算属性")
+    dp.p("对需要按需计算、不宜存储的值，可以定义一对同名函数作为读写入口：读函数除接收者外无参数，写函数多一个值参数。访问时用普通的字段语法。")
+    dp.codeblock(dp.src([r"namespace Circle {", r"    pub func area(c: Circle) -> f64 { return 3.14159 * c.r * c.r }", r"    pub func label(c: Circle) -> string { return ""圆 "" + to_string(c.r) }", r"    pub func label_set(ref c: Circle, v: string) { c.tag = v }", r"}", r"", r"var a = c.area        // 读：调用计算"]))
+    dp.p("读入口与普通字段访问在调用点写法一致，因此这个值究竟是存下来的还是算出来的属于实现细节，改动它不影响使用方。写入口需要接收者可写借用，因为写入必然修改对象。")
+
+    // ---------------- 6.10 ----------------
+    dp.h2("6.10  遍历约定")
+    dp.p("要让自定义类型可用于遍历语句，在命名空间里提供两个约定函数：一个判断是否还有元素，一个取出当前元素并前进。有了它们，该类型就能出现在遍历语句中。")
+    dp.codeblock(dp.src([r"namespace Ring {", r"    pub func has_next(r: Ring) -> bool { return r.i < r.n }", r"    pub func next(ref r: Ring) -> i64 { r.i += 1; return r.buf[r.i - 1] }", r"}", r"", r"for v in ring { println(to_string(v)) }"]))
+    dp.p("约定遍历的行为与内建表一致：遍历中的修改规则、元素顺序、取尽后的判定都遵循同一套语义，因此使用方不必区分遍历的是表还是自定义类型。")
+
 }
 
 }

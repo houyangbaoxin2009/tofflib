@@ -15,7 +15,7 @@ pub func chapter() {
 
     // ---------------- 16.2 ----------------
     dp.h2("16.2  声明形态")
-    dp.codeblock(dp.src(["var x = 1                       // 变量", "const K = 10                    // 常量", "func f(a: i64) -> i64 { }       // 函数", "pub func g() { }                // 公开函数", "struct S { var n: i64 = 0 }     // 结构", "enum E { A(x: i64) }            // 枚举", "namespace ns { }                // 命名空间", "port P { pub func m(self) }     // 接口", "impl P for S { }                // 实现", "actor A { var n: i64 = 0 }      // 状态单元", "macro m(x: code) -> code { }    // 宏", "import \"./m.tie\" as m           // 导入", "extern func e(a: i64) -> i64    // 外部函数"]))
+    dp.codeblock(dp.src(["var x = 1                       // 变量", "const K = 10                    // 常量", "func f(a: i64) -> i64 " + lb() + " " + rb() + "       // 函数", "pub func g() " + lb() + " " + rb() + "                // 公开函数", "struct S " + lb() + " var n: i64 = 0 " + rb() + "     // 结构", "enum E " + lb() + " A(x: i64) " + rb() + "            // 枚举", "namespace ns " + lb() + " " + rb() + "                // 命名空间", "port P " + lb() + " pub func m(self) " + rb() + "     // 接口", "impl P for S " + lb() + " " + rb() + "                // 实现", "actor A " + lb() + " var n: i64 = 0 " + rb() + "      // 状态单元", "macro m(x: code) -> code " + lb() + " " + rb() + "    // 宏", "import \"./m.tie\" as m           // 导入", "extern func e(a: i64) -> i64    // 外部函数"]))
 
     // ---------------- 16.3 ----------------
     dp.h2("16.3  参数约定")
@@ -27,7 +27,7 @@ pub func chapter() {
 
     // ---------------- 16.5 ----------------
     dp.h2("16.5  语句形态")
-    dp.codeblock(dp.src(["if cond { } else { }", "while cond { }", "for i in 0..10 { }", "for x in xs { }", "for c in s.chars() { }", "lbl: for i in 0..10 { break lbl }", "switch v { case 1: }", "return v", "yield v", "break    continue", "goto cleanup", "panic(\"msg\")"]))
+    dp.codeblock(dp.src(["if cond " + lb() + " " + rb() + " else " + lb() + " " + rb() + "", "while cond " + lb() + " " + rb() + "", "for i in 0..10 " + lb() + " " + rb() + "", "for x in xs " + lb() + " " + rb() + "", "for c in s.chars() " + lb() + " " + rb() + "", "lbl: for i in 0..10 " + lb() + " break lbl " + rb() + "", "switch v " + lb() + " case 1: " + rb() + "", "return v", "yield v", "break    continue", "goto cleanup", "panic(\"msg\")"]))
 
     // ---------------- 16.6 ----------------
     dp.h2("16.6  常用内建")
@@ -59,6 +59,50 @@ pub func chapter() {
     dp.h2("16.8  设计要点回顾")
     dp.p("本书的规则可以收敛成若干条彼此呼应的立场，它们共同构成语言的性格。")
     dp.bullet(["参数约定写在声明处，四种划分互斥且完备——读签名即知实参的去向", "命名实参可跳过带默认值的参数，使「只改一处」的调用最短", "闭包捕获除可写借用外一律按值，因此不产生共享可变状态", "并发通过消息与任务图表达，共享不通过共享内存偶然发生", "不安全操作写在标记区内，审计可按文本搜索完成", "常见的书写意图有专有记号：管道、短闭包、成员判定、原地修改、安全默认值"])
+    // ---------------- 16.8 ----------------
+    dp.h2("16.8  字符串与数字")
+    dp.codeblock(dp.src([r"""普通 {插值} 字符串""", r"r""原始字符串无转义""", r"""""""多行字符串，按闭合引号缩进剥离""""""", r"'A'                       // 字符", r"", r"42  0xFF  0b1011  0o755  0t1T0      // 五种进制", r"1_000_000                           // 下划线分组", r"3.14  1.5e3                         // 浮点", r"42i32  0x80u16  1.5f32  0.1d        // 类型后缀", r"-1t  0t  1t                         // 三值"]))
+    // ---------------- 16.9 ----------------
+    dp.h2("16.9  运算符速览")
+    dp.codeblock(dp.src([r"a + b   a - b   a * b   a / b   a % b     // 算术", r"a \ b   a %% b                            // 整除与成对取余", r"a ** b   a **? b                          // 幂；带检查的幂", r"a +? b   a -? b   a *? b                  // 带检查的算术", r"a == b   a != b   a < b   a <= b          // 比较（可链式）", r"a in xs   a not in xs                     // 成员判定", r"cond && cond   cond || cond   !cond       // 逻辑", r"a << b   a >> b   a & b   a | b   a ^ b   // 位运算", r"x = v   x += v   x \= v   x %%= v         // 赋值与复合赋值", r"", r"v -> f            // 管道", r"v -> [i]          // 管道进下标", r"v -> .field       // 管道进字段", r"v -> { x -> e }   // 块管道（x 为绑定名）", r"x <- v            // 反向赋值", r"(a, b) <- t       // 解构", r"v with { k: x }   // 不可变更新", r"opt ?   opt ?: d   obj?.f   obj?[i]        // 可空链", r"xs[1..3]   xs[..2]   xs[2..]   xs[..]      // 切片", r"\p                                        // 解引用（不安全）"]))
+    // ---------------- 16.10 ----------------
+    dp.h2("16.10  语句速览")
+    dp.codeblock(dp.src([r"if c { } else if c2 { } else { }", r"if let Some(v) = opt { }", r"while c { }", r"for i in 0..n { }", r"for x in xs { }", r"for c in s.chars() { }", r"lbl: for i in 0..n { break lbl }", r"switch v { case 1: ... default: ... }", r"var x = switch v { 0 -> a, _ -> b }        // 分支即表达式", r"var (a, b) = pair", r"var (a, ...rest) = xs", r"guard c else { return }", r"defer { cleanup() }", r"try { x = f()? }", r"return v    yield v    break    continue", r"panic(""msg"")", r"unsafe goto #tag                            // 配 #[tag.tag] 标签", r"unsafe { }                                  // 不安全块"]))
+    // ---------------- 16.11 ----------------
+    dp.h2("16.11  声明速览")
+    dp.codeblock(dp.src([r"[pub] [unsafe] [async] [inline] func f(a: i64) -> i64 { }", r"func f(x: i64) -> i64 = x * 2               // 等号体", r"struct S<T> extends B { var f: T = d }", r"enum E { A  B(x: i64) }", r"namespace ns { }", r"port P { pub func m(self) -> i64 }          // 名义接口", r"interface I { pub func m(self) -> i64 }     // 结构接口", r"impl P for S { pub func m(self) -> i64 { } }", r"actor A { var n: i64 = 0  pub func m() { } }", r"macro m(x: code) -> code { }", r"alias M = table<f64>", r"extern func e(a: i64) -> i64", r"import ""m.tie"" as m", r"import ""m.tie"".{ a, b }                     // 选择性导入", r"pub import ""m.tie""                          // 重导出", r"using ns.sub", r"var g: table<i64> = []", r"const K: i64 = 10", r"@注解(3)  #[属性]  #cfg(cond)               // 注解与条件编译", r"view V(p: i64) -> (Act) { @Column { } }     // 界面单元"]))
+    // ---------------- 16.12 ----------------
+    dp.h2("16.12  形式与分工")
+    dp.p("把全书反复出现的判断收束成一张对照：遇到「这个信息该写在哪」，查这张表。")
+    var w2 = table_new_i64()
+    table_push(w2, 190)
+    table_push(w2, 261)
+    var h2 = table_new_string()
+    table_push(h2, "要表达的意思")
+    table_push(h2, "写在哪")
+    var r2: table<table<string>> = []
+    table_push(r2, dp.kvrow("这个参数能否被改", "参数名前缀：ref / immut / move"))
+    table_push(r2, dp.kvrow("这个值要不要保留", "不要保留用 move，只读用 immut"))
+    table_push(r2, dp.kvrow("这一项的默认取值", "参数默认值（须连续居尾）"))
+    table_push(r2, dp.kvrow("调用时这一项是什么", "命名实参"))
+    table_push(r2, dp.kvrow("这个类型怎么用", "类型标注与别名"))
+    table_push(r2, dp.kvrow("返回值是什么", "函数签名（必写）"))
+    table_push(r2, dp.kvrow("这个文件是什么", "文件头 type tie<角色>"))
+    table_push(r2, dp.kvrow("哪里允许不安全操作", "文件头或函数上的能力域标注"))
+    table_push(r2, dp.kvrow("这块代码属于哪一层", "命名空间与可见性"))
+    table_push(r2, dp.kvrow("这条消息该给谁", "执行体 actor"))
+    table_push(r2, dp.kvrow("这一步依赖什么", "数据流图或管道"))
+    table_push(r2, dp.kvrow("这个结构长什么样", "界面单元的 @ 元素块"))
+    table_push(r2, dp.kvrow("这个取值能不能缺", "可空链 ? / ?: / ?. / ?["))
+    table_push(r2, dp.kvrow("溢出怎么办", "带检查的运算 +? 或 checked_*"))
+    table_push(r2, dp.kvrow("这段代码在别的平台", "条件编译 #cfg"))
+    dp.tbl(h2, r2, w2)
+    dp.p("这张表也可以反向使用：阅读他人代码时看到某个位置写了东西，就知道作者在表达哪一类意图。")
+
 }
+
+// 左右花括号的字符串形态（展示含花括号的代码示例时用）
+func lb() -> string { return str_from_code(123) }
+func rb() -> string { return str_from_code(125) }
 
 }

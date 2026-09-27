@@ -12,29 +12,63 @@ pub func chapter() {
     // ---------------- 12.1 ----------------
     dp.h2("12.1  代码片段")
     dp.p("code 是编译期类型，它的值是一段语法结构，而不是运行期的数据。code 值只能出现在宏相关的上下文里，不能存进变量跨阶段使用。")
-    dp.codeblock(dp.src(["func twice(x: code) -> code {", "    return quote {", "        @x + @x", "    }", "}"]))
+    dp.codeblock(dp.src(["func twice(x: code) -> code " + lb() + "", "    return quote " + lb() + "", "        @x + @x", "    " + rb() + "", "" + rb() + ""]))
 
     // ---------------- 12.2 ----------------
     dp.h2("12.2  宏的定义")
     dp.p("宏用 macro 声明。宏在编译期被调用，其返回值替换调用点。由于展开发生在编译期，宏不带来运行期开销。")
-    dp.codeblock(dp.src(["macro unless(cond: code, body: code) -> code {", "    return quote {", "        if !@cond {", "            @body", "        }", "    }", "}", "", "unless(done, { cleanup() })"]))
+    dp.codeblock(dp.src(["macro unless(cond: code, body: code) -> code " + lb() + "", "    return quote " + lb() + "", "        if !@cond " + lb() + "", "            @body", "        " + rb() + "", "    " + rb() + "", "" + rb() + "", "", "unless(done, " + lb() + " cleanup() " + rb() + ")"]))
 
     // ---------------- 12.3 ----------------
     dp.h2("12.3  引用与插值")
     dp.p("引用记号把一段代码包成 code 值而不立即求值；插值记号把 code 值嵌入到引用中。二者配合，使宏作者可以描述「带空洞的代码模板」。")
-    dp.codeblock(dp.src(["quote { if @cond { @body } }   // @cond 与 @body 是空洞"]))
+    dp.codeblock(dp.src(["quote " + lb() + " if @cond " + lb() + " @body " + rb() + " " + rb() + "   // @cond 与 @body 是空洞"]))
     dp.p("插值遵循与字符串插值一致的直觉：看到记号就知道此处会被替换，其余部分是字面结构。")
 
     // ---------------- 12.4 ----------------
     dp.h2("12.4  编译期计算")
     dp.p("常量表达式在编译期求值。这使得查表、派生量、配置校验等可以在产物生成之前完成，运行期只留下结果。")
-    dp.codeblock(dp.src(["const TABLE_SIZE = 1 << 10", "const MASK = TABLE_SIZE - 1", "", "macro assert_const(cond: code) -> code {", "    // 在编译期检查条件，不满足则报错", "    return quote { }", "}"]))
+    dp.codeblock(dp.src(["const TABLE_SIZE = 1 << 10", "const MASK = TABLE_SIZE - 1", "", "macro assert_const(cond: code) -> code " + lb() + "", "    // 在编译期检查条件，不满足则报错", "    return quote " + lb() + " " + rb() + "", "" + rb() + ""]))
 
     // ---------------- 12.5 ----------------
     dp.h2("12.5  使用边界")
     dp.p("宏适合表达那些「写法重复但语义简单」的结构：断言、日志、资源收尾、派生实现。它们不适合承载主要业务逻辑，原因是宏展开后的代码在调试器里的位置信息不如直接书写的代码直观。")
     dp.bullet(["用宏消除重复的样板，不用宏制造新的语言", "宏的展开结果应当可以用手写代码等价表达", "宏的报错信息应当指向调用点，而不是展开内部"])
     dp.note("标准库的断言、日志与测试宏都遵循同一形态：调用点简洁，展开结果平凡，报错指向调用处。")
+    // ---------------- 12.6 ----------------
+    dp.h2("12.6  两种宏")
+    dp.p("宏有两种形态，区别在于宏作者面对的是**语法结构**还是**书写形式**。")
+    var w2 = table_new_i64()
+    table_push(w2, 150)
+    table_push(w2, 301)
+    var h2 = table_new_string()
+    table_push(h2, "形态")
+    table_push(h2, "作者面对的")
+    var r2: table<table<string>> = []
+    table_push(r2, dp.kvrow("函数式宏", "参数与返回值都是代码片段类型。宏体是一段普通代码，在编译期执行，对片段做任意加工。"))
+    table_push(r2, dp.kvrow("模板宏", "参数是书写形式本身。宏体给出展开模板，按形参与实参的对应关系替换。"))
+    dp.tbl(h2, r2, w2)
+    dp.p("函数式宏适合需要逻辑判断的展开——按参数形态决定生成什么；模板宏适合形态固定的展开——把一段样板中可变的几处抽出来。选择依据是作者手上需要的是结构还是形式。")
+    dp.codeblock(dp.src([r"// 函数式：形参类型是代码片段，宏体在编译期执行", r"macro unless(cond: code, body: code) -> code {", r"    return `{ if !(@cond) { @body } }", r"}", r"", r"// 模板：直接给出展开形态", r"macro twice(stmt) {", r"    @stmt", r"    @stmt", r"}"]))
+    dp.h3("引用与插值")
+    dp.p("宏体里的代码片段需要与「原样保留的结构」区分开。准引用记号表示「这是一段代码结构，先不要执行」；插值记号表示「此处嵌入一个片段」。二者配合，宏作者可以精确描述「哪些部分固定、哪些部分由实参填入」。")
+    dp.codeblock(dp.src([r"// 准引用：包住一段代码结构", r"var tpl = `{ if @cond { @body } }", r"", r"// 插值：把片段嵌入准引用", r"`(($x) * 2)      // $x 位置由实参填入"]))
+    dp.p("模板宏里以特定前缀命名的形参表示卫生临时名：展开时为它生成一个不会与外层名字冲突的新名字，因此模板内部引入的临时变量不会意外遮蔽使用处的变量。")
+    // ---------------- 12.7 ----------------
+    dp.h2("12.7  声明注解")
+    dp.p("注解写在声明之前，为工具链提供附加信息。它不改语言的语义，但可被编译器、文档工具、测试框架等读取。")
+    dp.codeblock(dp.src([r"@priority(3)", r"@deprecated(""改用 fast_path"")", r"pub func slow_path(input: i64) -> i64 { ... }"]))
+    dp.p("注解可叠加，参数为字面量。把这类信息写成注解而不是注释，是因为注解可以被程序读取——检查工具能据此施加规则，文档工具能据此生成索引，而不只是给人看。")
+    // ---------------- 12.8 ----------------
+    dp.h2("12.8  条件编译")
+    dp.p("同一份源码可能要在不同平台或不同构建配置下产出不同结果。条件编译按编译期已知的条件选择性地纳入一段声明。")
+    dp.codeblock(dp.src([r"#cfg(平台 = linux)", r"pub func path_sep() -> string { return ""/"" }", r"#else", r"pub func path_sep() -> string { return ""''"" }", r"#end"]))
+    dp.p("条件在编译期求值，未选中的分支不参与检查也不进入产物——因此在某一平台上无法通过检查的代码，只要不属于该平台的分支，就不会妨碍编译。这一点与运行期分支有本质区别。")
+
 }
+
+// 左右花括号的字符串形态（展示含花括号的代码示例时用）
+func lb() -> string { return str_from_code(123) }
+func rb() -> string { return str_from_code(125) }
 
 }

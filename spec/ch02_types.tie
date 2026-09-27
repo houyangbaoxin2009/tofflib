@@ -38,7 +38,7 @@ pub func chapter() {
     // ---------------- 2.2 ----------------
     dp.h2("2.2  平衡三进制 trit")
     dp.p("trit 是一个三值类型，取值正、零、负。它用于三路比较、三值逻辑与平衡三进制数论。与布尔相比，它多了一个「未知」状态，因此比两者择一更贴近真实判定。")
-    dp.codeblock(dp.src(["var cmp: trit = compare(a, b)   // 正 表示 a>b，零 表示相等，负 表示 a<b", "if cmp == zero {", "    // 相等分支", "}"]))
+    dp.codeblock(dp.src(["var cmp: trit = compare(a, b)   // 正 表示 a>b，零 表示相等，负 表示 a<b", "if cmp == zero " + lb() + "", "    // 相等分支", "" + rb() + ""]))
     dp.p("三值逻辑的运算规则与布尔一致地推广：与运算取小、或运算取大、非运算取反。混合 trit 与整数的运算按提升规则转为整数，除法与取余对 trit 不开放。")
 
     // ---------------- 2.3 ----------------
@@ -65,18 +65,18 @@ pub func chapter() {
     dp.p("表是动态长度的同质序列，元素类型写在尖括号内。表有两种创建方式：字面量表（长度固定，元素在书写时确定）与动态表（可增长，用构造器创建）。")
     dp.codeblock(dp.src(["var fixed: table<i64> = [1, 2, 3]        // 字面量表", "var dyn = table_new_i64()                 // 动态表，先用后增", "table_push(dyn, 1)", "table_push(dyn, 2)", "table_push(dyn, 30)"]))
     dp.p("表可嵌套，形成多维结构。遍历使用 for-in，长度用 len。")
-    dp.codeblock(dp.src(["var grid: table<table<i64>> = [[1, 2], [3, 4]]", "for row in grid {", "    for cell in row {", "        println(to_string(cell))", "    }", "}"]))
+    dp.codeblock(dp.src(["var grid: table<table<i64>> = [[1, 2], [3, 4]]", "for row in grid " + lb() + "", "    for cell in row " + lb() + "", "        println(to_string(cell))", "    " + rb() + "", "" + rb() + ""]))
 
     // ---------------- 2.5 ----------------
     dp.h2("2.5  映射类型")
     dp.p("映射是以键索引的集合，键与值都有类型。键可以是文本、整数或枚举。")
-    dp.codeblock(dp.src(["var age: map<i64> = [\"alice\": 3, \"bob\": 5]", "age[\"carol\"] = 7", "if age.has(\"alice\") {", "    println(to_string(age[\"alice\"]))", "}"]))
+    dp.codeblock(dp.src(["var age: map<i64> = [\"alice\": 3, \"bob\": 5]", "age[\"carol\"] = 7", "if age.has(\"alice\") " + lb() + "", "    println(to_string(age[\"alice\"]))", "" + rb() + ""]))
     dp.p("映射的字面量语法与表一致，区别在于元素写成「键: 值」。当键为字符串时，可用点号访问其值，这在表达结构化数据时更易读。")
 
     // ---------------- 2.6 ----------------
     dp.h2("2.6  元组类型")
     dp.p("元组把若干个类型组合成一个值，位置固定、类型可不同。元组用于返回多个结果，或表达「这几个值一起才有意义」的场合。")
-    dp.codeblock(dp.src(["func min_max(xs: table<i64>) -> (lo: i64, hi: i64) {", "    // ...", "    return 1, 9", "}", "", "var lo, hi = min_max([3, 1, 9])"]))
+    dp.codeblock(dp.src(["func min_max(xs: table<i64>) -> (lo: i64, hi: i64) " + lb() + "", "    // ...", "    return 1, 9", "" + rb() + "", "", "var lo, hi = min_max([3, 1, 9])"]))
     dp.p("元组可命名分量，命名同时作为文档与解构依据。也可不命名，此时用位置访问。")
 
     // ---------------- 2.7 ----------------
@@ -88,20 +88,20 @@ pub func chapter() {
     // ---------------- 2.8 ----------------
     dp.h2("2.8  泛型")
     dp.p("泛型让类型与算法解耦。类型参数写在尖括号中，编译期为每个具体类型生成一份实现，因此运行期没有额外开销，也没有虚表跳转。")
-    dp.codeblock(dp.src(["func max_of<T>(a: T, b: T) -> T {", "    if a > b { return a }", "    return b", "}", "", "struct Box<T> {", "    var value: T", "}"]))
+    dp.codeblock(dp.src(["func max_of<T>(a: T, b: T) -> T " + lb() + "", "    if a > b " + lb() + " return a " + rb() + "", "    return b", "" + rb() + "", "", "struct Box<T> " + lb() + "", "    var value: T", "" + rb() + ""]))
     dp.p("类型参数可带约束，约束由接口描述（见第 7 章）。约束在编译期检查，不满足即报错。")
-    dp.codeblock(dp.src(["func render_all<T: Drawable>(items: table<T>) {", "    for it in items {", "        it.draw(0)", "    }", "}"]))
+    dp.codeblock(dp.src(["func render_all<T: Drawable>(items: table<T>) " + lb() + "", "    for it in items " + lb() + "", "        it.draw(0)", "    " + rb() + "", "" + rb() + ""]))
 
     // ---------------- 2.9 ----------------
     dp.h2("2.9  枚举")
     dp.p("枚举是标签联合：一个值要么是这个标签、要么是那个标签，并可按标签携带数据。它用于表达「几种情况之一」的数据，比用整数代号更安全——每个分支都被检查。")
-    dp.codeblock(dp.src(["enum Shape {", "    Circle(r: f64)", "    Rect(w: f64, h: f64)", "}", "", "func area(s: Shape) -> f64 {", "    switch s {", "        case Shape.Circle(r):", "            return 3.14159 * r * r", "        case Shape.Rect(w, h):", "            return w * h", "    }", "}"]))
+    dp.codeblock(dp.src(["enum Shape " + lb() + "", "    Circle(r: f64)", "    Rect(w: f64, h: f64)", "" + rb() + "", "", "func area(s: Shape) -> f64 " + lb() + "", "    switch s " + lb() + "", "        case Shape.Circle(r):", "            return 3.14159 * r * r", "        case Shape.Rect(w, h):", "            return w * h", "    " + rb() + "", "" + rb() + ""]))
     dp.p("枚举也可以做通用型参数，用于表达可能失败或可能缺失的结果，这是第 8 章错误处理的基础。")
 
     // ---------------- 2.10 ----------------
     dp.h2("2.10  动态类型")
     dp.p("any 表示「任意类型」。它在需要容纳异质数据的场合使用，例如配置表、序列化中间结果。任何值都可以赋给 any，取用时需要显式转换。")
-    dp.codeblock(dp.src(["var v: any = 42", "v = \"text\"", "if is_num(v) {", "    var n = as_i64(v)", "}"]))
+    dp.codeblock(dp.src(["var v: any = 42", "v = \"text\"", "if is_num(v) " + lb() + "", "    var n = as_i64(v)", "" + rb() + ""]))
     dp.note("静态类型是默认选择。any 把类型错误的发现从编译期推迟到运行期，因此只在确实需要异质容器时使用，而不是作为绕过类型检查的手段。")
 
     // ---------------- 2.11 ----------------
@@ -109,6 +109,75 @@ pub func chapter() {
     dp.p("数值类型之间的转换是显式的。窄化转换可能丢失信息，语言要求书写者明确表达意图。")
     dp.codeblock(dp.src(["var a: i64 = 1000", "var b = to_i32(a)        // 窄化：显式", "var c: f64 = to_f64(a)   // 整数到浮点", "var d = to_string(a)     // 到文本"]))
     dp.p("指针与整数之间的转换只在 unsafe 上下文中允许（见第 11 章）。聚合类型与动态类型之间的转换由各自的构造与匹配机制承担。")
+
+    // ---------------- 2.12 ----------------
+    dp.h2("2.12  低层与特殊类型")
+    dp.p("以下几类类型用于系统编程、并发与资源管理，它们多数只在不安全上下文或特定场景中出现。")
+    var w4 = table_new_i64()
+    table_push(w4, 150)
+    table_push(w4, 301)
+    var h4 = table_new_string()
+    table_push(h4, "类型")
+    table_push(h4, "说明")
+    var r4: table<table<string>> = []
+    table_push(r4, dp.kvrow("ptr<T>", "裸指针。指向 T 的地址，可参与算术与解引用，只在不安全上下文中可用。"))
+    table_push(r4, dp.kvrow("slice<T>", "切片。指向一段连续元素视图，共享底层数据而不复制。"))
+    table_push(r4, dp.kvrow("atomic<T>", "原子类型。提供原子读写与比较交换，用于跨执行流的无锁同步。"))
+    table_push(r4, dp.kvrow("guard<域>", "凭据。只能转移、不能复制的许可票据，域取值见第 11 章。"))
+    table_push(r4, dp.kvrow("array<T, N>", "定长数组。长度是类型的一部分，在编译期已知。"))
+    table_push(r4, dp.kvrow("fn(A, B) -> R", "函数类型。可作为参数、返回值、字段与容器元素。"))
+    dp.tbl(h4, r4, w4)
+
+    // ---------------- 2.13 ----------------
+    dp.h2("2.13  定长数组")
+    dp.p("定长数组的长度写在类型里，因此长度不同的数组是不同类型。它适合表达固定规模的数据——向量、矩阵行、环形缓冲。")
+    dp.codeblock(dp.src(["var v: array<f64, 3> = array_init(0.0)", "var m: array<array<f64, 3>, 3> = array_init(v)"]))
+    dp.p("长度可以是整数字面量，也可以是常量名或泛型值参数。长度参与类型检查，因此当下标为常量时，越界在编译期即可发现。")
+
+    // ---------------- 2.14 ----------------
+    dp.h2("2.14  函数类型")
+    dp.p("函数类型用箭头书写，与函数定义的返回位写法一致。任何函数值都有确定的函数类型，包括具名函数、闭包与短闭包。")
+    dp.codeblock(dp.src(["var cb: fn(i64) -> i64 = double", "var hook: fn(string) -> void", "func apply(g: fn(i64) -> i64, v: i64) -> i64 " + lb() + " return g(v) " + rb() + ""]))
+    dp.p("返回类型不可省略；无返回值的函数写 void。函数类型可以嵌套，返回函数的函数写作 fn(A) -> fn(B) -> R。")
+
+    // ---------------- 2.15 ----------------
+    dp.h2("2.15  行池")
+    dp.p("当表的元素是结构时，同一种写法具有另一种语义：它成为按标识符索引的行池。行池的每行有稳定标识，行可以稀疏存在，读取未写过的行得到默认值。")
+    dp.codeblock(dp.src(["var rows: table<Entity> = table_new_Entity()", "rows[id] = e            // 写入该标识的行", "var r = rows[id]        // 读取；未写过的行得到默认值", "len(rows)               // 最大已写标识加一"]))
+    dp.p("行池的价值在于按标识直接定位：不必在表中线性查找，也不必维持标识与下标的一致。它在界面的列表、场景的实体、表格的稀疏数据等处反复出现。行遵循值语义——读出的是副本，写回需要显式赋值。")
+
+    // ---------------- 2.16 ----------------
+    dp.h2("2.16  精确数值类型")
+    dp.p("浮点无法精确表示十进制小数，这在账目、计量与规格表示中不可接受。语言提供两个精确数值类型：十进制与任意精度整数。")
+    var w5 = table_new_i64()
+    table_push(w5, 130)
+    table_push(w5, 321)
+    var h5 = table_new_string()
+    table_push(h5, "类型")
+    table_push(h5, "语义")
+    var r5: table<table<string>> = []
+    table_push(r5, dp.kvrow("十进制", "以 符号、系数、十的幂 三元表示。加减乘恒精确；除法与开方在能精确时精确，否则按显式给定的精度与舍入方式处理。无负零、无无穷、无非数。"))
+    table_push(r5, dp.kvrow("大整数", "任意精度整数。用于超出机器字长的计数、密码学与数论计算；进制转换覆盖二至四十八进制。"))
+    dp.tbl(h5, r5, w5)
+    dp.codeblock(dp.src(["var price = 0.1d + 0.2d        // 精确等于 0.3，而非 0.30000000000000004", "var big = big_parse(\"123456789012345678901234567890\")", "var q = div_ctx(a, b, 10, half_even)   // 除法显式给定精度与舍入"]))
+    dp.p("零偏差是这两个类型契约的核心：凡是数学上精确的结果，实现就必须精确给出，不允许以「足够接近」代替。舍入只发生在显式要求舍入的调用中，不存在隐式舍入与全局设置。")
+
+    // ---------------- 2.17 ----------------
+    dp.h2("2.17  类型别名")
+    dp.p("别名给类型起第二个名字，语义上与原类型完全相同——它不是新类型，不产生任何转换边界。别名用于压缩冗长类型、给领域概念以恰当名称。")
+    dp.codeblock(dp.src(["alias Matrix = table<f64>", "alias Pair<T> = (T, T)", "alias Handler = fn(Request) -> Response"]))
+    dp.p("诊断信息会同时给出原名与别名，因此别名不会让错误信息显得陌生。")
+
+    // ---------------- 2.18 ----------------
+    dp.h2("2.18  泛型的值参数")
+    dp.p("类型参数之外，泛型还可以接受值参数：在编译期确定的整数或类型。它用于表达规模、容量、精度这类应当是类型一部分的量。")
+    dp.codeblock(dp.src(["func zeros<N: i64>() -> array<f64, N> " + lb() + " return array_init(0.0) " + rb() + "", "struct Buffer<CAP: i64 = 1280> " + lb() + " var data: array<u8, CAP> " + rb() + "", "var b = Buffer<512>()          // 容量成为类型的一部分"]))
+    dp.p("值参数有默认值时可以省略。把规模放进类型的好处是：规模不匹配在编译期即报错，而不是在运行期越界。")
+
 }
+
+// 左右花括号的字符串形态（展示含花括号的代码示例时用）
+func lb() -> string { return str_from_code(123) }
+func rb() -> string { return str_from_code(125) }
 
 }

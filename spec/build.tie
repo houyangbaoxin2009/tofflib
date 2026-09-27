@@ -1,5 +1,5 @@
 type tie<logic>
-// build.tie —— 《tie 语言语法规范 2026》构建入口（依序装配各章 → PDF）
+// build.tie —— 《tie 语言语法规范 2026.2》构建入口（依序装配各章 → PDF）
 //
 // 生成方式：tiec build.tie -o build.exe && build.exe
 // 编排：make.tsh.tie（tshell）
@@ -23,7 +23,7 @@ import "F:/Projects/tie-repo/tofflib/spec/ch16_ref.tie" as c16
 
 func main() -> i64 {
     dp.begin()
-    dp.cover("tie 语言语法规范", "tie Language Specification", "版本 2026")
+    dp.cover("tie 语言语法规范", "tie Language Specification", "版本 2026.2")
     dp.pagebreak()
     dp.toc_item("第 1 章  词法与记号", "")
     dp.toc_item("第 2 章  类型系统", "")
