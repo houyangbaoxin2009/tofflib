@@ -1,0 +1,182 @@
+type tie<class>
+// pdf_asm.tie —— PDF 装配与落盘（tofflib 内部模块，纯 tie）
+// ============================================================
+// 职责：把已登记的页与内容流装配成完整的 PDF 字节串，并写入文件。
+//
+// 对象编号固定规划（便于前置对象引用后置对象，无需回填）：
+//   1 = Catalog · 2 = Pages · 3 = Font(Type0) · 4 = CIDFontType2
+//   5 = FontDescriptor · 6 = FontFile2（**二进制流**）
+//   7+2i = 第 i 页 Page · 8+2i = 第 i 页 Contents
+//
+// 输出策略（关键）：字体字节是**整份文档里唯一的二进制段**，其余全 ASCII。
+// 故先在内存里拼 ASCII 头（对象 1..5）→ 接字体二进制 → 再接 ASCII 尾（页对象、
+// xref、trailer）。这样只需 2 次大拼接，避免把 9.7MB 字体反复参与 `+` 运算
+//（tie 字符串拼接是整串拷贝，重复拼会 O(n²)）。
+// 字节偏移用一个**显式计数器**累进：ASCII 段加 `str_len`，二进制段加
+// `font_bytes_len()`——这正是"除字体外全 ASCII"这一设计换来的便利。
+
+import "./pdf_ttf.tie"
+
+namespace pdf {
+
+// 转义后的字体名（ASCII 安全）
+const FONT_NAME: string = "SimHei"
+
+// 生成字体相关的 4 个对象（3..6），返回 0。必须在 save 之前的装配阶段调用。
+func add_font_objs() {
+    // 3: Type0 复合字体（Identity-H：文本以 2 字节 GID 写入）
+    add_obj("<< /Type /Font /Subtype /Type0 /BaseFont /" + FONT_NAME +
+        " /Encoding /Identity-H /DescendantFonts [4 0 R] >>")
+    // 4: CIDFontType2 后代字体
+    add_obj("<< /Type /Font /Subtype /CIDFontType2 /BaseFont /" + FONT_NAME +
+        " /CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >>" +
+        " /FontDescriptor 5 0 R /DW 1000 /CIDToGIDMap /Identity >>")
+    // 5: FontDescriptor（指标缩放到 1000/em）
+    add_obj("<< /Type /FontDescriptor /FontName /" + FONT_NAME + " /Flags 4" +
+        " /FontBBox [" + i2s(bbox_xmin1000()) + " " + i2s(bbox_ymin1000()) + " " +
+        i2s(bbox_xmax1000()) + " " + i2s(bbox_ymax1000()) + "]" +
+        " /ItalicAngle 0 /Ascent " + i2s(asc1000()) + " /Descent " + i2s(desc1000()) +
+        " /CapHeight " + i2s(asc1000()) + " /StemV 80 /FontFile2 6 0 R >>")
+    // 6: FontFile2 二进制流（占位 —— 真正字节在 save 时单独拼接）
+    add_obj("<< /Length " + i2s(font_bytes_len()) + " /Length1 " + i2s(font_bytes_len()) + " >>")
+}
+
+// 页对象与内容流对象
+func add_page_objs() {
+    var n = len(g_pages)
+    var i: i64 = 0
+    while i < n {
+        var pg = 7 + 2 * i
+        var ct = 8 + 2 * i
+        add_obj("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 " + i2s(g_w) + " " + i2s(g_h) +
+            "] /Resources << /Font << /F1 3 0 R >> >> /Contents " + i2s(ct) + " 0 R >>")
+        add_obj("<< /Length " + i2s(str_len(g_pages[i])) + " >>")
+        i = i + 1
+    }
+}
+
+// 组装 Catalog / Pages（引用 7+2i 的页对象）
+func add_root_objs() {
+    var n = len(g_pages)
+    var kids = "["
+    var i: i64 = 0
+    while i < n {
+        if i > 0 {
+            kids = kids + " "
+        }
+        kids = kids + i2s(7 + 2 * i) + " 0 R"
+        i = i + 1
+    }
+    kids = kids + "]"
+    add_obj("<< /Type /Catalog /Pages 2 0 R >>")
+    add_obj("<< /Type /Pages /Kids " + kids + " /Count " + i2s(n) + " >>")
+}
+
+// ---------- 序列化 ----------
+// 单对象体（不含二进制流）
+func obj_text(oid: i64, body: string) -> string {
+    return i2s(oid) + " 0 obj\n" + body + "\nendobj\n"
+}
+
+// 内容流对象体（stream 段）
+func stream_text(content: string) -> string {
+    return "stream\n" + content + "endstream\nendobj\n"
+}
+
+// 落盘：装配并写文件。返回是否成功。
+//
+// 输出走 **byte_write（字节表）**，不用 file_write：后者在 Windows 上遇 NUL
+// 截断（实测写 4 字节只落 3 字节），而嵌入字体满含 NUL。因此整份文档在内存里
+// 以 **table<i64> 字节序列**拼装：依次 push「头 ASCII」「字体字节」「尾 ASCII」
+// 「xref/trailer」，一次写入。
+//
+// 偏移累进仍用显式计数器：ASCII 段加 `str_len`（ASCII 下码点数==字节数），
+// 字体段加 `font_bytes_len()`（来自 file_size）。
+pub func save(path: string) -> bool {
+    add_root_objs()
+    add_font_objs()
+    add_page_objs()
+
+    var head = "%PDF-1.4\n%tie\n"
+    var tail = ""
+    var offs = table_new_i64()
+    var off: i64 = str_len(head)
+    var n = len(g_objs)
+    var i: i64 = 0
+    while i < n {
+        var oid = i + 1
+        table_push(offs, off)
+        if oid == 6 {
+            // 字体流对象 = 前缀 + 字体字节 + 后缀；三段都必须计入偏移
+            //（曾把后缀长度写成 +1，致 xref 起点偏小 17 字节、startxref 指向 endstream）
+            var pre = i2s(oid) + " 0 obj\n" + g_objs[i] + "\nstream\n"
+            var suf = "\nendstream\nendobj\n"
+            head = head + pre
+            tail = suf
+            off = off + str_len(pre) + font_bytes_len() + str_len(suf)
+        } else {
+            var piece = ""
+            var is_content = oid >= 8 && (oid - 8) % 2 == 0
+            if is_content {
+                piece = i2s(oid) + " 0 obj\n" + stream_text(g_pages[(oid - 8) / 2])
+            } else {
+                piece = obj_text(oid, g_objs[i])
+            }
+            off = off + str_len(piece)
+            if str_len(tail) > 0 {
+                tail = tail + piece
+            } else {
+                head = head + piece
+            }
+        }
+        i = i + 1
+    }
+    // 此时 off == xref 起始偏移
+    var n2 = len(offs)
+    var x = "xref\n0 " + i2s(n2 + 1) + "\n0000000000 65535 f \n"
+    var j: i64 = 0
+    while j < n2 {
+        x = x + pad10(offs[j]) + " 00000 n \n"
+        j = j + 1
+    }
+    var bt = "trailer\n<< /Size " + i2s(n2 + 1) + " /Root 1 0 R >>\nstartxref\n" +
+        i2s(off) + "\n%%EOF\n"
+    return write_pdf(path, head, tail, x + bt)
+}
+
+// 拼字节序列并写盘：头 ASCII → 字体字节 → 尾 ASCII（尾含页对象与 xref/trailer）。
+// 用堆上单表 push，避免多次大表拼接（tie 表按值语义，拼接会整表拷贝）。
+func write_pdf(path: string, head: string, tail: string, trailer: string) -> bool {
+    var out = table_new_i64()
+    push_str(out, head)
+    var f = font_bytes()
+    var i: i64 = 0
+    while i < len(f) {
+        table_push(out, f[i])
+        i = i + 1
+    }
+    push_str(out, tail)
+    push_str(out, trailer)
+    return byte_write(path, out)
+}
+
+// ASCII 串 → 字节序列（ASCII 下 str_len == 字节数；用 str_byte 取字节，二进制安全）
+func push_str(t: ref table<i64>, s: string) {
+    var n = str_len(s)
+    var i: i64 = 0
+    while i < n {
+        table_push(t, str_byte(s, i))
+        i = i + 1
+    }
+}
+
+// 10 位零填充（xref 条目固定 10 位数字）
+func pad10(v: i64) -> string {
+    var s = i2s(v)
+    while str_len(s) < 10 {
+        s = "0" + s
+    }
+    return s
+}
+
+}

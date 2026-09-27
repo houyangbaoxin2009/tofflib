@@ -1,0 +1,32 @@
+type tie<logic>
+import "F:/Projects/tie-repo/tofflib/pdf.tie" as pdf
+
+func main() -> i64 {
+    var rc = pdf.font_load("C://Windows//Fonts//simhei.ttf")
+    println("font_load rc = " + pdf.i2s(rc) + " (0=OK)")
+    if rc != 0 {
+        println("FAIL: 字体解析失败")
+        return 1
+    }
+    println("upem=" + pdf.i2s(pdf.asc1000()) + " asc1000=" + pdf.i2s(pdf.asc1000()) + " desc1000=" + pdf.i2s(pdf.desc1000()))
+
+    pdf.begin_doc(595, 842)
+    var pg = pdf.add_page()
+    var g1 = pdf.enc_gids("tie 语言语法规范 2026")
+    println("gids len = " + pdf.i2s(len(g1)) + " width(20pt) = " + pdf.i2s(pdf.width_of(g1, 20)) + " (1/100pt)")
+    pdf.text_at(pg, 72, 760, 20, g1)
+
+    var g2 = pdf.enc_gids("第一章 词法与记号")
+    pdf.text_at(pg, 72, 720, 14, g2)
+
+    var g3 = pdf.enc_gids("func main() -> i64 { return 0 }")
+    pdf.text_at(pg, 90, 690, 10, g3)
+    pdf.hline(pg, 72, 700, 523, 0)
+
+    var g4 = pdf.enc_gids("ASCII 混排：hello world / 混合 CJK / 12.34")
+    pdf.text_at(pg, 72, 660, 12, g4)
+
+    var ok = pdf.save("spec/_t2.pdf")
+    println("save = " + to_string(ok))
+    return 0
+}

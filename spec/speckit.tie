@@ -1,0 +1,151 @@
+type tie<class>
+// speckit.tie —— 语法规范文档的渲染工具（基于 tofflib）
+// ============================================================
+// 职责：把「规范内容」渲染为 OOXML 正文片段（docx 侧）。
+// 只做版式原语——标题/段落/代码块/表格/清单/提示框；内容在内容分片里写。
+// 依赖：tofflib 的 docx.tie（版式）+ ooxml.tie（打包）。
+
+import "F:/Projects/tie-repo/tofflib/docx.tie" as dx
+import "F:/Projects/tie-repo/tofflib/ooxml.tie" as ox
+
+namespace spec {
+
+// 正文字体（中文）+ 等宽字体（代码）
+const F_BODY: string = "宋体"
+const F_MONO: string = "Consolas"
+// 代码块底纹（浅灰）与提示框底纹（浅蓝）
+const SH_CODE: string = "F4F4F4"
+const SH_NOTE: string = "E8F0FE"
+const SH_TABH: string = "D9E2F3"
+
+// 小工具：字符串按分隔符切成行表（tofflib 不依赖 std，故自写）
+pub func split_lines(s: string) -> table<string> {
+    var out = table_new_string()
+    var n = str_len(s)
+    var cur = ""
+    var i: i64 = 0
+    while i < n {
+        var c = str_char(s, i)
+        if c == "\n" {
+            table_push(out, cur)
+            cur = ""
+        } else {
+            cur = cur + c
+        }
+        i = i + 1
+    }
+    table_push(out, cur)
+    return out
+}
+
+// 单行代码 → 段落（等宽 + 小号）
+func code_line(txt: string) -> string {
+    return dx.para_ex([dx.run_font(txt, F_MONO, 18, false)], "", 0, 0, 0)
+}
+
+// 代码块：单格带底纹表格，内含多行等宽文本。
+// 用表格包代码是为了拿到段落级底纹（docx.para_ex 无 shd），视觉上也更像代码框。
+pub func codeblock(code_text: string) -> string {
+    var lines = split_lines(code_text)
+    var inner = ""
+    var i: i64 = 0
+    while i < len(lines) {
+        inner = inner + code_line(lines[i])
+        i = i + 1
+    }
+    var gw = table_new_i64()
+    table_push(gw, 9000)
+    var cell = dx.tc(inner, 1, SH_CODE, "left")
+    var hdr = table_new_string()
+    table_push(hdr, "")
+    var rows: table<table<string>> = []
+    var r0 = table_new_string()
+    table_push(r0, cell)
+    table_push(rows, r0)
+    return dx.tbl_full(rows, hdr, gw, 9000)
+}
+
+// 标题层级（复用 docx.heading）
+pub func h1(t: string) -> string { return dx.heading(t, 1) }
+pub func h2(t: string) -> string { return dx.heading(t, 2) }
+pub func h3(t: string) -> string { return dx.heading(t, 3) }
+
+// 正文段落
+pub func p(t: string) -> string {
+    return dx.para_ex([dx.run_font(t, F_BODY, 21, false)], "", 0, 60, 0)
+}
+
+// 二级说明（小一号、灰色）
+pub func sub(t: string) -> string {
+    return dx.para_ex([dx.run_color(t, "595959")], "", 0, 60, 0)
+}
+
+// 提示框（浅蓝底纹单格表格）
+pub func note(t: string) -> string {
+    var gw = table_new_i64()
+    table_push(gw, 9000)
+    var cell = dx.tc(dx.para_ex([dx.run_font(t, F_BODY, 20, false)], "", 0, 0, 0), 1, SH_NOTE, "left")
+    var hdr = table_new_string()
+    table_push(hdr, "")
+    var rows: table<table<string>> = []
+    var r0 = table_new_string()
+    table_push(r0, cell)
+    table_push(rows, r0)
+    return dx.tbl_full(rows, hdr, gw, 9000)
+}
+
+// 项目符号清单
+pub func items(xs: table<string>) -> string {
+    return dx.bullets(xs, 0)
+}
+
+// 键值/对照表：hdr 为表头（可空表），rows 为数据行，各列等宽。
+pub func table2(hdr: table<string>, rows: table<table<string>>, w1: i64, w2: i64) -> string {
+    var gw = table_new_i64()
+    table_push(gw, w1)
+    table_push(gw, w2)
+    var h: table<string> = []
+    if len(hdr) > 0 {
+        var i: i64 = 0
+        while i < len(hdr) {
+            table_push(h, dx.tchead(hdr[i], 1, SH_TABH, "left"))
+            i = i + 1
+        }
+    }
+    return dx.tbl_full(rows, h, gw, w1 + w2)
+}
+
+// 两列表：左称谓/右说明
+pub func kv(rws: table<table<string>>) -> string {
+    var gw = table_new_i64()
+    table_push(gw, 2600)
+    table_push(gw, 6400)
+    var hdr = table_new_string()
+    table_push(hdr, dx.tchead("项", 1, SH_TABH, "left"))
+    table_push(hdr, dx.tchead("说明", 1, SH_TABH, "left"))
+    return dx.tbl_full(rws, hdr, gw, 9000)
+}
+
+// 构造一行两列表（先做行，再交给 kv / table2）
+pub func row2(a: string, b: string) -> table<string> {
+    var r = table_new_string()
+    table_push(r, dx.tc(a, 1, "", "left"))
+    table_push(r, dx.tc(b, 1, "", "left"))
+    return r
+}
+
+// 分页
+pub func pagebreak() -> string {
+    return dx.page_break()
+}
+
+// 封面标题（居中大字）
+pub func cover_title(t: string) -> string {
+    return dx.para_center([dx.run_font(t, F_BODY, 56, true)])
+}
+
+pub func cover_sub(t: string) -> string {
+    return dx.para_center([dx.run_color(t, "404040")])
+}
+
+}

@@ -1,0 +1,329 @@
+type tie<class>
+// pdf_ttf.tie —— TrueType 字体解析（tofflib 内部模块，纯 tie）
+// ============================================================
+// 职责：从 TTF 字节串里取出生成 PDF CIDFontType2 所需的**最小信息集**：
+//   * 表目录定位（head / hhea / maxp / hmtx / cmap）
+//   * head → unitsPerEm、FontBBox（FontDescriptor 用）
+//   * hhea → ascender / descender、numberOfHMetrics
+//   * hmtx → 每字形 advance width（排版量宽用）
+//   * cmap（format 4 / 12）→ Unicode 码点 → 字形 id（GID）
+//
+// 为何要自己解析：PDF 的 `/Encoding /Identity-H` 要求文本以**2 字节 GID** 写入，
+// 而要拿到 GID 就必须查字体的 cmap——故无法只把字体原样塞进去。
+//
+// 性能：cmap 查表做了**按码点直址缓存**（0..0x9FFF 一张表），因正文里同一字符
+// 反复出现（一份规范约 5 万字符、不同字约 1.5 千），逐次线性扫 cmap 段表会是
+// O(字符数 × 段数) 的热点。超过 0x9FFF 的码点回退逐段扫描（罕见）。
+
+// ---------- 字体全局状态 ----------
+var g_font: table<i64>;         // 字体字节（byte_read 读入；二进制安全）
+var g_font_len: i64 = 0;        // 字节数（= file_size）
+var g_upem: i64 = 1000;         // unitsPerEm
+var g_bbox_xmin: i64 = 0;
+var g_bbox_ymin: i64 = 0;
+var g_bbox_xmax: i64 = 1000;
+var g_bbox_ymax: i64 = 1000;
+var g_asc: i64 = 800;           // hhea ascender（字体单位）
+var g_desc: i64 = -200;         // hhea descender
+var g_nhmetrics: i64 = 0;
+var g_hmtx_off: i64 = 0;
+var g_seg_count: i64 = 0;
+var g_end_off: i64 = 0;         // cmap format4 endCode 起点
+var g_start_off: i64 = 0;
+var g_delta_off: i64 = 0;
+var g_range_off: i64 = 0;
+var g_cmap_fmt: i64 = 0;        // 4 或 12
+var g_cmap12_off: i64 = 0;      // format12 groups 起点
+var g_gid_cache: table<i64>;    // 按码点直址缓存（0..0x9FFF；-1 = 未查）
+var g_cache_init: i64 = 0;
+
+// ---------- 大端读取 ----------
+
+namespace pdf {
+
+func rb8(o: i64) -> i64 {
+    return g_font[o]
+}
+
+func rb16(o: i64) -> i64 {
+    return rb8(o) * 256 + rb8(o + 1)
+}
+
+func rb32(o: i64) -> i64 {
+    return rb16(o) * 65536 + rb16(o + 2)
+}
+
+func ri16(o: i64) -> i64 {
+    var v = rb16(o)
+    if v >= 32768 {
+        v = v - 65536
+    }
+    return v
+}
+
+// ---------- 表目录 ----------
+// 返回表的字节偏移；找不到返回 -1。tag 用 4 字节拼成的 i64 比较。
+func find_table(tag: i64) -> i64 {
+    var n = rb16(4)
+    var i: i64 = 0
+    while i < n {
+        var rec = 12 + i * 16
+        var t = rb8(rec) * 16777216 + rb8(rec + 1) * 65536 + rb8(rec + 2) * 256 + rb8(rec + 3)
+        if t == tag {
+            return rb32(rec + 8)
+        }
+        i = i + 1
+    }
+    return -1
+}
+
+// 4 个 ASCII 字符 → tag 值（'head' 等）
+func tag4(a: i64, b: i64, c: i64, d: i64) -> i64 {
+    return a * 16777216 + b * 65536 + c * 256 + d
+}
+
+// 'cmap' 'head' 'hhea' 'maxp' 'hmtx'
+func tag_cmap() -> i64 { return tag4(99, 109, 97, 112) }
+func tag_head() -> i64 { return tag4(104, 101, 97, 100) }
+func tag_hhea() -> i64 { return tag4(104, 104, 101, 97) }
+func tag_maxp() -> i64 { return tag4(109, 97, 120, 112) }
+func tag_hmtx() -> i64 { return tag4(104, 109, 116, 120) }
+
+// ---------- 加载与解析 ----------
+// 载入字体并解析（成功返回 0；失败返回 -1，调用方可降级到内置字体）
+pub func font_load(path: string) -> i64 {
+    // 必须用 byte_read：file_read/file_write 在 Windows 上**遇 NUL 截断**
+    //（实测写 4 字节只落 3 字节）——TTF 满含 NUL，用文本接口必然损坏。
+    g_font = byte_read(path)
+    g_font_len = file_size(path)
+    if g_font_len < 12 || len(g_font) < 12 {
+        return -1
+    }
+    var head = find_table(tag_head())
+    if head < 0 {
+        return -1
+    }
+    g_upem = rb16(head + 18)
+    if g_upem <= 0 {
+        return -1
+    }
+    g_bbox_xmin = ri16(head + 36)
+    g_bbox_ymin = ri16(head + 38)
+    g_bbox_xmax = ri16(head + 40)
+    g_bbox_ymax = ri16(head + 42)
+    var hhea = find_table(tag_hhea())
+    if hhea < 0 {
+        return -1
+    }
+    g_asc = ri16(hhea + 4)
+    g_desc = ri16(hhea + 6)
+    g_nhmetrics = rb16(hhea + 34)
+    var hmtx = find_table(tag_hmtx())
+    if hmtx < 0 {
+        return -1
+    }
+    g_hmtx_off = hmtx
+    var cmap = find_table(tag_cmap())
+    if cmap < 0 {
+        return -1
+    }
+    return parse_cmap(cmap)
+}
+
+// cmap 子表选择：优先 (3,1) Windows BMP，其次 (3,10) UCS-4，再 (0,*)
+func parse_cmap(cmap: i64) -> i64 {
+    var n = rb16(cmap + 2)
+    var best: i64 = -1
+    var best_rank: i64 = -1
+    var i: i64 = 0
+    while i < n {
+        var rec = cmap + 4 + i * 8
+        var plat = rb16(rec)
+        var enc = rb16(rec + 2)
+        var off = rb32(rec + 4)
+        var rank: i64 = -1
+        if plat == 3 && enc == 1 {
+            rank = 3
+        } else if plat == 3 && enc == 10 {
+            rank = 2
+        } else if plat == 0 {
+            rank = 1
+        }
+        if rank > best_rank {
+            best_rank = rank
+            best = cmap + off
+        }
+        i = i + 1
+    }
+    if best < 0 {
+        return -1
+    }
+    var fmt = rb16(best)
+    g_cmap_fmt = fmt
+    if fmt == 4 {
+        var segx2 = rb16(best + 6)
+        g_seg_count = segx2 / 2
+        g_end_off = best + 14
+        g_start_off = g_end_off + segx2 + 2
+        g_delta_off = g_start_off + segx2
+        g_range_off = g_delta_off + segx2
+        g_cache_init = 0
+        g_gid_cache = table_new_i64()
+        return 0
+    }
+    if fmt == 12 {
+        g_cmap12_off = best + 16
+        g_cache_init = 0
+        g_gid_cache = table_new_i64()
+        return 0
+    }
+    return -1
+}
+
+// ---------- 码点 → GID ----------
+// format 4 逐段扫描（段数通常几百）；命中的段用 idRangeOffset 或 idDelta 求 GID。
+func cmap4(cp: i64) -> i64 {
+    var i: i64 = 0
+    while i < g_seg_count {
+        var endc = rb16(g_end_off + i * 2)
+        if cp <= endc {
+            var startc = rb16(g_start_off + i * 2)
+            if cp < startc {
+                return 0
+            }
+            var delta = ri16(g_delta_off + i * 2)
+            var ro = rb16(g_range_off + i * 2)
+            if ro == 0 {
+                return (cp + delta) & 65535
+            }
+            var g = rb16(g_range_off + i * 2 + ro + (cp - startc) * 2)
+            if g == 0 {
+                return 0
+            }
+            return (g + delta) & 65535
+        }
+        i = i + 1
+    }
+    return 0
+}
+
+// format 12：groups 为 (startChar, endChar, startGlyph) 三元组，二分查找更优，
+// 但组数通常很少（数百），线性足够。
+func cmap12(cp: i64) -> i64 {
+    var n = rb32(g_cmap12_off - 4)
+    var i: i64 = 0
+    while i < n {
+        var o = g_cmap12_off + i * 12
+        var sc = rb32(o)
+        if cp < sc {
+            return 0
+        }
+        var ec = rb32(o + 4)
+        if cp <= ec {
+            return rb32(o + 8) + (cp - sc)
+        }
+        i = i + 1
+    }
+    return 0
+}
+
+func cmap_raw(cp: i64) -> i64 {
+    if g_cmap_fmt == 4 {
+        return cmap4(cp)
+    }
+    if g_cmap_fmt == 12 {
+        return cmap12(cp)
+    }
+    return 0
+}
+
+// 初始化按码点直址缓存（0..0x9FFF 填 -1 哨兵）。一次性成本 40960 次 push。
+func cache_init() {
+    if g_cache_init == 1 {
+        return
+    }
+    g_gid_cache = table_new_i64()
+    var i: i64 = 0
+    while i < 40960 {
+        table_push(g_gid_cache, -1)
+        i = i + 1
+    }
+    g_cache_init = 1
+}
+
+// 码点 → GID（带缓存；未命中返回 0 = .notdef）
+pub func gid_of(cp: i64) -> i64 {
+    if cp < 40960 {
+        cache_init()
+        var c = g_gid_cache[cp]
+        if c >= 0 {
+            return c
+        }
+        var g = cmap_raw(cp)
+        g_gid_cache[cp] = g
+        return g
+    }
+    return cmap_raw(cp)
+}
+
+// ---------- 量宽 ----------
+// 字形 advance width（字体单位）。gid 越界时用最后一个 hmMetric（TTF 规范）。
+pub func gid_w(gid: i64) -> i64 {
+    if g_nhmetrics <= 0 {
+        return 500
+    }
+    var idx = gid
+    if idx >= g_nhmetrics {
+        idx = g_nhmetrics - 1
+    }
+    if idx < 0 {
+        idx = 0
+    }
+    return rb16(g_hmtx_off + idx * 4)
+}
+
+// 字符串 → GID 表（tie 的 str_char 按**码点**迭代，故无需自写 UTF-8 解码）
+pub func enc_gids(s: string) -> table<i64> {
+    var out = table_new_i64()
+    var n = str_len(s)
+    var i: i64 = 0
+    while i < n {
+        table_push(out, gid_of(char_code(str_char(s, i))))
+        i = i + 1
+    }
+    return out
+}
+
+// GID 表在给定字号下的宽度，单位 **1/100 pt**（与 f2s 同尺度）。
+pub func width_of(gids: table<i64>, size_pt: i64) -> i64 {
+    var u: i64 = 0
+    var i: i64 = 0
+    while i < len(gids) {
+        u = u + gid_w(gids[i])
+        i = i + 1
+    }
+    if g_upem <= 0 {
+        return 0
+    }
+    // 宽度(pt) = u/upem*size；再 ×100 换成 1/100 pt 尺度
+    return u * size_pt * 100 / g_upem
+}
+
+// ---------- FontDescriptor 指标（缩放到 1000/em）----------
+pub func asc1000() -> i64 { return g_asc * 1000 / g_upem }
+pub func desc1000() -> i64 { return g_desc * 1000 / g_upem }
+pub func bbox_xmin1000() -> i64 { return g_bbox_xmin * 1000 / g_upem }
+pub func bbox_ymin1000() -> i64 { return g_bbox_ymin * 1000 / g_upem }
+pub func bbox_xmax1000() -> i64 { return g_bbox_xmax * 1000 / g_upem }
+pub func bbox_ymax1000() -> i64 { return g_bbox_ymax * 1000 / g_upem }
+
+// 字体原始字节与长度（供嵌入 FontFile2 流）
+pub func font_bytes() -> table<i64> { return g_font }
+pub func font_bytes_len() -> i64 { return g_font_len }
+
+// 该 GID 是否在字体里真实存在（0 = .notdef）
+pub func gid_exists(cp: i64) -> bool {
+    return gid_of(cp) != 0
+}
+
+}

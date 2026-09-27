@@ -1,0 +1,163 @@
+type tie<class>
+// pdf.tie —— PDF 1.4 生成器（tofflib 模块，纯 tie）
+// ============================================================
+// 职责：把「文档树」渲染为**可直接打开的 PDF 字节流**，纯 tie 实现、零外部依赖
+// （除语言底座原语与本库内的 TTF 解析模块）。
+//
+// 设计要点
+// ---------
+// * **全 ASCII 输出**：PDF 的一切语法（对象/流/xref/trailer）本身就是 ASCII；
+//   正文文本一律以**十六进制字符串**（`<....>`）写入内容流——于是除嵌入的字体
+//   二进制外，整份 PDF 都是 ASCII。这带来两个好处：
+//     1) 生成期的字节偏移可用 `str_len` 直接算（ASCII 下码点数==字节数）；
+//     2) 文本无需任何转义（PDF 字符串转义规则完全绕开）。
+// * **字节偏移显式累进**：xref 要求每个对象的**精确字节偏移**。本模块用一个
+//   显式计数器 `g_off` 累进（ASCII 段加 `str_len`，二进制字体段加已知字节数），
+//   不依赖对整份文档做扫描。
+// * **分文件**：本文件 = 核心装配（对象/页/内容流/xref）；字体与 TTF 解析在
+//   `pdf_ttf.tie`（CIDFontType2 + Identity-H，嵌入完整 TTF，故渲染不依赖阅读器
+//   是否装有 CJK 字体）。
+
+import "./pdf_ttf.tie"
+
+// ---------- 文档状态（顶层 var 由本文件持有；分文件同 namespace 共享）----------
+var g_off: i64 = 0;          // 当前字节偏移（累进）
+var g_objs: table<string>;   // 对象体（下标 0 起 = 对象 1）
+var g_pages: table<string>;  // 每页内容流
+var g_w: i64 = 595;          // A4 宽（pt）
+var g_h: i64 = 842;          // A4 高（pt）
+
+// ---------- 数字 → ASCII ----------
+// 整数转十进制（PDF 只接受 ASCII 数字，不依赖 locale）。
+
+namespace pdf {
+
+pub func i2s(v: i64) -> string {
+    if v == 0 {
+        return "0"
+    }
+    var neg = false
+    var x = v
+    if x < 0 {
+        neg = true
+        x = 0 - x
+    }
+    var s = ""
+    while x > 0 {
+        s = str_from_code(48 + (x % 10)) + s
+        x = x / 10
+    }
+    if neg {
+        return "-" + s
+    }
+    return s
+}
+
+// 定点小数（PDF 坐标用，1/100 pt 精度）。
+pub func f2s(v: i64) -> string {
+    var ip = v / 100
+    var fp = v % 100
+    if fp < 0 {
+        fp = 0 - fp
+    }
+    if fp < 10 {
+        return i2s(ip) + ".0" + i2s(fp)
+    }
+    return i2s(ip) + "." + i2s(fp)
+}
+
+// ---------- 十六进制 ----------
+func hexd(v: i64) -> string {
+    var d = v & 15
+    if d < 10 {
+        return str_from_code(48 + d)
+    }
+    return str_from_code(97 + d - 10)
+}
+
+// 字节 → 两位十六进制
+pub func hex2(b: i64) -> string {
+    return hexd((b / 16) & 15) + hexd(b & 15)
+}
+
+// 字节表 → 十六进制串（内容流里的文本用）
+pub func hex_bytes(bs: table<i64>) -> string {
+    var sb = string_builder()
+    var i: i64 = 0
+    while i < len(bs) {
+        sb_append(sb, hex2(bs[i]))
+        i = i + 1
+    }
+    return sb_build(sb)
+}
+
+// ---------- 对象与内容流 ----------
+// 登记一个对象（返回其编号 = 下标+1）。
+func add_obj(body: string) -> i64 {
+    table_push(g_objs, body)
+    return len(g_objs)
+}
+
+// 转义（对象体不用，但路径/元数据里偶尔需要，保留完整实现防误用）
+pub func esc(s: string) -> string {
+    var sb = string_builder()
+    var n = str_len(s)
+    var i: i64 = 0
+    while i < n {
+        var c = str_char(s, i)
+        if c == "\\" || c == "(" || c == ")" {
+            sb_append(sb, "\\")
+        }
+        sb_append(sb, c)
+        i = i + 1
+    }
+    return sb_build(sb)
+}
+
+// ---------- 页面 ----------
+pub func begin_doc(w: i64, h: i64) {
+    g_w = w
+    g_h = h
+    g_off = 0
+    g_objs = table_new_string()
+    g_pages = table_new_string()
+}
+
+// 新增一页，返回页序号（0 起）。内容流由调用方用 text_at 追加。
+pub func add_page() -> i64 {
+    table_push(g_pages, "")
+    return len(g_pages) - 1
+}
+
+// 在当前页的内容流尾部追加原始命令（内部用；调用方一般用 text_at/line_at）。
+pub func raw(page: i64, cmd: string) {
+    g_pages[page] = g_pages[page] + cmd
+}
+
+// 在 (x,y) 处以字号 size 写一段**已编码为 GID 字节表**的文本。
+// 约定：字体 F1（嵌入的 CJK 字体，Identity-H），故文本以 2 字节 GID 的十六进制写入。
+pub func text_at(page: i64, x: i64, y: i64, size: i64, gids: table<i64>) -> i64 {
+    var cmd = "BT /F1 " + f2s(size * 100) + " Tf " + i2s(x) + " " + i2s(y) +
+        " Td <" + hex_bytes(gids) + "> Tj ET\n"
+    raw(page, cmd)
+    return 0
+}
+
+// 画一条水平线（代码块分隔/标题下划线用）
+pub func hline(page: i64, x1: i64, y: i64, x2: i64, w: i64) {
+    raw(page, f2s(w * 100) + " w " + i2s(x1) + " " + i2s(y) + " m " + i2s(x2) + " " + i2s(y) + " l S\n")
+}
+
+// 填充矩形（代码块/提示框底纹用）
+pub func fill_rect(page: i64, x: i64, y: i64, w: i64, h: i64, r: i64, g: i64, b: i64) {
+    var cmd = ""
+    if r >= 0 {
+        cmd = "1 1 1 rg\n"
+    }
+    raw(page, f2s(r * 100) + " " + f2s(g * 100) + " " + f2s(b * 100) + " rg " +
+        i2s(x) + " " + i2s(y) + " " + i2s(w) + " " + i2s(h) + " re f\n")
+}
+
+}
+
+import "./pdf_asm.tie"
