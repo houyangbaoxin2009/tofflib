@@ -108,6 +108,55 @@ pub func verify_entries() -> i64 {
     return pdf.verify_entries()
 }
 
+// 内容自检（转发）：逐 GID 校验字形存在性
+pub func verify_content(path: string) -> i64 {
+    return pdf.verify_content(path)
+}
+
+pub func verify_gids() -> i64 {
+    return pdf.verify_gids()
+}
+
+pub func verify_notdef() -> i64 {
+    return pdf.verify_notdef()
+}
+
+// 实际用到的字形数（供构建脚本报告）
+pub func used_glyphs() -> i64 {
+    return pdf.used_glyphs()
+}
+
+// 版面自检（转发）：文本定位是否全在页面内
+pub func verify_layout(w: i64, h: i64) -> i64 {
+    return pdf.verify_layout(w, h)
+}
+
+pub func verify_segs() -> i64 {
+    return pdf.verify_segs()
+}
+
+// 对象成形性自检（转发）：每个对象必须是合法 PDF 对象、流长度必须自洽
+pub func verify_objects(path: string) -> i64 {
+    return pdf.verify_objects(path)
+}
+
+pub func verify_objs() -> i64 {
+    return pdf.verify_objs()
+}
+
+// 字形轮廓自检（转发）：用到的字形是否真能画出东西
+pub func verify_outlines() -> i64 {
+    return pdf.verify_outlines()
+}
+
+pub func verify_checked() -> i64 {
+    return pdf.verify_checked()
+}
+
+pub func verify_empty() -> i64 {
+    return pdf.verify_empty()
+}
+
 // 分页：需要 h 高度，剩余不足则换页
 pub func need(h: i64) {
     if dp_y - h < DP_BOTTOM {

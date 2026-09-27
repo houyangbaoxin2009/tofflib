@@ -69,5 +69,38 @@ func main() -> i64 {
         println("verify = FAILED (code " + to_string(vr) + ")")
         return 1
     }
+    // 内容自检：把内容流里的 GID 解回并校验字形存在性。
+    // 结构自检不足以保证「看得见」——本工程曾出现「xref 全对但整份空白」的情形。
+    var cr = dp.verify_content(out)
+    if cr == 0 {
+        println("content = OK (" + to_string(dp.verify_gids()) + " glyphs used, notdef " + to_string(dp.verify_notdef()) + ", widths " + to_string(dp.used_glyphs()) + ")")
+    } else {
+        println("content = FAILED (code " + to_string(cr) + ") gids=" + to_string(dp.verify_gids()) + " notdef=" + to_string(dp.verify_notdef()))
+        return 1
+    }
+    // 对象成形性自检：每个对象必须是合法 PDF 对象（字典齐备、流长度自洽）
+    var obr = dp.verify_objects(out)
+    if obr == 0 {
+        println("objects = OK (" + to_string(dp.verify_objs()) + " objects well-formed)")
+    } else {
+        println("objects = FAILED (code " + to_string(obr) + ")")
+        return 1
+    }
+    // 版面自检：文本定位必须全在页面内
+    var lr = dp.verify_layout(595, 842)
+    if lr == 0 {
+        println("layout  = OK (" + to_string(dp.verify_segs()) + " text segments in bounds)")
+    } else {
+        println("layout  = FAILED (code " + to_string(lr) + ")")
+        return 1
+    }
+    // 字形轮廓自检：用到的字形必须真能画出东西
+    var orc = dp.verify_outlines()
+    if orc == 0 {
+        println("outline = OK (" + to_string(dp.verify_checked()) + " glyphs checked, " + to_string(dp.verify_empty()) + " blank)")
+    } else {
+        println("outline = FAILED (code " + to_string(orc) + ")")
+        return 1
+    }
     return 0
 }

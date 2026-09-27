@@ -80,12 +80,37 @@ pub func hex2(b: i64) -> string {
     return hexd((b / 16) & 15) + hexd(b & 15)
 }
 
-// 字节表 → 十六进制串（内容流里的文本用）
+// 字节表 → 十六进制串（内容流里的文本用；每元素 1 字节 = 2 位十六进制）
 pub func hex_bytes(bs: table<i64>) -> string {
     var sb = string_builder()
     var i: i64 = 0
     while i < len(bs) {
         sb_append(sb, hex2(bs[i]))
+        i = i + 1
+    }
+    return sb_build(sb)
+}
+
+// GID 表 → 十六进制串。**每个 GID 必须是 2 字节大端**（Identity-H 的编码单位），
+// 即 4 位十六进制。
+//
+// RCA（2026-09-27，本模块最严重的一处缺陷）：最初这里复用了 hex_bytes，结果每个
+// GID 只写出 1 字节（低字节），既丢高位又让字节流错位——文本全部指向错误字形，
+// 产物是**完全空白的白纸**，而 xref 结构自检一路通过（它只验结构不验内容）。
+// 教训有两层：
+//   1) Identity-H 下「字符数 × 2 = 字节数」是硬约束，写 1 字节必错；
+//   2) 结构自检不足以证明「看得见」，必须另有一条**内容自检**（见 pdf_asm 的
+//      verify：逐 GID 校验其存在性）。
+pub func hex_gids(gids: table<i64>) -> string {
+    var sb = string_builder()
+    var i: i64 = 0
+    while i < len(gids) {
+        var g = gids[i]
+        if g < 0 {
+            g = 0
+        }
+        sb_append(sb, hex2((g / 256) & 255))   // 高位字节
+        sb_append(sb, hex2(g & 255))           // 低位字节
         i = i + 1
     }
     return sb_build(sb)
@@ -123,6 +148,14 @@ pub func begin_doc(w: i64, h: i64) {
     g_pages = table_new_string()
 }
 
+// 取指定页的内容流文本（自检/调试用）
+pub func page_raw(i: i64) -> string {
+    if i < 0 || i >= len(g_pages) {
+        return ""
+    }
+    return g_pages[i]
+}
+
 // 新增一页，返回页序号（0 起）。内容流由调用方用 text_at 追加。
 pub func add_page() -> i64 {
     table_push(g_pages, "")
@@ -136,9 +169,15 @@ pub func raw(page: i64, cmd: string) {
 
 // 在 (x,y) 处以字号 size 写一段**已编码为 GID 字节表**的文本。
 // 约定：字体 F1（嵌入的 CJK 字体，Identity-H），故文本以 2 字节 GID 的十六进制写入。
+//
+// **必须显式设置文字颜色**：`fill_rect` 设置的是**非描边色**，而该颜色会持续生效到
+// 被改写为止。底纹（尤其提示框/表头那种近白色）若留在状态里，其后的正文就会用
+// 近白色绘制——**看起来就是白纸**。这是本模块第二处「结构全对但看不见」的缺陷，
+// 与 GID 编码那处同类：都是「视觉结果」没有被任何结构检查覆盖。
+// 故此处一律显式置黑，使文字颜色不依赖调用顺序。
 pub func text_at(page: i64, x: i64, y: i64, size: i64, gids: table<i64>) -> i64 {
-    var cmd = "BT /F1 " + f2s(size * 100) + " Tf " + i2s(x) + " " + i2s(y) +
-        " Td <" + hex_bytes(gids) + "> Tj ET\n"
+    var cmd = "0 0 0 rg BT /F1 " + f2s(size * 100) + " Tf " + i2s(x) + " " + i2s(y) +
+        " Td <" + hex_gids(gids) + "> Tj ET\n"
     raw(page, cmd)
     return 0
 }

@@ -39,6 +39,11 @@ var g_cache_init: i64 = 0;
 
 // ---------- 大端读取 ----------
 
+// loca/glyf 索引状态（字形轮廓自检用）
+var g_loca: i64 = -1;
+var g_loca_fmt: i64 = 0;
+var g_nglyphs: i64 = 0;
+
 namespace pdf {
 
 func rb8(o: i64) -> i64 {
@@ -88,6 +93,8 @@ func tag_head() -> i64 { return tag4(104, 101, 97, 100) }
 func tag_hhea() -> i64 { return tag4(104, 104, 101, 97) }
 func tag_maxp() -> i64 { return tag4(109, 97, 120, 112) }
 func tag_hmtx() -> i64 { return tag4(104, 109, 116, 120) }
+func tag_loca() -> i64 { return tag4(108, 111, 99, 97) }
+func tag_glyf() -> i64 { return tag4(103, 108, 121, 102) }
 
 // ---------- 加载与解析 ----------
 // 载入字体并解析（成功返回 0；失败返回 -1，调用方可降级到内置字体）
@@ -324,6 +331,79 @@ pub func font_bytes_len() -> i64 { return g_font_len }
 // 该 GID 是否在字体里真实存在（0 = .notdef）
 pub func gid_exists(cp: i64) -> bool {
     return gid_of(cp) != 0
+}
+
+// ---------- 字形轮廓存在性（loca/glyf）----------
+// 用途：内容自检要证明「这些 GID 真的会画出东西」。字体表里字形数据由 loca 索引，
+// loca[i] == loca[i+1] 表示该字形为空（无轮廓）——空白页面的根因之一就是 GID
+// 全部指向空字形，而这种情况下 PDF 结构完全正常、任何结构检查都不会报错。
+// 初始化 loca/glyf 索引；成功返回 0
+pub func outline_init() -> i64 {
+    var ho = find_table(tag_head())
+    if ho < 0 {
+        return -1
+    }
+    // head.indexToLocFormat 在 head+50（0 = 短格式/偏移×2，1 = 长格式）
+    g_loca_fmt = ri16(ho + 50)
+    var mp = find_table(tag_maxp())
+    if mp < 0 {
+        return -1
+    }
+    g_nglyphs = rb16(mp + 4)
+    var lo = find_table(tag_loca())
+    if lo < 0 {
+        return -1
+    }
+    g_loca = lo
+    return 0
+}
+
+// 字形轮廓的字节长度（0 = 空字形；-1 = 越界）
+pub func outline_len(gid: i64) -> i64 {
+    if g_loca < 0 {
+        return -1
+    }
+    if gid < 0 || gid + 1 >= g_nglyphs {
+        return -1
+    }
+    var a: i64 = 0
+    var b: i64 = 0
+    if g_loca_fmt == 0 {
+        a = rb16(g_loca + gid * 2) * 2
+        b = rb16(g_loca + gid * 2 + 2) * 2
+    } else {
+        a = rb32(g_loca + gid * 4)
+        b = rb32(g_loca + gid * 4 + 4)
+    }
+    if b < a {
+        return -1
+    }
+    return b - a
+}
+
+// unitsPerEm（head.unitsPerEm）；PDF 的宽度数组以 1000/em 为单位，需要它换算。
+pub func upem() -> i64 {
+    if g_upem <= 0 {
+        return 1000
+    }
+    return g_upem
+}
+
+// 字形宽度换算到 1000/em（PDF 的 /W 数组单位）
+pub func gid_w1000(gid: i64) -> i64 {
+    var u = upem()
+    return gid_w(gid) * 1000 / u
+}
+
+// 字体字形总数（maxp.numGlyphs，偏移 4 处的 u16）。
+// 用途：内容自检要判断「内容流里出现的 GID 是否落在字体范围内」——
+// 编码写错（如把 GID 写成 1 字节）会产生越界或错位的 GID，这是最直接的检出点。
+pub func num_glyphs() -> i64 {
+    var mp = find_table(tag_maxp())
+    if mp < 0 {
+        return 0
+    }
+    return rb16(mp + 4)
 }
 
 }
