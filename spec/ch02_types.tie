@@ -62,15 +62,16 @@ pub func chapter() {
 
     // ---------------- 2.4 ----------------
     dp.h2("2.4  表类型")
-    dp.p("表是动态长度的同质序列，元素类型写在尖括号内。表有两种创建方式：字面量表（长度固定，元素在书写时确定）与动态表（可增长，用构造器创建）。")
-    dp.codeblock(dp.src(["var fixed: table<i64> = [1, 2, 3]        // 字面量表", "var dyn = table_new_i64()                 // 动态表，先用后增", "table_push(dyn, 1)", "table_push(dyn, 2)", "table_push(dyn, 30)"]))
+    dp.p("表是动态长度的同质序列，元素类型写在尖括号内。创建表不需要专门的构造器：字面量即构造，空表写作方括号对。")
+    dp.codeblock(dp.src(["var fixed: table<i64> = [1, 2, 3]        // 字面量表", "var dyn: table<i64> = []                 // 空表，元素类型由标注确定", "var grown = [1, 2]                       // 无标注：由字面量推导", "dyn <- 1                                 // 追加", "dyn <- 2 <- 30                           // 追加可链式"]))
+    dp.p("空表的元素类型从两处确定：有类型标注时取标注；无标注时取首次追加或比较的元素类型，若无从确定则报编译错。需要显式指明时，泛型构造函数 table_new<T>() 与空字面量等价。")
     dp.p("表可嵌套，形成多维结构。遍历使用 for-in，长度用 len。")
     dp.codeblock(dp.src(["var grid: table<table<i64>> = [[1, 2], [3, 4]]", "for row in grid " + lb() + "", "    for cell in row " + lb() + "", "        println(to_string(cell))", "    " + rb() + "", "" + rb() + ""]))
 
     // ---------------- 2.5 ----------------
     dp.h2("2.5  映射类型")
-    dp.p("映射是以键索引的集合，键与值都有类型。键可以是文本、整数或枚举。")
-    dp.codeblock(dp.src(["var age: map<i64> = [\"alice\": 3, \"bob\": 5]", "age[\"carol\"] = 7", "if \"alice\" in age " + lb() + "", "    println(to_string(age[\"alice\"]))", "" + rb() + ""]))
+    dp.p("映射是以键索引的集合，键与值都有类型。键可以是文本、整数或枚举。空映射写作 [:]，与空表相区分。")
+    dp.codeblock(dp.src(["var age: map<i64> = [\"alice\": 3, \"bob\": 5]", "var empty: map<i64> = [:]", "age[\"carol\"] = 7", "if \"alice\" in age " + lb() + "", "    println(age[\"alice\"] -> to_string)", "" + rb() + ""]))
     dp.p("映射的字面量语法与表一致，区别在于元素写成「键: 值」。当键为字符串时，可用点号访问其值，这在表达结构化数据时更易读。")
 
     // ---------------- 2.6 ----------------
@@ -81,9 +82,14 @@ pub func chapter() {
 
     // ---------------- 2.7 ----------------
     dp.h2("2.7  类型标注与推导")
-    dp.p("变量声明可以写类型，也可以省略。省略时编译器从初始化表达式推导类型。")
-    dp.codeblock(dp.src(["var n: i64 = 0          // 显式标注", "var m = 0               // 推导为 i64", "var s = \"text\"          // 推导为 string"]))
-    dp.p("类型标注在需要跨模块契约、或者推导结果与意图不符时使用。函数签名必须写参数与返回类型——接口边界上的类型不做推导。")
+    dp.p("tie 的立场是：类型系统是静态的，标注是可选的。类型错误永远是编译错，不推迟到运行期；但书写者应当尽可能少地写出类型——由编译时推导承担其余。省略标注时的手感接近动态语言，安全性与运行期效率不变。")
+    dp.codeblock(dp.src(["var n: i64 = 0          // 显式标注", "var m = 0               // 推导为 i64", "var s = \"text\"          // 推导为 string", "var rows: table<Entity> = []   // 容器空字面量：标注给出元素类型"]))
+    dp.h3("标注可省略的位置")
+    dp.bullet(["局部变量：从初始化表达式推导。", "结构字段：带初值时从初值推导。", "函数返回类型：从函数体推导，等号体与块体均可。", "闭包与短闭包参数：从上下文的函数类型推导。", "模块内（非 pub）函数的参数与返回类型：从定义与调用点联合推导。"])
+    dp.h3("必须标注的位置")
+    dp.p("pub 声明的函数与结构字段必须写出参数与返回类型。公开边界是契约所在，类型在这里起文档与检查的双重作用；边界之内才是推导的领地。这条划分让库作者在边界处想清楚类型，让使用方与内部实现写得随意。")
+    dp.codeblock(dp.src(["pub func clamp(v: i64, lo: i64, hi: i64) -> i64 " + lb() + " ... " + rb() + "", "", "func help(a, b) { return a + b }   // 模块内：参数与返回类型全省略"]))
+    dp.p("模块内函数的类型仍然完全确定：推导发生在编译期，每个名字都有精确的静态类型，调用错了同样编译报错。省略标注省的是书写，不是检查。")
 
     // ---------------- 2.8 ----------------
     dp.h2("2.8  泛型")
@@ -153,12 +159,12 @@ pub func chapter() {
     dp.h2("2.14  函数类型")
     dp.p("函数类型用箭头书写，与函数定义的返回位写法一致。任何函数值都有确定的函数类型，包括具名函数、闭包与短闭包。")
     dp.codeblock(dp.src(["var cb: fn(i64) -> i64 = double", "var hook: fn(string) -> void", "func apply(g: fn(i64) -> i64, v: i64) -> i64 " + lb() + " return g(v) " + rb() + ""]))
-    dp.p("返回类型不可省略；无返回值的函数写 void。函数类型可以嵌套，返回函数的函数写作 fn(A) -> fn(B) -> R。")
+    dp.p("返回类型可省略——从函数体推导（见 2.7）；pub 声明必须显式写出。无返回值的函数写 void。函数类型可以嵌套，返回函数的函数写作 fn(A) -> fn(B) -> R。")
 
     // ---------------- 2.15 ----------------
     dp.h2("2.15  行池")
     dp.p("当表的元素是结构时，同一种写法具有另一种语义：它成为按标识符索引的行池。行池的每行有稳定标识，行可以稀疏存在，读取未写过的行得到默认值。")
-    dp.codeblock(dp.src(["var rows: table<Entity> = table_new_Entity()", "rows[id] = e            // 写入该标识的行", "var r = rows[id]        // 读取；未写过的行得到默认值", "len(rows)               // 最大已写标识加一"]))
+    dp.codeblock(dp.src(["var rows: table<Entity> = []", "rows[id] = e            // 写入该标识的行", "var r = rows[id]        // 读取；未写过的行得到默认值", "len(rows)               // 最大已写标识加一"]))
     dp.p("行池的价值在于按标识直接定位：不必在表中线性查找，也不必维持标识与下标的一致。它在界面的列表、场景的实体、表格的稀疏数据等处反复出现。行遵循值语义——读出的是副本，写回需要显式赋值。")
 
     // ---------------- 2.16 ----------------
@@ -199,16 +205,16 @@ pub func chapter() {
     table_push(h5c, "函数")
     table_push(h5c, "语义")
     var r5c: table<table<string>> = []
-    table_push(r5c, dp.kvrow("str_split(s, sep)", "按分隔符拆分为表<string>；分隔符不保留。"))
-    table_push(r5c, dp.kvrow("str_join(parts, sep)", "以分隔符拼接表<string>。"))
-    table_push(r5c, dp.kvrow("str_contains(s, sub)", "是否包含子串。"))
-    table_push(r5c, dp.kvrow("str_starts(s, pre) / str_ends(s, suf)", "前缀与后缀判定。"))
-    table_push(r5c, dp.kvrow("str_replace(s, old, new)", "替换全部出现的子串。"))
-    table_push(r5c, dp.kvrow("str_trim(s)", "去除首尾空白。"))
-    table_push(r5c, dp.kvrow("str_reverse(s)", "按码点逆置。"))
-    table_push(r5c, dp.kvrow("str_upper(s) / str_lower(s)", "大小写转换（仅 ASCII 字母，其余原样）。"))
+    table_push(r5c, dp.kvrow("s.split(sep)", "按分隔符拆分为表<string>；分隔符不保留。"))
+    table_push(r5c, dp.kvrow("parts.join(sep)", "以分隔符拼接表<string>。"))
+    table_push(r5c, dp.kvrow("s.contains(sub)", "是否包含子串。"))
+    table_push(r5c, dp.kvrow("s.starts(pre) / s.ends(suf)", "前缀与后缀判定。"))
+    table_push(r5c, dp.kvrow("s.replace(old, new)", "替换全部出现的子串。"))
+    table_push(r5c, dp.kvrow("s.trim()", "去除首尾空白。"))
+    table_push(r5c, dp.kvrow("s.reverse()", "按码点逆置。"))
+    table_push(r5c, dp.kvrow("s.upper() / s.lower()", "大小写转换（仅 ASCII 字母，其余原样）。"))
     dp.tbl(h5c, r5c, w5c)
-    dp.codeblock(dp.src(["var fields = str_split(\"a,b,c\", \",\")     // [\"a\", \"b\", \"c\"]", "var line = str_join(fields, \" | \")        // \"a | b | c\"", "if str_starts(name, \"test_\") " + lb() + " " + rb() + ""]))
+    dp.codeblock(dp.src(["var fields = \"a,b,c\".split(\",\")     // [\"a\", \"b\", \"c\"]", "var line = fields.join(\" | \")        // \"a | b | c\"", "if name.starts(\"test_\") " + lb() + " " + rb() + ""]))
     dp.note("需要把数值拼进文本时，优先用插值字符串与格式说明符（见 1.9）；str_ 系承担的是结构化文本操作——拆分、拼接、查找、修剪——而非格式化。")
 
     // ---------------- 2.20 ----------------
@@ -221,14 +227,14 @@ pub func chapter() {
     table_push(h6c, "函数")
     table_push(h6c, "语义")
     var r6c: table<table<string>> = []
-    table_push(r6c, dp.kvrow("sort(t)", "升序排序，元素需可比较；原地生效并返回自身。"))
-    table_push(r6c, dp.kvrow("sort_by(t, cmp)", "以比较函数排序；原地生效并返回自身。"))
-    table_push(r6c, dp.kvrow("reverse(t)", "逆置；原地生效并返回自身。"))
-    table_push(r6c, dp.kvrow("distinct(t)", "保序去重，返回新表。"))
-    table_push(r6c, dp.kvrow("concat(a, b)", "拼接两表，返回新表。"))
-    table_push(r6c, dp.kvrow("group_by(t, key)", "按键函数分组，返回 map<table<T>>。"))
+    table_push(r6c, dp.kvrow("t.sort()", "升序排序，元素需可比较；原地生效并返回自身。"))
+    table_push(r6c, dp.kvrow("t.sort_by(cmp)", "以比较函数排序；原地生效并返回自身。"))
+    table_push(r6c, dp.kvrow("t.reverse()", "逆置；原地生效并返回自身。"))
+    table_push(r6c, dp.kvrow("t.distinct()", "保序去重，返回新表。"))
+    table_push(r6c, dp.kvrow("a.concat(b)", "拼接两表，返回新表。"))
+    table_push(r6c, dp.kvrow("t.group_by(key)", "按键函数分组，返回 map<table<T>>。"))
     dp.tbl(h6c, r6c, w6c)
-    dp.codeblock(dp.src(["var top = scores -> sort() -> reverse() -> iter_take(10)", "var rows = group_by(orders, o -> o.city)"]))
+    dp.codeblock(dp.src(["var top = scores -> sort() -> reverse() -> iter_take(10)", "var rows = orders.group_by(o -> o.city)"]))
     dp.p("排序是稳定的：相等元素的相对次序在排序后保持不变。这让多重排序可以先按次关键字排序、再按主关键字排序地组合出来。")
 
 }

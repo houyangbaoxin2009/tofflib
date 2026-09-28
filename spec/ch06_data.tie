@@ -29,11 +29,12 @@ pub func chapter() {
 
     // ---------------- 6.4 ----------------
     dp.h2("6.4  方法调用")
-    dp.p("点号调用是对命名空间函数的转发：编译器把 obj.method(args) 解释为「同名命名空间下的 method，接收者作为第一个参数」。")
-    dp.codeblock(dp.src(["var p = Point(3.0, 4.0)", "println(to_string(p.dist()))", "", "p.move_by(1.0, 1.0)"]))
+    dp.p("点号调用是对命名空间函数的转发：编译器把 obj.method(args) 解释为「同名命名空间下的 method，接收者作为第一个参数」。这条规则是普遍的：凡命名空间内首参为某类型的函数，都可以写成该类型值的方法形态——内建类型同样适用。")
+    dp.codeblock(dp.src(["var p = Point(3.0, 4.0)", "println(p.dist() -> to_string)", "", "p.move_by(1.0, 1.0)", "", "s.len()              // s.len() 的方法形态", "t.push(v)            // 与 t <- v 等价的显式形态"]))
     dp.p("转发意味着方法的参数规则与普通函数完全一致——默认参数、命名实参、借用与转移约定都可以用在方法上。接收者不参与命名，也不能被默认值补齐：它由调用对象给出。")
     dp.codeblock(dp.src(["struct Counter { var n: i64 = 0; }", "", "namespace Counter {", "    pub func bump(c: Counter, step: i64 = 1) -> i64 {", "        return c.n + step", "    }", "}", "", "c.bump()             // step 取默认", "c.bump(step: 4)      // 命名实参"]))
     dp.p("接收者的传递约定由命名空间函数声明决定：需要修改调用对象时把接收者声明为可写借用。")
+    dp.p("自由函数形态与方法形态语义完全相同，可以互相改写。正文示例以方法形态为主——它让「谁在做什么」读起来最直白；自由函数保留两个用途：机器生成代码的稳定形态，以及管道中把函数本身作为值传递的场合。")
 
     // ---------------- 6.5 ----------------
     dp.h2("6.5  继承")
@@ -93,9 +94,9 @@ pub func chapter() {
     table_push(h3d, "函数")
     table_push(h3d, "语义")
     var r3d: table<table<string>> = []
-    table_push(r3d, dp.kvrow("iter_map(xs, f)", "逐元素变换，产出 f(元素)。"))
-    table_push(r3d, dp.kvrow("iter_filter(xs, p)", "保留判定为真的元素。"))
-    table_push(r3d, dp.kvrow("iter_take(xs, n)", "取前 n 个元素。"))
+    table_push(r3d, dp.kvrow("xs.iter_map(f)", "逐元素变换，产出 f(元素)。"))
+    table_push(r3d, dp.kvrow("xs.iter_filter(p)", "保留判定为真的元素。"))
+    table_push(r3d, dp.kvrow("xs.iter_take(n)", "取前 n 个元素。"))
     table_push(r3d, dp.kvrow("iter_zip(a, b)", "两路并读，产出 (a_i, b_i) 元组，短者取尽即止。"))
     table_push(r3d, dp.kvrow("iter_chain(a, b)", "先后串接两路元素。"))
     dp.tbl(h3d, r3d, w3d)

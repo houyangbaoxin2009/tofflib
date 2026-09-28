@@ -30,7 +30,7 @@ pub func chapter() {
     // ---------------- 7.4 ----------------
     dp.h2("7.4  作为对象")
     dp.p("接口也可以作为运行期的对象类型使用：把不同具体类型的值放入同一个接口类型的变量或表中，调用时按实际类型分派。")
-    dp.codeblock(dp.src(["var items: table<Drawable> = table_new_Drawable()", "table_push(items, button)", "table_push(items, label)", "for it in items " + lb() + "", "    it.draw(0)", "" + rb() + ""]))
+    dp.codeblock(dp.src(["var items: table<Drawable> = []", "items <- button", "items <- label", "for it in items " + lb() + "", "    it.draw(0)", "" + rb() + ""]))
     dp.p("这一形态在需要异质集合时使用，例如界面中混合放置不同控件。开销与任何动态分派方案相同，因此在不必要时优先使用泛型约束的形态。")
     dp.note("两种形态共用同一份接口声明。选择哪一种取决于调用点是否需要异质集合：类型在编译期全部已知，用约束；需要把不同类型放进同一个容器，用对象。")
 

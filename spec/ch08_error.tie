@@ -12,18 +12,18 @@ pub func chapter() {
     // ---------------- 8.1 ----------------
     dp.h2("8.1  可预期的失败")
     dp.p("可能失败的函数把失败编码进返回类型。语言提供两个通用型别用于此目的：一个表示「有值或无值」，一个表示「成功值或错误值」。")
-    dp.codeblock(dp.src(["func find(xs: table<i64>, target: i64) -> Option<i64> " + lb() + "", "    for x in xs " + lb() + "", "        if x == target " + lb() + " return Option.Some(x) " + rb() + "", "    " + rb() + "", "    return Option.None", "" + rb() + "", "", "func parse_port(s: string) -> Result<i64, string> " + lb() + "", "    if str_len(s) == 0 " + lb() + " return Result.Err(\"空输入\") " + rb() + "", "    return Result.Ok(to_i64(s))", "" + rb() + ""]))
+    dp.codeblock(dp.src(["func find(xs: table<i64>, target: i64) -> Option<i64> " + lb() + "", "    for x in xs " + lb() + "", "        if x == target " + lb() + " return Some(x) " + rb() + "", "    " + rb() + "", "    return None", "" + rb() + "", "", "func parse_port(s: string) -> Result<i64, string> " + lb() + "", "    if s.len() == 0 " + lb() + " return Err(\"空输入\") " + rb() + "", "    return Ok(to_i64(s))", "" + rb() + ""]))
 
     // ---------------- 8.2 ----------------
     dp.h2("8.2  传播")
     dp.p("当函数无法就地处理失败、需要把它交给调用方时，用问号后缀传播：成功则取出值继续，失败则立即返回。")
-    dp.codeblock(dp.src(["func config_port(cfg: map<i64>) -> Result<i64, string> " + lb() + "", "    var raw = cfg[\"port\"]?", "    var port_no = parse_port(raw)?", "    return Result.Ok(port_no)", "" + rb() + ""]))
+    dp.codeblock(dp.src(["func config_port(cfg: map<i64>) -> Result<i64, string> " + lb() + "", "    var raw = cfg[\"port\"]?", "    var port_no = parse_port(raw)?", "    return Ok(port_no)", "" + rb() + ""]))
     dp.p("传播记号把「错误向上传递」这条最常见路径写成一个字符，从而让函数体里的正常路径保持直线——不必为每一层调用写一段相同的分支。")
 
     // ---------------- 8.3 ----------------
     dp.h2("8.3  分支处理")
     dp.p("需要针对具体情况分别处理时，用多分支匹配展开结果类型。编译器要求覆盖全部情形。")
-    dp.codeblock(dp.src(["switch parse_port(input) " + lb() + "", "    case Result.Ok(v):", "        println(\"端口 \" + to_string(v))", "    case Result.Err(msg):", "        println(\"失败：\" + msg)", "" + rb() + ""]))
+    dp.codeblock(dp.src(["switch parse_port(input) " + lb() + "", "    case Ok(v):", "        println(\"端口 \" + to_string(v))", "    case Err(msg):", "        println(\"失败：\" + msg)", "" + rb() + ""]))
     dp.p("对于「缺失则取默认」这一常见需求，用安全默认值记号直接表达，不必展开分支。")
     dp.codeblock(dp.src(["var port_no = cfg[\"port\"] ?: 8080"]))
 
@@ -44,7 +44,7 @@ pub func chapter() {
     // ---------------- 8.6 ----------------
     dp.h2("8.6  错误信息")
     dp.p("错误值应当说明发生了什么、在哪一步发生。把上下文带在错误里，比在每一层重新描述问题更有用。")
-    dp.codeblock(dp.src(["return Result.Err(\"读取配置失败：字段 \" + name + \" 缺失\")"]))
+    dp.codeblock(dp.src(["return Err(\"读取配置失败：字段 \" + name + \" 缺失\")"]))
     dp.note("错误类型的选取遵循一条经验：能枚举的用枚举，不能枚举的用文本。当调用方需要按类别分支时用枚举；当调用方只是向上传递或打印时用文本。")
 
     // ---------------- 8.7 ----------------
@@ -57,11 +57,11 @@ pub func chapter() {
     table_push(h7, "函数")
     table_push(h7, "语义")
     var r7: table<table<string>> = []
-    table_push(r7, dp.kvrow("wrap_err(r, msg)", "作用于 Result：Ok 原样通过，Err 以新消息包装并挂入下层错误。"))
-    table_push(r7, dp.kvrow("cause(e)", "取下层错误；无下层时返回 None。"))
-    table_push(r7, dp.kvrow("root_cause(e)", "沿链取到最底层根因。"))
+    table_push(r7, dp.kvrow("r.wrap_err(msg)", "作用于 Result：Ok 原样通过，Err 以新消息包装并挂入下层错误。"))
+    table_push(r7, dp.kvrow("e.cause()", "取下层错误；无下层时返回 None。"))
+    table_push(r7, dp.kvrow("e.root_cause()", "沿链取到最底层根因。"))
     dp.tbl(h7, r7, w7)
-    dp.codeblock(dp.src(["func load_config() -> Result<Conf, string> " + lb() + "", "    var raw = read_file(path) -> wrap_err(\"读取配置失败\")?", "    return parse_conf(raw) -> wrap_err(\"配置解析失败\")?", "" + rb() + "", "", "switch load_config() " + lb() + "", "    case Result.Err(e):", "        println(e)                  // 给用户看：最外层消息", "        println(root_cause(e))      // 给排障看：最初根因", "" + rb() + ""]))
+    dp.codeblock(dp.src(["func load_config() -> Result<Conf, string> " + lb() + "", "    var raw = read_file(path) -> wrap_err(\"读取配置失败\")?", "    return parse_conf(raw) -> wrap_err(\"配置解析失败\")?", "" + rb() + "", "", "switch load_config() " + lb() + "", "    case Err(e):", "        println(e)                  // 给用户看：最外层消息", "        println(e.root_cause())      // 给排障看：最初根因", "" + rb() + ""]))
     dp.note("包装的纪律是逐层补充语境、不重复内容：每一层只说这一步发生了什么，不抄写下层已有的消息。展示给用户的取最外层，日志与排障的取根因，中间层只在逐层排查时才展开。")
 }
 

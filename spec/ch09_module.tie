@@ -55,6 +55,11 @@ pub func chapter() {
     table_push(r, dp.kvrow("crypto", "散列与加密"))
     dp.tbl(h, r, w)
 
+    dp.h3("默认可见的内建")
+    dp.p("有一批内建不经过导入即可使用：全部内建函数族（len、to_string、str_ 系、sort 系、iter_ 系等，见各章定义），以及结果类型的四个构造名。构造名以裸名提供，书写错误分支时不必每次写全限定名。")
+    dp.codeblock(dp.src(["func parse(s: string) -> Result<i64, string> " + lb() + "", "    if s.len() == 0 " + lb() + " return Err(\"空输入\") " + rb() + "", "    return Ok(to_i64(s))", "" + rb() + "", "", "func first(xs: table<i64>) -> Option<i64> " + lb() + "", "    if len(xs) == 0 " + lb() + " return None " + rb() + "", "    return Some(xs[0])", "" + rb() + ""]))
+    dp.p("Ok、Err、Some、None 是裸名而非关键字：它们默认可见，也可以被同名声明遮蔽。带限定的全名 Result.Ok 与裸名等价，跨模块书写或需要消除歧义时用全名。")
+
     // ---------------- 9.5 ----------------
     dp.h2("9.5  依赖与版本")
     dp.p("包管理器按版本解析依赖，并把解析结果与校验信息记录在项目文件中。依赖的引入应当在项目级完成，而不是在源文件中按路径直接引用。")

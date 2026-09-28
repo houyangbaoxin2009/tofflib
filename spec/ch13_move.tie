@@ -19,7 +19,7 @@ pub func chapter() {
     dp.p("当不需要保留原变量、且希望避免复制开销时，用移动记号把所有权转出。此后原变量处于「已移动」状态。")
     dp.codeblock(dp.src(["var big = collect()", "var owned = big        // 复制或转移，按类型语义", "consume(owned)"]))
     dp.p("参数声明为 move 时，调用即转移：形参约定本身就表达了「这个值交给被调方」，调用方不必在调用点重写记号。")
-    dp.codeblock(dp.src(["func take(move t: table<i64>) -> i64 " + lb() + " return len(t) " + rb() + "", "", "var xs = table_new_i64()", "table_push(xs, 1)", "var n = take(xs)", "// 此后 xs 不可再用"]))
+    dp.codeblock(dp.src(["func take(move t: table<i64>) -> i64 " + lb() + " return len(t) " + rb() + "", "", "var xs: table<i64> = []", "xs <- 1", "var n = take(xs)", "// 此后 xs 不可再用"]))
 
     // ---------------- 13.3 ----------------
     dp.h2("13.3  已移动状态")

@@ -32,7 +32,7 @@ pub func chapter() {
     table_push(r, dp.kvrow("move x: T", "所有权转移。实参的所有权移交被调方，调用方此后不得再使用该变量。"))
     dp.tbl(h, r, w)
 
-    dp.codeblock(dp.src(["func by_value(x: i64) -> i64 " + lb() + " return x " + rb() + "", "func by_ref(ref t: table<i64>) -> i64 " + lb() + " table_push(t, 1); return len(t) " + rb() + "", "func by_read(immut t: table<i64>) -> i64 " + lb() + " return len(t) " + rb() + "", "func by_move(move t: table<i64>) -> i64 " + lb() + " return len(t) " + rb() + ""]))
+    dp.codeblock(dp.src(["func by_value(x: i64) -> i64 " + lb() + " return x " + rb() + "", "func by_ref(ref t: table<i64>) -> i64 " + lb() + " t <- 1; return len(t) " + rb() + "", "func by_read(immut t: table<i64>) -> i64 " + lb() + " return len(t) " + rb() + "", "func by_move(move t: table<i64>) -> i64 " + lb() + " return len(t) " + rb() + ""]))
 
     dp.h3("约定的互斥与组合")
     dp.p("可写借用与只读借用互斥：同一个参数不能既允许写又声明只写。所有权转移与两者也互斥：所有权已经交出，无从借用。同一个修饰重复书写视为笔误，编译器报告错误。")
@@ -43,7 +43,7 @@ pub func chapter() {
 
     dp.h3("所有权转移后的使用")
     dp.p("实参被移出后，调用方再使用该变量会被检出。这条检查在移动语义检查阶段执行，覆盖直接使用与间接使用。")
-    dp.codeblock(dp.src(["var data = table_new_i64()", "table_push(data, 1)", "var n = by_move(data)", "println(to_string(len(data)))   // 错误：变量已移出"]))
+    dp.codeblock(dp.src(["var data: table<i64> = []", "data <- 1", "var n = by_move(data)", "println(to_string(len(data)))   // 错误：变量已移出"]))
 
     // ---------------- 5.3 ----------------
     dp.h2("5.3  默认参数")
