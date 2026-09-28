@@ -25,6 +25,7 @@ import "F:/Projects/tie-repo/tofflib/spec/ch13_move.tie" as c13
 import "F:/Projects/tie-repo/tofflib/spec/ch14_ui.tie" as c14
 import "F:/Projects/tie-repo/tofflib/spec/ch15_tool.tie" as c15
 import "F:/Projects/tie-repo/tofflib/spec/ch16_ref.tie" as c16
+import "F:/Projects/tie-repo/tofflib/spec/ch17_spec.tie" as c17
 
 const OUT: string = "F:/Projects/tie-repo/tofflib/spec/tie-spec-2026.pdf";
 
@@ -46,6 +47,7 @@ func body() {
     c14.chapter()
     c15.chapter()
     c16.chapter()
+    c17.chapter()
 }
 
 func main() -> i64 {

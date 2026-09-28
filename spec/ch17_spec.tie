@@ -1,0 +1,102 @@
+type tie<logic>
+// ch17_spec.tie —— 规范正文 · 第 17 章 生态协议与格式
+import "F:/Projects/tie-repo/tofflib/spec/pdfdoc.tie" as dp
+
+namespace ch17 {
+
+pub func chapter() {
+    dp.h1("第 17 章  生态协议与格式")
+
+    dp.p("语言之外，tie 生态由四个公开契约联结：td 明文数据格式（tie:data）、zd 二进制序列化（tie:zd）、tink 帧协议（数据流互联）与 tsha1 哈希家族（内容指纹）。它们共同构成一条语言无关的通路——任何语言的组件只要实现这些契约即可接入生态。本章逐一给出规范基准；实现以此为准，设计文档与代码注释不得与之冲突。")
+
+    // ---------------- 17.1 ----------------
+    dp.h2("17.1  td 与 tie:data")
+    dp.p("td 是生态的明文数据格式，文件角色为 tie<data>。它的核心约定只有一条：正文就是 tie 的表字面量——不引入 JSON 风格的独立语法，会写 tie 就会写数据。")
+    dp.bullet(["正文为裸表 [ ... ]，或带可选表名的形态 name = [ ... ]（无 var 关键字，表名可省略）。", "值支持字符串（UTF-8，含中文）、整数、浮点、布尔、数组、键值表与任意嵌套。", "注释用 //，与 tie 一致。", "解析由编译器背书（tiec 语法层直接支持），标准库不承担解析职责。"])
+    dp.codeblock(dp.src(["// pack.data.tie —— type tie<data>", "[", "    \"season\": \"S13\",", "    \"season_id\": \"2026-08\",", "    \"author\": \"tie-lang\",", "]"]))
+    dp.p("td 有两种载体形态：可读的明文（tie:data，面向开发者与版本对比）与等价的二进制（tie:zd，由编译器压缩产出，面向机器分发）。二者表达同一份数据，语义不变，加载器对二者的审计方式一致。编译器子命令 --compress-data 完成 td 到 zd 的单向编译：")
+    dp.codeblock(dp.src(["tiec --compress-data <in.data.tie> -o <out.zd>"]))
+    dp.p("编译采用深度优先平铺：表字面量树按 DFS 序展开为元素序列，以六个平行列描述——kind（0 表/数组、1 字符串、2 整数、3 浮点）、key（键名，无键为空串）、value_i64、value_f64、value_str（标量值按 kind 取对应列）、child_count（子元素数，消费者据此推进子树遍历）。六列编码为 zd record 的六个字段，字段号 1 至 6 固定且只追加；布尔归整数列（true 为 1）。解析失败即报错退出，不产出 zd。")
+
+    // ---------------- 17.2 ----------------
+    dp.h2("17.2  zd：二进制序列化")
+    dp.p("zd 是语言无关的二进制序列化格式——tie 生态的统一数据载体。任何语言可独立实现；本章即规范基准。服务场景：数据包容器、快照、td 编译产物、tink 统一 IO 帧、生态数据交换。扩展名一律 .zd。")
+
+    dp.h3("头部与版本")
+    dp.p("v2 头部共 10 字节：前 7 字节为魔数 TIEDBZD，其后两位为 base-48 版本数字（各 1 字节，存数值 0..47；字符集 std base48：0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKL，L 即 47），最后 1 字节为 flags。版本值 version = d1 × 48 + d2，当前 v2 写作字节 [0][2]。")
+    dp.p("识别规则：9 字节且魔数匹配、两位版本数字均不越界，按 version 判定；8 字节（魔数 + 0x01）是 v1，版本缺失一律按 v1 处理；其余非法。v2 实现必须能读 v1；v2 新类型对 v1 消费者不可见——record 字段号只追加，未知字段与未知 ext 类型可整体跳过。版本沿 d1 × 48 + d2 单调递增，向后兼容。")
+    dp.p("flags 字节固定存在（缺省 0），各位定义如下：bit0 字符串字典、bit1 列式容器、bit2 ext 扩展、bit3 流式分块、bit4 压缩变体声明。压缩算法不内嵌——头部仅声明变体（zstd/lz4），解压由读端承担。")
+
+    dp.h3("类型系统")
+    var w1 = table_new_i64()
+    table_push(w1, 130)
+    table_push(w1, 321)
+    var h1 = table_new_string()
+    table_push(h1, "类型")
+    table_push(h1, "编码")
+    var r1: table<table<string>> = []
+    table_push(r1, dp.kvrow("i64 / u64", "fixint 与定宽大端；正 0x00..0x7f、负 0xe0..0xff、定宽 0xd0..0xd3（u64 为 0xcf/0xd3）。"))
+    table_push(r1, dp.kvrow("f64", "0xcb + 8 字节大端 IEEE 754 位模式直写（bitcast，不做数学分解）。"))
+    table_push(r1, dp.kvrow("bool", "0xc2 / 0xc3。"))
+    table_push(r1, dp.kvrow("string", "fixstr/str8/16/32 + UTF-8；v2 增加字典引用形式（池内索引 varint，需 flags 字典位）。"))
+    table_push(r1, dp.kvrow("bytes", "0xc6 族 + 长度 + 原始字节（图标/像素/任意载荷）。"))
+    table_push(r1, dp.kvrow("array / map", "fixarray/16/32 与 fixmap/16/32；自描述，元素带类型标签。"))
+    table_push(r1, dp.kvrow("null", "0xc0；区分「缺失」与「空值」。"))
+    table_push(r1, dp.kvrow("ext", "0xd7 + 类型标记 + 长度 + 载荷；tie 特有类型（char、trit）与 code（tie-IR）一律走 ext 子类型，不进核心类型系统。"))
+    dp.tbl(h1, r1, w1)
+    dp.p("每语言实现必须支持核心类型；ext 可选择性支持，未知 ext 类型整体跳过。")
+
+    dp.h3("实现纪律")
+    dp.p("以下是实现的规范性要求，不是可选优化：编码一律写入单增缓冲（append-only），消除连续拼接的二次方开销；f64 用位模式直写；字符串解码一次批量构建 UTF-8；支持预分配与批量原语；解码字符串与 bytes 可返回区间引用（offset + length）实现零拷贝读取；大容器可带偏移表（每 N 元素记录字节偏移）以支持快速跳读与随机定位。")
+    dp.h3("格式能力")
+    dp.bullet(["列式容器：列数 + 每列类型 + 每列长度 + 各列值，供大批同构 record（表格型数据）压缩体积、提升局部性。", "字符串字典：容器可带字符串池段，重复字符串只存一次（池内引用为 varint 索引）。", "schema 段：容器携带字段名与类型的自描述信息，任意语言可反序列化到对象。", "code 承载：tie-IR 经 ext 子类型内嵌，载荷对齐 TIEIR 七段格式（魔数/模块头/字符串池/符号表/IR 主体/导出表/span）。", "流式帧：帧带长度边界与 CRC 校验（见 17.3），损坏帧拒绝，不静默传递。", "内容哈希段：容器内嵌内容哈希（tsha1 族，见 17.4），读端做完整性校验。"])
+    dp.note("zd 只管序列化：压缩算法、加密签名、数据库与索引都不在格式之内，它们是上层策略与上层组件的职责。")
+
+    // ---------------- 17.3 ----------------
+    dp.h2("17.3  tink 帧协议")
+    dp.p("tink 是生态的数据流互联契约：组件以独立进程存在（不被承载、不被嵌入），数据以 zd 字节流在组件间流动。接入门槛只有一条——实现统一帧协议。语言无关意味着 tie、Rust、C、C++、Python 的组件，乃至 AI 代理进程，都是平等节点。")
+    dp.p("统一 IO 契约是：调用形态为「模块.函数(字节进) → 字节出」；组件的标准输入输出上以「长度前缀 + zd 消息」为帧，帧带边界与 CRC 校验。任何语言只要在 stdin/stdout 上实现这一帧协议，即成为节点，不依赖编排器的内部实现。")
+    dp.p("帧协议三要素：长度前缀界定帧边界；载荷为完整 zd 消息；CRC 校验完整性。CRC 失败的帧必须拒绝并报错，不得静默传递损坏数据；管道某一段失败时须定位到段并以非零码退出。")
+    var w2 = table_new_i64()
+    table_push(w2, 170)
+    table_push(w2, 281)
+    var h2 = table_new_string()
+    table_push(h2, "形态")
+    table_push(h2, "说明")
+    var r2: table<table<string>> = []
+    table_push(r2, dp.kvrow("管道编排器（主形态）", "按管道定义启动组件进程，把 A 的输出帧路由到 B 的输入帧。纯流式、轻量，替代脚本与临时文件。"))
+    table_push(r2, dp.kvrow("常驻 hub（扩展）", "编排器常驻，组件连上注册端点，按路由表转发 zd 消息；引入 IPC 复杂度，按需启用。"))
+    table_push(r2, dp.kvrow("库式互联层（扩展）", "编排器作为库链接进组件，组件间直接 zd 流互连，无常驻服务。"))
+    dp.tbl(h2, r2, w2)
+    dp.codeblock(dp.src(["tink pipe \"tiec:td2zd | jcc-pack:build\" > out.jcc"]))
+    dp.p("三形态共享同一帧协议核心。编排器只做连接与路由：不执行任务调度、不管理并行、不替代编译链路本身——组件保持独立可执行，这是边界而非缺陷。")
+
+    // ---------------- 17.4 ----------------
+    dp.h2("17.4  tsha1 哈希家族")
+    dp.p("tsha1 是 tie 的原生哈希家族，纯 tie 实现、零 unsafe，输出为 base-48 编码。家族含四个模型：f（R=12 双轨）、b（R=14 三轨）、x（R=16 四轨）、r（R=8 双轨半宽）；位长参数 n 取 2..144，名义输出位 k = n × log2(48) ≈ 5.585n。生态内职责：逐文件指纹用 tsha1f，包树根指纹用 tsha1x，zd 内容哈希段同族。")
+    dp.p("安全剖面与 SHA-3 同输出位档对齐，且实得安全位 = min(名义输出位, 状态位) = 名义输出位——状态随 n 构造保证状态位不低于输出位，因此不存在 SHAKE 式「输出长但安全被容量封顶」的缺口。代表档位：")
+    var w3 = table_new_i64()
+    table_push(w3, 130)
+    table_push(w3, 321)
+    var h3 = table_new_string()
+    table_push(h3, "档位")
+    table_push(h3, "安全剖面")
+    var r3: table<table<string>> = []
+    table_push(r3, dp.kvrow("n = 48", "输出 268 位；碰撞界 2^134、前像界 2^268，对齐 SHA3-256 并高 6 位。"))
+    table_push(r3, dp.kvrow("n = 69", "输出 385 位；碰撞界 2^192.7，对齐 SHA3-384 并高 0.7 位。"))
+    table_push(r3, dp.kvrow("n = 92", "输出 514 位；碰撞界 2^256.9，对齐 SHA3-512 并高 0.9 位。"))
+    dp.tbl(h3, r3, w3)
+    dp.p("次安全性质为构造保证：抗长度扩展（计数器 MD 填充 + 64 位计数器逐块注入，无 0x80/长度后置）；轮常量由 SEED 经 SHA-256 计数器流生成，常量与实现可复现；输出截断语义与 base48 编解码一致。")
+    dp.note("边界声明：tsha1 未经过第三方密码学审计；「更优」仅指上表可量化剖面，不宣称设计强度超越 Keccak。用于正式安全用途前应经专业评审。性能上，位平面 ring 数学的每块成本约为 sha256 的 150 倍（算法成本模型差异，非缺陷），热点已按族内基准优化。")
+
+    // ---------------- 17.5 ----------------
+    dp.h2("17.5  契约的协同")
+    dp.p("四个契约串联成一条完整链路：td 明文经编译器编译为 zd（17.1 → 17.2）；组件进程以 tink 帧协议互连，帧内是 zd 消息（17.3）；分发的完整性与来源由 tsha1 指纹与签名校验守护（17.4）。每一环都语言无关——生态由此向所有语言与 AI 代理开放。")
+    dp.note("契约的演进纪律与语言一致：魔数与版本位保证格式可判定地演进；record 字段号与 ext 类型只追加、不回收；帧协议以 CRC 与长度前缀保证可靠路由。任何改动都必须保持旧读取方可用。")
+}
+
+// 左右花括号的字符串形态（正文里展示字面花括号时用，避免被编译器当成插值求值）
+func lb() -> string { return str_from_code(123) }
+func rb() -> string { return str_from_code(125) }
+
+}
