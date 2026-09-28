@@ -12,23 +12,23 @@ pub func chapter() {
     // ---------------- 12.1 ----------------
     dp.h2("12.1  代码片段")
     dp.p("code 是编译期类型，它的值是一段语法结构，而不是运行期的数据。code 值只能出现在宏相关的上下文里，不能存进变量跨阶段使用。")
-    dp.codeblock(dp.src(["func twice(x: code) -> code " + lb() + "", "    return quote " + lb() + "", "        @x + @x", "    " + rb() + "", "" + rb() + ""]))
+    dp.codeblock(dp.src(["macro twice(x: code) -> code " + lb() + "", "    return `(($x) + ($x))", "" + rb() + ""]))
 
     // ---------------- 12.2 ----------------
     dp.h2("12.2  宏的定义")
     dp.p("宏用 macro 声明。宏在编译期被调用，其返回值替换调用点。由于展开发生在编译期，宏不带来运行期开销。")
-    dp.codeblock(dp.src(["macro unless(cond: code, body: code) -> code " + lb() + "", "    return quote " + lb() + "", "        if !@cond " + lb() + "", "            @body", "        " + rb() + "", "    " + rb() + "", "" + rb() + "", "", "unless(done, " + lb() + " cleanup() " + rb() + ")"]))
+    dp.codeblock(dp.src(["macro unless(cond: code, body: code) -> code " + lb() + "", "    return `{ if !($cond) { $body } }", "" + rb() + "", "", "unless(done, cleanup())"]))
 
     // ---------------- 12.3 ----------------
     dp.h2("12.3  引用与插值")
     dp.p("引用记号把一段代码包成 code 值而不立即求值；插值记号把 code 值嵌入到引用中。二者配合，使宏作者可以描述「带空洞的代码模板」。")
-    dp.codeblock(dp.src(["quote " + lb() + " if @cond " + lb() + " @body " + rb() + " " + rb() + "   // @cond 与 @body 是空洞"]))
-    dp.p("插值遵循与字符串插值一致的直觉：看到记号就知道此处会被替换，其余部分是字面结构。")
+    dp.codeblock(dp.src(["`{ if $cond { $body } }      // $cond 与 $body 是空洞", "`(($x) * 2)                 // 表达式形态：$x 位置由实参填入"]))
+    dp.p("插值遵循与插值字符串 h\"...\" 一致的直觉：看到记号就知道此处会被替换，其余部分是字面结构。")
 
     // ---------------- 12.4 ----------------
     dp.h2("12.4  编译期计算")
     dp.p("常量表达式在编译期求值。这使得查表、派生量、配置校验等可以在产物生成之前完成，运行期只留下结果。")
-    dp.codeblock(dp.src(["const TABLE_SIZE = 1 << 10", "const MASK = TABLE_SIZE - 1", "", "macro assert_const(cond: code) -> code " + lb() + "", "    // 在编译期检查条件，不满足则报错", "    return quote " + lb() + " " + rb() + "", "" + rb() + ""]))
+    dp.codeblock(dp.src(["const TABLE_SIZE = 1 << 10", "const MASK = TABLE_SIZE - 1", "", "macro assert_const(cond: code) -> code " + lb() + "", "    // 在编译期检查条件，不满足则报错", "    return `{ }", "" + rb() + ""]))
 
     // ---------------- 12.5 ----------------
     dp.h2("12.5  使用边界")
@@ -37,7 +37,7 @@ pub func chapter() {
     dp.note("标准库的断言、日志与测试宏都遵循同一形态：调用点简洁，展开结果平凡，报错指向调用处。")
     // ---------------- 12.6 ----------------
     dp.h2("12.6  两种宏")
-    dp.p("宏有两种形态，区别在于宏作者面对的是**语法结构**还是**书写形式**。")
+    dp.p("宏有两种形态，区别在于宏作者面对的是「语法结构」还是「书写形式」。")
     var w2 = table_new_i64()
     table_push(w2, 150)
     table_push(w2, 301)
@@ -50,7 +50,7 @@ pub func chapter() {
     dp.tbl(h2, r2, w2)
     dp.p("函数式宏适合需要逻辑判断的展开——按参数形态决定生成什么；模板宏适合形态固定的展开——把一段样板中可变的几处抽出来。选择依据是作者手上需要的是结构还是形式。")
     dp.codeblock(dp.src([r"// 函数式：形参类型是代码片段，宏体在编译期执行", r"macro unless(cond: code, body: code) -> code {", r"    return `{ if !(@cond) { @body } }", r"}", r"", r"// 模板：直接给出展开形态", r"macro twice(stmt) {", r"    @stmt", r"    @stmt", r"}"]))
-    dp.h3("引用与插值")
+    dp.h3("两种宏的写法对照")
     dp.p("宏体里的代码片段需要与「原样保留的结构」区分开。准引用记号表示「这是一段代码结构，先不要执行」；插值记号表示「此处嵌入一个片段」。二者配合，宏作者可以精确描述「哪些部分固定、哪些部分由实参填入」。")
     dp.codeblock(dp.src([r"// 准引用：包住一段代码结构", r"var tpl = `{ if @cond { @body } }", r"", r"// 插值：把片段嵌入准引用", r"`(($x) * 2)      // $x 位置由实参填入"]))
     dp.p("模板宏里以特定前缀命名的形参表示卫生临时名：展开时为它生成一个不会与外层名字冲突的新名字，因此模板内部引入的临时变量不会意外遮蔽使用处的变量。")
@@ -62,8 +62,8 @@ pub func chapter() {
     // ---------------- 12.8 ----------------
     dp.h2("12.8  条件编译")
     dp.p("同一份源码可能要在不同平台或不同构建配置下产出不同结果。条件编译按编译期已知的条件选择性地纳入一段声明。")
-    dp.codeblock(dp.src([r"#cfg(平台 = linux)", r"pub func path_sep() -> string { return ""/"" }", r"#else", r"pub func path_sep() -> string { return ""''"" }", r"#end"]))
-    dp.p("条件在编译期求值，未选中的分支不参与检查也不进入产物——因此在某一平台上无法通过检查的代码，只要不属于该平台的分支，就不会妨碍编译。这一点与运行期分支有本质区别。")
+    dp.codeblock(dp.src([r"#cfg(os = linux)", r"pub func path_sep() -> string { return ""/"" }", r"#else", r"pub func path_sep() -> string { return ""\\"" }", r"#end"]))
+    dp.p("条件的键是编译期已知的一组：os（操作系统）、target（目标平台）、debug / release（构建档）。条件在编译期求值，未选中的分支不参与检查也不进入产物——因此在某一平台上无法通过检查的代码，只要不属于该平台的分支，就不会妨碍编译。这一点与运行期分支有本质区别。")
 
 }
 

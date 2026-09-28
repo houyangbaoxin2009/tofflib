@@ -32,7 +32,7 @@ pub func chapter() {
     dp.p("点号调用是对命名空间函数的转发：编译器把 obj.method(args) 解释为「同名命名空间下的 method，接收者作为第一个参数」。")
     dp.codeblock(dp.src(["var p = Point(3.0, 4.0)", "println(to_string(p.dist()))", "", "p.move_by(1.0, 1.0)"]))
     dp.p("转发意味着方法的参数规则与普通函数完全一致——默认参数、命名实参、借用与转移约定都可以用在方法上。接收者不参与命名，也不能被默认值补齐：它由调用对象给出。")
-    dp.codeblock(dp.src(["struct Counter { var n: i64 = 0 }", "", "namespace Counter {", "    pub func bump(c: Counter, step: i64 = 1) -> i64 {", "        return c.n + step", "    }", "}", "", "c.bump()             // step 取默认", "c.bump(step: 4)      // 命名实参"]))
+    dp.codeblock(dp.src(["struct Counter { var n: i64 = 0; }", "", "namespace Counter {", "    pub func bump(c: Counter, step: i64 = 1) -> i64 {", "        return c.n + step", "    }", "}", "", "c.bump()             // step 取默认", "c.bump(step: 4)      // 命名实参"]))
     dp.p("接收者的传递约定由命名空间函数声明决定：需要修改调用对象时把接收者声明为可写借用。")
 
     // ---------------- 6.5 ----------------
@@ -50,7 +50,7 @@ pub func chapter() {
     // ---------------- 6.7 ----------------
     dp.h2("6.7  与元组的关系")
     dp.p("元组适合表达「几个值临时组合」；结构适合表达有名字、会长期存在、有自己行为的概念。判据是命名与复用：需要按名字取用、需要在多处传递，就用结构。")
-    dp.codeblock(dp.src(["// 临时组合：用元组", "var lo, hi = min_max(xs)", "", "// 长期概念：用结构", "struct Interval { var lo: i64 = 0", "    var hi: i64 = 0 }"]))
+    dp.codeblock(dp.src(["// 临时组合：用元组", "var (lo, hi) = min_max(xs)", "", "// 长期概念：用结构", "struct Interval " + lb() + "", "    var lo: i64 = 0;", "    var hi: i64 = 0;", "" + rb() + ""]))
 
     // ---------------- 6.8 ----------------
     dp.h2("6.8  运算约定")
@@ -74,7 +74,7 @@ pub func chapter() {
     // ---------------- 6.9 ----------------
     dp.h2("6.9  计算属性")
     dp.p("对需要按需计算、不宜存储的值，可以定义一对同名函数作为读写入口：读函数除接收者外无参数，写函数多一个值参数。访问时用普通的字段语法。")
-    dp.codeblock(dp.src([r"namespace Circle {", r"    pub func area(c: Circle) -> f64 { return 3.14159 * c.r * c.r }", r"    pub func label(c: Circle) -> string { return ""圆 "" + to_string(c.r) }", r"    pub func label_set(ref c: Circle, v: string) { c.tag = v }", r"}", r"", r"var a = c.area        // 读：调用计算"]))
+    dp.codeblock(dp.src([r"namespace Circle {", r"    pub func area(c: Circle) -> f64 { return 3.14159 * c.r * c.r }", r"    pub func label(c: Circle) -> string { return ""圆 "" + to_string(c.r) }", r"    pub func label_set(ref c: Circle, v: string) { c.name = v }", r"}", r"", r"var a = c.area        // 读：调用计算"]))
     dp.p("读入口与普通字段访问在调用点写法一致，因此这个值究竟是存下来的还是算出来的属于实现细节，改动它不影响使用方。写入口需要接收者可写借用，因为写入必然修改对象。")
 
     // ---------------- 6.10 ----------------
@@ -83,6 +83,29 @@ pub func chapter() {
     dp.codeblock(dp.src([r"namespace Ring {", r"    pub func has_next(r: Ring) -> bool { return r.i < r.n }", r"    pub func next(ref r: Ring) -> i64 { r.i += 1; return r.buf[r.i - 1] }", r"}", r"", r"for v in ring { println(to_string(v)) }"]))
     dp.p("约定遍历的行为与内建表一致：遍历中的修改规则、元素顺序、取尽后的判定都遵循同一套语义，因此使用方不必区分遍历的是表还是自定义类型。")
 
+    // ---------------- 6.11 ----------------
+    dp.h2("6.11  迭代器适配")
+    dp.p("遍历约定之上还有一层适配函数，用于把「逐个取元素」组合成常用的变换。适配函数是自由函数，作用于一切满足遍历约定的类型——内建表与自定义类型同等对待。")
+    var w3d = table_new_i64()
+    table_push(w3d, 230)
+    table_push(w3d, 221)
+    var h3d = table_new_string()
+    table_push(h3d, "函数")
+    table_push(h3d, "语义")
+    var r3d: table<table<string>> = []
+    table_push(r3d, dp.kvrow("iter_map(xs, f)", "逐元素变换，产出 f(元素)。"))
+    table_push(r3d, dp.kvrow("iter_filter(xs, p)", "保留判定为真的元素。"))
+    table_push(r3d, dp.kvrow("iter_take(xs, n)", "取前 n 个元素。"))
+    table_push(r3d, dp.kvrow("iter_zip(a, b)", "两路并读，产出 (a_i, b_i) 元组，短者取尽即止。"))
+    table_push(r3d, dp.kvrow("iter_chain(a, b)", "先后串接两路元素。"))
+    dp.tbl(h3d, r3d, w3d)
+    dp.codeblock(dp.src(["var top = scores -> iter_map(v -> v * 2) -> iter_filter(v -> v > 0)", "for (name, score) in iter_zip(names, scores) " + lb() + "", "    println(name + \": \" + to_string(score))", "" + rb() + ""]))
+    dp.p("适配器是惰性的：组合若干适配器不产生中间表，元素在被遍历到的那一刻才计算并流动。这条约定让「变换链」的成本与手写循环相当，也使适配器可以安全作用于无限序列（如计数源）。需要把结果固化为表时，用 table_from(xs) 收拢。")
+
 }
 
 }
+
+// 左右花括号的字符串形态（展示含花括号的代码示例时用）
+func lb() -> string { return str_from_code(123) }
+func rb() -> string { return str_from_code(125) }

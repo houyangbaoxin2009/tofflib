@@ -13,7 +13,7 @@ pub func chapter() {
     dp.h2("9.1  导入")
     dp.p("导入把另一个文件的内容引入当前文件，并可选地给它一个别名。别名用于限定访问，使来源在调用点清晰可见。")
     dp.codeblock(dp.src(["import \"./geometry.tie\" as geo", "import \"./format.tie\"", "", "var d = geo.distance(a, b)"]))
-    dp.p("不写别名时，被导入文件的公开名称直接进入当前作用域，适合导入内容很少的文件。来源较多时使用别名，避免名称冲突。")
+    dp.p("不写别名时，被导入文件的公开名称直接进入当前作用域，适合导入内容很少的文件。来源较多时使用别名，避免名称冲突。路径有两种写法：相对当前文件以 ./ 起头（./geometry.tie），标准库模块以库根起头（/std/string.tie）；两者都写到文件名并带扩展名。")
 
     // ---------------- 9.2 ----------------
     dp.h2("9.2  命名空间")
@@ -58,12 +58,12 @@ pub func chapter() {
     // ---------------- 9.5 ----------------
     dp.h2("9.5  依赖与版本")
     dp.p("包管理器按版本解析依赖，并把解析结果与校验信息记录在项目文件中。依赖的引入应当在项目级完成，而不是在源文件中按路径直接引用。")
-    dp.codeblock(dp.src(["// 项目文件中记录依赖与版本约束", "tie.pkg", "    name: my-project", "    require: json ^2.1, net ~1.4"]))
+    dp.codeblock(dp.src(["// 项目文件（tie.pkg）中记录依赖与版本约束", "name: my-project", "require:", "    json    ^2.1", "    net     ~1.4"]))
     dp.p("版本约束使用语义化的范围记号，使得依赖升级的边界在文件里可见。")
     // ---------------- 9.6 ----------------
     dp.h2("9.6  选择性导入与重导出")
     dp.p("导入可以只引入需要的名字，也可以给整个文件起别名，还可以把导入的名字再导出给使用本文件的人。")
-    dp.codeblock(dp.src([r"import ""std/string""                 // 整个模块，用模块名限定访问", r"import ""std/string"" as str          // 起别名", r"import ""std/string"".{ join, repeat } // 只引入列出的名字", r"pub import ""std/json""                // 重导出：使用本文件者也能看到它"]))
+    dp.codeblock(dp.src([r"import ""/std/string.tie""                 // 整个模块，用模块名限定访问", r"import ""/std/string.tie"" as str          // 起别名", r"import ""/std/string.tie"".{ join, repeat } // 只引入列出的名字", r"pub import ""/std/json.tie""                // 重导出：使用本文件者也能看到它"]))
     dp.p("选择性导入用于收窄依赖面：文件开头一行即可看出这份代码实际用到了外部模块的哪些能力。重导出用于把若干模块聚合成一个对外入口，使用方只需导入一处。")
     // ---------------- 9.7 ----------------
     dp.h2("9.7  引入命名空间")

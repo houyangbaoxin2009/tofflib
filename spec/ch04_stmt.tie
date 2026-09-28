@@ -49,9 +49,9 @@ pub func chapter() {
     // ---------------- 4.6 ----------------
     dp.h2("4.6  跳转")
     dp.p("return 结束当前函数并带回值；yield 在生成器中产出一个值并继续执行；panic 报告不可恢复的错误并终止当前执行流（见第 8 章）。")
-    dp.codeblock(dp.src(["func pick(xs: table<i64>) -> i64 " + lb() + "", "    for x in xs " + lb() + "", "        if x > 0 " + lb() + " return x " + rb() + "", "    " + rb() + "", "    return 0", "" + rb() + "", "", "func counter(n: i64) -> table<i64> " + lb() + "", "    for i in 0..n " + lb() + "", "        yield i", "    " + rb() + "", "" + rb() + ""]))
+    dp.codeblock(dp.src(["func pick(xs: table<i64>) -> i64 " + lb() + "", "    for x in xs " + lb() + "", "        if x > 0 " + lb() + " return x " + rb() + "", "    " + rb() + "", "    return 0", "" + rb() + "", "", "func counter(n: i64) -> i64 " + lb() + "", "    for i in 0..n " + lb() + "", "        yield i", "    " + rb() + "", "" + rb() + ""]))
     dp.p("goto 在需要把多层嵌套的清理路径收敛到一处时使用。它只允许在同一个函数内跳转，且不允许跳入循环或分支的内部——这两条限制使它不会破坏块作用域。")
-    dp.codeblock(dp.src(["    if open_a() != 0 " + lb() + " goto cleanup_a " + rb() + "", "    if open_b() != 0 " + lb() + " goto cleanup_b " + rb() + "", "    // ...", "cleanup_b:", "    close_b()", "cleanup_a:", "    close_a()"]))
+    dp.codeblock(dp.src(["func transfer() -> i64 " + lb() + "", "    if open_a() != 0 " + lb() + " unsafe goto #done " + rb() + "", "    if open_b() != 0 " + lb() + " unsafe goto #after_b " + rb() + "", "    // ...", "    #[tag.after_b]", "    close_b()", "    #[tag.done]", "    close_a()", "    return 0", "" + rb() + ""]))
 
     // ---------------- 4.7 ----------------
     dp.h2("4.7  表达式语句")
@@ -73,7 +73,7 @@ pub func chapter() {
 
     // ---------------- 4.10 ----------------
     dp.h2("4.10  作用域收尾")
-    dp.p("defer 登记一段在离开当前作用域时执行的代码。多段收尾按登记的**逆序**执行，因此「先申请后释放」的对应关系自然成立。")
+    dp.p("defer 登记一段在离开当前作用域时执行的代码。多段收尾按登记的逆序执行，因此「先申请后释放」的对应关系自然成立。")
     dp.codeblock(dp.src(["func process(path: string) " + lb() + "", "    var h = open(path)", "    defer " + lb() + " close(h) " + rb() + "", "    var buf = acquire()", "    defer " + lb() + " release(buf) " + rb() + "", "    // 离开作用域时：先 release(buf)，再 close(h)", "    use(h, buf)", "" + rb() + ""]))
     dp.p("把释放写在申请的下一行，是这一记号的主要用法：申请与释放成对出现在同一屏内，中间无论有多少条提前返回的路径，都不会漏掉释放。")
 
@@ -85,14 +85,14 @@ pub func chapter() {
     // ---------------- 4.12 ----------------
     dp.h2("4.12  跳转与标签")
     dp.p("在需要把多层嵌套的清理路径收敛到一处时使用跳转。标签声明某处可以被跳转抵达，跳转语句引用该标签。")
-    dp.codeblock(dp.src(["#[tag.retry]", "    var r = read()", "    if r == 0 " + lb() + " unsafe goto #retry " + rb() + "   // 回到同一块的开头重试", "#[tag.done]", "    finish(r)"]))
+    dp.codeblock(dp.src(["func retry_read() -> i64 " + lb() + "", "    #[tag.retry]", "    var r = read()", "    if r == 0 " + lb() + " unsafe goto #retry " + rb() + "   // 回到同一块的开头重试", "    #[tag.done]", "    return finish(r)", "" + rb() + ""]))
     dp.p("跳转受三条限制：只能在同一函数内跳转；只能跳到同一块或已经执行过的外层块；不得跳过变量初始化进入其作用域。这三条共同保证跳转不会破坏作用域的有效性。跳转属不安全操作，需要显式标注。")
 
     // ---------------- 4.13 ----------------
     dp.h2("4.13  分支即表达式")
     dp.p("多分支不仅可以作语句，也可以作表达式：每个分支给出一个值，整个分支结构即具有该值。它使「按情形取值」不必先声明变量再逐个赋值。")
-    dp.codeblock(dp.src(["var label = switch n " + lb() + "", "    0 -> \"零\"", "    1..9 -> \"个位\"", "    _ -> \"多位\"", "" + rb() + ""]))
-    dp.p("作表达式时分枝用箭头书写；分支必须穷尽，未覆盖的情形由通配分支承接。作语句时分支用冒号书写，形态见 4.5。")
+    dp.codeblock(dp.src(["var label = switch n " + lb() + "", "    0 -> \"零\",", "    1..9 -> \"个位\",", "    _ -> \"多位\",", "" + rb() + ""]))
+    dp.p("作表达式时分枝用箭头书写，分支之间以逗号分隔；分支必须穷尽，未覆盖的情形由通配分支承接。作语句时分支用冒号书写，形态见 4.5。")
 
     // ---------------- 4.14 ----------------
     dp.h2("4.14  解构")

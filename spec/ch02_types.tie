@@ -26,7 +26,7 @@ pub func chapter() {
     table_push(r, dp.kvrow("i128 u128", "128 位整数"))
     table_push(r, dp.kvrow("f32 f64", "浮点数"))
     table_push(r, dp.kvrow("bool", "布尔，取值 true / false"))
-    table_push(r, dp.kvrow("trit", "平衡三进制，取值正 / 零 / 负（见 2.3）"))
+    table_push(r, dp.kvrow("trit", "平衡三进制，取值正 / 零 / 负（见 2.2）"))
     table_push(r, dp.kvrow("char", "单个字符，按码点计"))
     table_push(r, dp.kvrow("string", "不可变文本，UTF-8 存储"))
     table_push(r, dp.kvrow("void", "无值，仅作函数返回类型"))
@@ -70,13 +70,13 @@ pub func chapter() {
     // ---------------- 2.5 ----------------
     dp.h2("2.5  映射类型")
     dp.p("映射是以键索引的集合，键与值都有类型。键可以是文本、整数或枚举。")
-    dp.codeblock(dp.src(["var age: map<i64> = [\"alice\": 3, \"bob\": 5]", "age[\"carol\"] = 7", "if age.has(\"alice\") " + lb() + "", "    println(to_string(age[\"alice\"]))", "" + rb() + ""]))
+    dp.codeblock(dp.src(["var age: map<i64> = [\"alice\": 3, \"bob\": 5]", "age[\"carol\"] = 7", "if \"alice\" in age " + lb() + "", "    println(to_string(age[\"alice\"]))", "" + rb() + ""]))
     dp.p("映射的字面量语法与表一致，区别在于元素写成「键: 值」。当键为字符串时，可用点号访问其值，这在表达结构化数据时更易读。")
 
     // ---------------- 2.6 ----------------
     dp.h2("2.6  元组类型")
     dp.p("元组把若干个类型组合成一个值，位置固定、类型可不同。元组用于返回多个结果，或表达「这几个值一起才有意义」的场合。")
-    dp.codeblock(dp.src(["func min_max(xs: table<i64>) -> (lo: i64, hi: i64) " + lb() + "", "    // ...", "    return 1, 9", "" + rb() + "", "", "var lo, hi = min_max([3, 1, 9])"]))
+    dp.codeblock(dp.src(["func min_max(xs: table<i64>) -> (lo: i64, hi: i64) " + lb() + "", "    // ...", "    return (1, 9)", "" + rb() + "", "", "var (lo, hi) = min_max([3, 1, 9])"]))
     dp.p("元组可命名分量，命名同时作为文档与解构依据。也可不命名，此时用位置访问。")
 
     // ---------------- 2.7 ----------------
@@ -101,7 +101,7 @@ pub func chapter() {
     // ---------------- 2.10 ----------------
     dp.h2("2.10  动态类型")
     dp.p("any 表示「任意类型」。它在需要容纳异质数据的场合使用，例如配置表、序列化中间结果。任何值都可以赋给 any，取用时需要显式转换。")
-    dp.codeblock(dp.src(["var v: any = 42", "v = \"text\"", "if is_num(v) " + lb() + "", "    var n = as_i64(v)", "" + rb() + ""]))
+    dp.codeblock(dp.src(["var v: any = 42", "v = \"text\"", "if v is i64 " + lb() + "", "    var n = as_i64(v)", "" + rb() + ""]))
     dp.note("静态类型是默认选择。any 把类型错误的发现从编译期推迟到运行期，因此只在确实需要异质容器时使用，而不是作为绕过类型检查的手段。")
 
     // ---------------- 2.11 ----------------
@@ -109,6 +109,21 @@ pub func chapter() {
     dp.p("数值类型之间的转换是显式的。窄化转换可能丢失信息，语言要求书写者明确表达意图。")
     dp.codeblock(dp.src(["var a: i64 = 1000", "var b = to_i32(a)        // 窄化：显式", "var c: f64 = to_f64(a)   // 整数到浮点", "var d = to_string(a)     // 到文本"]))
     dp.p("指针与整数之间的转换只在 unsafe 上下文中允许（见第 11 章）。聚合类型与动态类型之间的转换由各自的构造与匹配机制承担。")
+    dp.p("转换函数按三族命名，职责不重叠：to_ 系做数值转换与任意值转文本，try_parse_ 系做可预期的文本解析，as_ 系从动态类型解包。")
+    var w3c = table_new_i64()
+    table_push(w3c, 190)
+    table_push(w3c, 261)
+    var h3c = table_new_string()
+    table_push(h3c, "函数族")
+    table_push(h3c, "语义")
+    var r3c: table<table<string>> = []
+    table_push(r3c, dp.kvrow("to_i8 … to_u128 / to_f32 / to_f64", "数值类型之间的转换；窄化必须显式写出。"))
+    table_push(r3c, dp.kvrow("to_string(v)", "任意值转文本。"))
+    table_push(r3c, dp.kvrow("to_i64(s) / to_f64(s)", "文本解析为数值；解析失败触发内建检查，适用于「解析不了就是程序错误」的场合。"))
+    table_push(r3c, dp.kvrow("try_parse_i64(s) / try_parse_f64(s)", "解析为 Result<i64, string> / Result<f64, string>；失败可预期，由调用方分支处理。"))
+    table_push(r3c, dp.kvrow("as_i64 / as_f64 / as_string / as_bool", "从 any 解包；实际类型不符即报错。"))
+    dp.tbl(h3c, r3c, w3c)
+    dp.codeblock(dp.src(["var n = to_i64(\"4096\")         // 文本解析，失败即内建检查", "var r = try_parse_i64(s)       // 可预期失败：Result<i64, string>", "var m = as_f64(boxed)          // 从 any 解包"]))
 
     // ---------------- 2.12 ----------------
     dp.h2("2.12  低层与特殊类型")
@@ -173,6 +188,48 @@ pub func chapter() {
     dp.p("类型参数之外，泛型还可以接受值参数：在编译期确定的整数或类型。它用于表达规模、容量、精度这类应当是类型一部分的量。")
     dp.codeblock(dp.src(["func zeros<N: i64>() -> array<f64, N> " + lb() + " return array_init(0.0) " + rb() + "", "struct Buffer<CAP: i64 = 1280> " + lb() + " var data: array<u8, CAP> " + rb() + "", "var b = Buffer<512>()          // 容量成为类型的一部分"]))
     dp.p("值参数有默认值时可以省略。把规模放进类型的好处是：规模不匹配在编译期即报错，而不是在运行期越界。")
+
+    // ---------------- 2.19 ----------------
+    dp.h2("2.19  字符串处理")
+    dp.p("字符串的内建操作以 str_ 前缀的自由函数提供，与 str_len、str_char 同族。全部操作以码点为尺度（见 1.3），不按字节切碎文本。")
+    var w5c = table_new_i64()
+    table_push(w5c, 230)
+    table_push(w5c, 221)
+    var h5c = table_new_string()
+    table_push(h5c, "函数")
+    table_push(h5c, "语义")
+    var r5c: table<table<string>> = []
+    table_push(r5c, dp.kvrow("str_split(s, sep)", "按分隔符拆分为表<string>；分隔符不保留。"))
+    table_push(r5c, dp.kvrow("str_join(parts, sep)", "以分隔符拼接表<string>。"))
+    table_push(r5c, dp.kvrow("str_contains(s, sub)", "是否包含子串。"))
+    table_push(r5c, dp.kvrow("str_starts(s, pre) / str_ends(s, suf)", "前缀与后缀判定。"))
+    table_push(r5c, dp.kvrow("str_replace(s, old, new)", "替换全部出现的子串。"))
+    table_push(r5c, dp.kvrow("str_trim(s)", "去除首尾空白。"))
+    table_push(r5c, dp.kvrow("str_reverse(s)", "按码点逆置。"))
+    table_push(r5c, dp.kvrow("str_upper(s) / str_lower(s)", "大小写转换（仅 ASCII 字母，其余原样）。"))
+    dp.tbl(h5c, r5c, w5c)
+    dp.codeblock(dp.src(["var fields = str_split(\"a,b,c\", \",\")     // [\"a\", \"b\", \"c\"]", "var line = str_join(fields, \" | \")        // \"a | b | c\"", "if str_starts(name, \"test_\") " + lb() + " " + rb() + ""]))
+    dp.note("需要把数值拼进文本时，优先用插值字符串与格式说明符（见 1.9）；str_ 系承担的是结构化文本操作——拆分、拼接、查找、修剪——而非格式化。")
+
+    // ---------------- 2.20 ----------------
+    dp.h2("2.20  集合操作")
+    dp.p("表与映射的内建操作同样是自由函数。原地生效的操作返回自身，因此可以直接接入管道；产出新值的操作不改原表。")
+    var w6c = table_new_i64()
+    table_push(w6c, 230)
+    table_push(w6c, 221)
+    var h6c = table_new_string()
+    table_push(h6c, "函数")
+    table_push(h6c, "语义")
+    var r6c: table<table<string>> = []
+    table_push(r6c, dp.kvrow("sort(t)", "升序排序，元素需可比较；原地生效并返回自身。"))
+    table_push(r6c, dp.kvrow("sort_by(t, cmp)", "以比较函数排序；原地生效并返回自身。"))
+    table_push(r6c, dp.kvrow("reverse(t)", "逆置；原地生效并返回自身。"))
+    table_push(r6c, dp.kvrow("distinct(t)", "保序去重，返回新表。"))
+    table_push(r6c, dp.kvrow("concat(a, b)", "拼接两表，返回新表。"))
+    table_push(r6c, dp.kvrow("group_by(t, key)", "按键函数分组，返回 map<table<T>>。"))
+    dp.tbl(h6c, r6c, w6c)
+    dp.codeblock(dp.src(["var top = scores -> sort() -> reverse() -> iter_take(10)", "var rows = group_by(orders, o -> o.city)"]))
+    dp.p("排序是稳定的：相等元素的相对次序在排序后保持不变。这让多重排序可以先按次关键字排序、再按主关键字排序地组合出来。")
 
 }
 

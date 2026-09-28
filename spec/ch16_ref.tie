@@ -11,11 +11,11 @@ pub func chapter() {
 
     // ---------------- 16.1 ----------------
     dp.h2("16.1  文件与角色")
-    dp.codeblock(dp.src(["type tie               // 泛型入口（Type 角色）", "type tie<logic>        // 逻辑代码（默认）", "type tie<class>        // 类库", "type tie<script>       // 脚本", "type tie<data>         // 纯数据", "type tie<ui>           // 界面", "type tie<db>           // 数据库", "type tie<port>         // 接口", "type tie<ir>           // 中间表示"]))
+    dp.codeblock(dp.src(["type tie               // 泛型入口（Type 角色）", "type tie<logic>        // 逻辑代码（默认）", "type tie<class>        // 类库", "type tie<script>       // 脚本", "type tie<data>         // 纯数据", "type tie<ui>           // 界面", "type tie<db>           // 数据库", "type tie<port>         // 接口", "type tie<ir>           // 中间表示", "type tie<test>         // 测试", "type tie<bench>        // 基准", "type tie<zd>           // 结构化二进制数据", "type tie<tsh>          // 终端脚本"]))
 
     // ---------------- 16.2 ----------------
     dp.h2("16.2  声明形态")
-    dp.codeblock(dp.src(["var x = 1                       // 变量", "const K = 10                    // 常量", "func f(a: i64) -> i64 " + lb() + " " + rb() + "       // 函数", "pub func g() " + lb() + " " + rb() + "                // 公开函数", "struct S " + lb() + " var n: i64 = 0 " + rb() + "     // 结构", "enum E " + lb() + " A(x: i64) " + rb() + "            // 枚举", "namespace ns " + lb() + " " + rb() + "                // 命名空间", "port P " + lb() + " pub func m(self) " + rb() + "     // 接口", "impl P for S " + lb() + " " + rb() + "                // 实现", "actor A " + lb() + " var n: i64 = 0 " + rb() + "      // 状态单元", "macro m(x: code) -> code " + lb() + " " + rb() + "    // 宏", "import \"./m.tie\" as m           // 导入", "extern func e(a: i64) -> i64    // 外部函数"]))
+    dp.codeblock(dp.src(["var x = 1                       // 变量", "const K = 10                    // 常量", "func f(a: i64) -> i64 " + lb() + " " + rb() + "       // 函数", "pub func g() " + lb() + " " + rb() + "                // 公开函数", "struct S " + lb() + " var n: i64 = 0; " + rb() + "     // 结构", "enum E " + lb() + " A(x: i64) " + rb() + "            // 枚举", "namespace ns " + lb() + " " + rb() + "                // 命名空间", "port P " + lb() + " pub func m(self) " + rb() + "     // 接口", "impl P for S " + lb() + " " + rb() + "                // 实现", "actor A " + lb() + " var n: i64 = 0; " + rb() + "      // 状态单元", "macro m(x: code) -> code " + lb() + " " + rb() + "    // 宏", "import \"./m.tie\" as m           // 导入", "extern func e(a: i64) -> i64    // 外部函数"]))
 
     // ---------------- 16.3 ----------------
     dp.h2("16.3  参数约定")
@@ -23,19 +23,20 @@ pub func chapter() {
 
     // ---------------- 16.4 ----------------
     dp.h2("16.4  表达式记号")
-    dp.codeblock(dp.src(["a -> f                  // 数据流管道", "t -> t + 1              // 短闭包（要求函数值的位置）", "x in m                  // 成员判定", "x not in m              // 成员取反", "v ?: 10                 // 安全默认值", "v?                      // 存在判定", "p\\                      // 解引用", "n %% 1                  // 原地修改", "a ** b                  // 幂", "a **? b                 // 带检查的幂", "0..10   0..=10          // 范围"]))
+    dp.codeblock(dp.src(["a -> f                  // 数据流管道", "t -> t + 1              // 短闭包（要求函数值的位置）", "x in m                  // 成员判定", "x not in m              // 成员取反", "v ?: 10                 // 安全默认值", "v?                      // 存在判定", "\\p                      // 解引用", "n %%= 1                 // 原地取余并写回", "a ** b                  // 幂", "a **? b                 // 带检查的幂", "0..10   0..=10          // 范围"]))
 
     // ---------------- 16.5 ----------------
     dp.h2("16.5  语句形态")
-    dp.codeblock(dp.src(["if cond " + lb() + " " + rb() + " else " + lb() + " " + rb() + "", "while cond " + lb() + " " + rb() + "", "for i in 0..10 " + lb() + " " + rb() + "", "for x in xs " + lb() + " " + rb() + "", "for c in s.chars() " + lb() + " " + rb() + "", "lbl: for i in 0..10 " + lb() + " break lbl " + rb() + "", "switch v " + lb() + " case 1: " + rb() + "", "return v", "yield v", "break    continue", "goto cleanup", "panic(\"msg\")"]))
+    dp.codeblock(dp.src(["if cond " + lb() + " " + rb() + " else " + lb() + " " + rb() + "", "while cond " + lb() + " " + rb() + "", "for i in 0..10 " + lb() + " " + rb() + "", "for x in xs " + lb() + " " + rb() + "", "for c in s.chars() " + lb() + " " + rb() + "", "lbl: for i in 0..10 " + lb() + " break lbl " + rb() + "", "switch v " + lb() + " case 1: " + rb() + "", "return v", "yield v", "break    continue", "unsafe goto #tag", "panic(\"msg\")"]))
 
     // ---------------- 16.6 ----------------
     dp.h2("16.6  常用内建")
-    dp.codeblock(dp.src(["println(s)              // 输出一行", "to_string(v)            // 转文本", "str_len(s)              // 码点数", "len(t)                  // 元素数或字节数", "str_char(s, i)          // 取第 i 个码点", "char_code(c)            // 取码点的数值", "table_new_i64()         // 新建动态表", "table_push(t, v)        // 追加", "map_new()               // 新建映射", "file_read(p)  file_write(p, s)", "byte_read(p)  byte_write(p, t)   // 二进制安全", "load_library(n)  get_proc(h, n)  dyn_call(p, ...)"]))
+    dp.codeblock(dp.src(["println(s)              // 输出一行", "to_string(v)            // 转文本", "str_len(s)              // 码点数", "len(t)                  // 元素数或字节数", "str_char(s, i)          // 取第 i 个码点", "char_code(c)            // 取码点的数值", "str_split(s, sep)  str_join(ts, sep)      // 拆分与拼接", "str_contains(s, sub)  str_trim(s)        // 包含与修剪", "sort(t)  reverse(t)  distinct(t)         // 集合操作（见 2.20）", "group_by(t, key)  concat(a, b)           // 分组与拼接", "iter_map(xs, f)  iter_filter(xs, p)      // 迭代器适配（见 6.11）", "iter_take(xs, n)  iter_zip(a, b)  iter_chain(a, b)", "wrap_err(r, msg)  cause(e)  root_cause(e) // 错误链（见 8.7）", "table_new_i64()         // 新建动态表", "table_push(t, v)        // 追加", "map_new()               // 新建映射", "file_read(p)  file_write(p, s)", "byte_read(p)  byte_write(p, t)   // 二进制安全", "load_library(n)  get_proc(h, n)  dyn_call(p, ...)"]))
 
     // ---------------- 16.7 ----------------
     dp.h2("16.7  诊断编号")
-    dp.p("诊断编号按类别分段，便于按区间检索。")
+    dp.p("诊断编号由类别字母与五位数字构成：E 打头的是错误，W 打头的是警告。编号一经分配即不再变动，新增诊断取新号、不复用旧号。")
+    dp.p("数字段不编码类别——编号按登记顺序连续分配，分类信息由编号表另行登记，因此按类别检索应当查表，而不是按数字区间推断。")
 
     var w = table_new_i64()
     table_push(w, 150)
@@ -44,35 +45,30 @@ pub func chapter() {
     table_push(h, "区间")
     table_push(h, "类别")
     var r: table<table<string>> = []
-    table_push(r, dp.kvrow("E00000 - E00099", "语法与词法"))
-    table_push(r, dp.kvrow("E00100 - E00199", "内建函数调用形态"))
-    table_push(r, dp.kvrow("E00200 - E00399", "类型与调用匹配"))
-    table_push(r, dp.kvrow("E00400 - E00499", "导入、声明与作用域"))
-    table_push(r, dp.kvrow("E00500 - E00699", "借用、移动与捕获"))
-    table_push(r, dp.kvrow("E00700 及以上", "并发、宏与不安全区"))
-    table_push(r, dp.kvrow("W00001 - W00099", "警告：可疑但合法"))
+    table_push(r, dp.kvrow("E", "错误：代码无法编译，必须修正"))
+    table_push(r, dp.kvrow("W", "警告：可疑但合法，按默认设置提示"))
     dp.tbl(h, r, w)
 
-    dp.note("编号稳定是工具链的前提：编辑器、CI 与回归语料都按编号引用诊断，重排编号会同时破坏这三者。因此新增诊断一律取新号，不复用旧号。")
+    dp.note("编号稳定是工具链的前提：编辑器、CI 与回归语料都按编号引用诊断，重排编号会同时破坏这三者。曾经规划按类别划分数字区间（语法与词法、内建调用、类型与调用、导入与作用域、借用与移动、并发与宏各占一段），该规划未采用：区间需要预留空号，而预留与「连续分配、永不复用」在长期演进中彼此冲突。类别检索改由编号表的类别字段承担。")
 
     // ---------------- 16.8 ----------------
     dp.h2("16.8  设计要点回顾")
     dp.p("本书的规则可以收敛成若干条彼此呼应的立场，它们共同构成语言的性格。")
-    dp.bullet(["参数约定写在声明处，四种划分互斥且完备——读签名即知实参的去向", "命名实参可跳过带默认值的参数，使「只改一处」的调用最短", "闭包捕获除可写借用外一律按值，因此不产生共享可变状态", "并发通过消息与任务图表达，共享不通过共享内存偶然发生", "不安全操作写在标记区内，审计可按文本搜索完成", "常见的书写意图有专有记号：管道、短闭包、成员判定、原地修改、安全默认值"])
-    // ---------------- 16.8 ----------------
-    dp.h2("16.8  字符串与数字")
-    dp.codeblock(dp.src([r"""普通 {插值} 字符串""", r"r""原始字符串无转义""", r"""""""多行字符串，按闭合引号缩进剥离""""""", r"'A'                       // 字符", r"", r"42  0xFF  0b1011  0o755  0t1T0      // 五种进制", r"1_000_000                           // 下划线分组", r"3.14  1.5e3                         // 浮点", r"42i32  0x80u16  1.5f32  0.1d        // 类型后缀", r"-1t  0t  1t                         // 三值"]))
+    dp.bullet(["参数约定写在声明处，四种划分互斥且完备——读签名即知实参的去向", "命名实参可跳过带默认值的参数，使「只改一处」的调用最短", "闭包捕获对容器按引用、对其余按值快照；共享可变状态只可能经由容器捕获出现", "并发通过消息与任务图表达，共享不通过共享内存偶然发生", "不安全操作写在标记区内，审计可按文本搜索完成", "常见的书写意图有专有记号：管道、短闭包、成员判定、原地修改、安全默认值"])
     // ---------------- 16.9 ----------------
-    dp.h2("16.9  运算符速览")
-    dp.codeblock(dp.src([r"a + b   a - b   a * b   a / b   a % b     // 算术", r"a \ b   a %% b                            // 整除与成对取余", r"a ** b   a **? b                          // 幂；带检查的幂", r"a +? b   a -? b   a *? b                  // 带检查的算术", r"a == b   a != b   a < b   a <= b          // 比较（可链式）", r"a in xs   a not in xs                     // 成员判定", r"cond && cond   cond || cond   !cond       // 逻辑", r"a << b   a >> b   a & b   a | b   a ^ b   // 位运算", r"x = v   x += v   x \= v   x %%= v         // 赋值与复合赋值", r"", r"v -> f            // 管道", r"v -> [i]          // 管道进下标", r"v -> .field       // 管道进字段", r"v -> { x -> e }   // 块管道（x 为绑定名）", r"x <- v            // 反向赋值", r"(a, b) <- t       // 解构", r"v with { k: x }   // 不可变更新", r"opt ?   opt ?: d   obj?.f   obj?[i]        // 可空链", r"xs[1..3]   xs[..2]   xs[2..]   xs[..]      // 切片", r"\p                                        // 解引用（不安全）"]))
+    dp.h2("16.9  字符串与数字")
+    dp.codeblock(dp.src([r"""普通字符串，花括号即字面量""", r"h""{插值}"" 花括号内求值", r"h""{x:08.2f}"" 插值带格式说明符", r"r""原始字符串无转义""", r"""""""多行字符串，按闭合引号缩进剥离""""""", r"'A'                       // 字符", r"", r"42  0xFF  0b1011  0o755  0t1T0      // 五种进制", r"1_000_000                           // 下划线分组", r"3.14  1.5e3                         // 浮点", r"42i32  0x80u16  1.5f32  0.1d        // 类型后缀", r"-1t  0t  1t                         // 三值"]))
     // ---------------- 16.10 ----------------
-    dp.h2("16.10  语句速览")
-    dp.codeblock(dp.src([r"if c { } else if c2 { } else { }", r"if let Some(v) = opt { }", r"while c { }", r"for i in 0..n { }", r"for x in xs { }", r"for c in s.chars() { }", r"lbl: for i in 0..n { break lbl }", r"switch v { case 1: ... default: ... }", r"var x = switch v { 0 -> a, _ -> b }        // 分支即表达式", r"var (a, b) = pair", r"var (a, ...rest) = xs", r"guard c else { return }", r"defer { cleanup() }", r"try { x = f()? }", r"return v    yield v    break    continue", r"panic(""msg"")", r"unsafe goto #tag                            // 配 #[tag.tag] 标签", r"unsafe { }                                  // 不安全块"]))
+    dp.h2("16.10  运算符速览")
+    dp.codeblock(dp.src([r"a + b   a - b   a * b   a / b   a % b     // 算术", r"a \ b   a %% b                            // 整除与成对取余", r"a ** b   a **? b                          // 幂；带检查的幂", r"a +? b   a -? b   a *? b   a <<? b         // 带检查的算术与移位", r"a == b   a != b   a < b   a <= b          // 比较（可链式）", r"a in xs   a not in xs                     // 成员判定", r"cond && cond   cond || cond   !cond       // 逻辑", r"a << b   a >> b   a & b   a | b   a ^ b   ~a   // 位运算", r"x = v   x += v   x \= v   x %%= v         // 赋值与复合赋值", r"", r"v -> f            // 管道", r"v -> [i]          // 管道进下标", r"v -> .field       // 管道进字段", r"v -> { x -> e }   // 块管道（x 为绑定名）", r"x <- v            // 反向赋值", r"(a, b) <- t       // 解构", r"v with { k: x }   // 不可变更新", r"opt ?   opt ?: d   obj?.f   obj?[i]        // 可空链", r"xs[1..3]   xs[..2]   xs[2..]   xs[..]      // 切片", r"\p                                        // 解引用（不安全）"]))
     // ---------------- 16.11 ----------------
-    dp.h2("16.11  声明速览")
-    dp.codeblock(dp.src([r"[pub] [unsafe] [async] [inline] func f(a: i64) -> i64 { }", r"func f(x: i64) -> i64 = x * 2               // 等号体", r"struct S<T> extends B { var f: T = d }", r"enum E { A  B(x: i64) }", r"namespace ns { }", r"port P { pub func m(self) -> i64 }          // 名义接口", r"interface I { pub func m(self) -> i64 }     // 结构接口", r"impl P for S { pub func m(self) -> i64 { } }", r"actor A { var n: i64 = 0  pub func m() { } }", r"macro m(x: code) -> code { }", r"alias M = table<f64>", r"extern func e(a: i64) -> i64", r"import ""m.tie"" as m", r"import ""m.tie"".{ a, b }                     // 选择性导入", r"pub import ""m.tie""                          // 重导出", r"using ns.sub", r"var g: table<i64> = []", r"const K: i64 = 10", r"@注解(3)  #[属性]  #cfg(cond)               // 注解与条件编译", r"view V(p: i64) -> (Act) { @Column { } }     // 界面单元"]))
+    dp.h2("16.11  语句速览")
+    dp.codeblock(dp.src([r"if c { } else if c2 { } else { }", r"if let Some(v) = opt { }", r"while c { }", r"for i in 0..n { }", r"for x in xs { }", r"for c in s.chars() { }", r"lbl: for i in 0..n { break lbl }", r"switch v { case 1: ... default: ... }", r"var x = switch v { 0 -> a, _ -> b }        // 分支即表达式", r"var (a, b) = pair", r"var (a, ...rest) = xs", r"guard c else { return }", r"defer { cleanup() }", r"try { x = f()? }", r"return v    yield v    break    continue", r"panic(""msg"")", r"unsafe goto #tag                            // 配 #[tag.tag] 标签", r"unsafe { }                                  // 不安全块"]))
     // ---------------- 16.12 ----------------
-    dp.h2("16.12  形式与分工")
+    dp.h2("16.12  声明速览")
+    dp.codeblock(dp.src([r"[pub] [unsafe] [async] [inline] func f(a: i64) -> i64 { }", r"func f(x: i64) -> i64 = x * 2               // 等号体", r"struct S<T> extends B { var f: T = d; }", r"enum E { A  B(x: i64) }", r"namespace ns { }", r"port P { pub func m(self) -> i64 }          // 名义接口", r"interface I { pub func m(self) -> i64 }     // 结构接口", r"impl P for S { pub func m(self) -> i64 { } }", r"actor A { var n: i64 = 0;  pub func m() { } }", r"macro m(x: code) -> code { }", r"alias M = table<f64>", r"extern func e(a: i64) -> i64", r"import ""m.tie"" as m", r"import ""m.tie"".{ a, b }                     // 选择性导入", r"pub import ""m.tie""                          // 重导出", r"using ns.sub", r"var g: table<i64> = []", r"const K: i64 = 10", r"@注解(3)  #[属性]  #cfg(cond)               // 注解与条件编译", r"view V(p: i64) -> (Act) { @Column { } }     // 界面单元"]))
+    // ---------------- 16.13 ----------------
+    dp.h2("16.13  形式与分工")
     dp.p("把全书反复出现的判断收束成一张对照：遇到「这个信息该写在哪」，查这张表。")
     var w2 = table_new_i64()
     table_push(w2, 190)
