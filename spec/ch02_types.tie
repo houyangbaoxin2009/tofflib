@@ -115,7 +115,7 @@ pub func chapter() {
     dp.p("数值类型之间的转换是显式的。窄化转换可能丢失信息，语言要求书写者明确表达意图。")
     dp.codeblock(dp.src(["var a: i64 = 1000", "var b = to_i32(a)        // 窄化：显式", "var c: f64 = to_f64(a)   // 整数到浮点", "var d = to_string(a)     // 到文本"]))
     dp.p("指针与整数之间的转换只在 unsafe 上下文中允许（见第 11 章）。聚合类型与动态类型之间的转换由各自的构造与匹配机制承担。")
-    dp.p("转换函数按三族命名，职责不重叠：to_ 系做数值转换与任意值转文本，try_parse_ 系做可预期的文本解析，as_ 系从动态类型解包。")
+    dp.p("转换函数按三族命名，职责不重叠：to_ 系做数值转换与任意值转文本，tp_ 系做可预期的文本解析，as_ 系从动态类型解包。")
     var w3c = table_new_i64()
     table_push(w3c, 190)
     table_push(w3c, 261)
@@ -126,10 +126,10 @@ pub func chapter() {
     table_push(r3c, dp.kvrow("to_i8 … to_u128 / to_f32 / to_f64", "数值类型之间的转换；窄化必须显式写出。"))
     table_push(r3c, dp.kvrow("to_string(v)", "任意值转文本。"))
     table_push(r3c, dp.kvrow("to_i64(s) / to_f64(s)", "文本解析为数值；解析失败触发内建检查，适用于「解析不了就是程序错误」的场合。"))
-    table_push(r3c, dp.kvrow("try_parse_i64(s) / try_parse_f64(s)", "解析为 Result<i64, string> / Result<f64, string>；失败可预期，由调用方分支处理。"))
+    table_push(r3c, dp.kvrow("tp_i64(s) / tp_f64(s)", "解析为 Result<i64, string> / Result<f64, string>；失败可预期，由调用方分支处理。"))
     table_push(r3c, dp.kvrow("as_i64 / as_f64 / as_string / as_bool", "从 any 解包；实际类型不符即报错。"))
     dp.tbl(h3c, r3c, w3c)
-    dp.codeblock(dp.src(["var n = to_i64(\"4096\")         // 文本解析，失败即内建检查", "var r = try_parse_i64(s)       // 可预期失败：Result<i64, string>", "var m = as_f64(boxed)          // 从 any 解包"]))
+    dp.codeblock(dp.src(["var n = to_i64(\"4096\")         // 文本解析，失败即内建检查", "var r = tp_i64(s)              // 可预期失败：Result<i64, string>", "var m = as_f64(boxed)          // 从 any 解包"]))
 
     // ---------------- 2.12 ----------------
     dp.h2("2.12  低层与特殊类型")
