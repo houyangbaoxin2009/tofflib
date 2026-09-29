@@ -83,6 +83,7 @@ pub func chapter() {
     table_push(r2, dp.kvrow("调用时这一项是什么", "命名实参"))
     table_push(r2, dp.kvrow("这个类型怎么用", "类型标注与别名"))
     table_push(r2, dp.kvrow("返回值是什么", "函数签名（必写）"))
+    table_push(r2, dp.kvrow("这一项为什么存在", "文档注释（见 15.5）"))
     table_push(r2, dp.kvrow("这个文件是什么", "文件头 type tie<角色>"))
     table_push(r2, dp.kvrow("哪里允许不安全操作", "文件头或函数上的能力域标注"))
     table_push(r2, dp.kvrow("这块代码属于哪一层", "命名空间与可见性"))

@@ -50,8 +50,26 @@ pub func chapter() {
 
     // ---------------- 15.5 ----------------
     dp.h2("15.5  文档生成")
-    dp.p("以三条斜线书写的文档注释被工具提取，与声明一起生成 API 文档。文档注释支持与正文相同的排版记号，因此说明与示例可以写在一起。")
-    dp.codeblock(dp.src(["/// 求两数的最大公约数。", "///", "/// 示例：", "///     gcd(12, 18)   // 6", "pub func gcd(a: i64, b: i64) -> i64 " + lb() + " " + rb() + ""]))
+    dp.p("以三条斜线书写的文档注释被工具提取，与声明一起生成 API 文档。文档注释紧接在声明之前，就属于那个声明；写在函数体内部则退化为普通注释。")
+    dp.p("文档注释的第一行是摘要，其余部分与正文使用同一套排版记号，只是写成文本形态。")
+
+    var wdoc = table_new_i64()
+    table_push(wdoc, 130)
+    table_push(wdoc, 321)
+    var hdoc = table_new_string()
+    table_push(hdoc, "排版构件")
+    table_push(hdoc, "文档注释里的写法")
+    var rdoc: table<table<string>> = []
+    table_push(rdoc, dp.kvrow("摘要", "首行"))
+    table_push(rdoc, dp.kvrow("段落", "空行分隔：一行只有三条斜线"))
+    table_push(rdoc, dp.kvrow("代码块", "整行缩进四空格"))
+    table_push(rdoc, dp.kvrow("清单", "每项以 - 开头"))
+    table_push(rdoc, dp.kvrow("提示", "以 > 开头"))
+    table_push(rdoc, dp.kvrow("小标题", "以 # 开头，个数表示层级"))
+    dp.tbl(hdoc, rdoc, wdoc)
+
+    dp.codeblock(dp.src(["/// 求两数的最大公约数。", "///", "/// 示例：", "///     gcd(12, 18)   // 6", "///", "/// > 入参为零时返回另一数。", "pub func gcd(a: i64, b: i64) -> i64 " + lb() + " " + rb() + ""]))
+    dp.p("参数的说明不重复进文档注释：类型、可空、默认值、ref / immut / move 都是签名的一部分（见 16.13）。文档注释说明签名表达不了的东西——这一项为什么存在、取值范围、边界行为、与谁相关。")
 
     // ---------------- 15.6 ----------------
     dp.h2("15.6  交互式环境")
