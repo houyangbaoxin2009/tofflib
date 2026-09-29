@@ -1,3 +1,0 @@
-spec/*.exe
-spec/*.pdf
-!spec/tie-spec-2026.pdf
