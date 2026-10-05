@@ -554,7 +554,7 @@ pub func render_pptx(path: string, deck_title: string, blocks: table<table<strin
 }
 
 // 收尾当前幻灯片：无标题且无要点则不生成。
-func flush_slide(slides: table<string>, title: string, items: table<string>) -> void {
+func flush_slide(ref slides: table<string>, title: string, items: table<string>) -> void {
     if str_len(title) == 0 && len(items) == 0 {
         return
     }
