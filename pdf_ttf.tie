@@ -459,7 +459,10 @@ pub func gid_of(s: i64, cp: i64) -> i64 {
             return v
         }
         var g = cmap_raw(s, cp)
+        // ★ 同上：`cget(s)` 是副本，缓存写入须写回才有意义
+        //   （不写回只是让缓存永不命中、每次都重算 cmap_raw，属性能缺陷而非正确性错误）。
         c[cp] = g
+        cset(s, c)
         return g
     }
     return cmap_raw(s, cp)
@@ -679,9 +682,14 @@ pub func note_gid(s: i64, g: i64) {
     if len(uget(s)) <= g {
         used_init(s)
     }
+    // ★ 必须写回：值语义下 `uget(s)` 返回的是**副本**（全局槽 g_u0 仍持有该表 ⇒ rc>1，
+    //   写入触发写前分离，改动只落在本地副本上）。不写回则标记**静默丢失**，
+    //   已用字形表全为 0 ⇒ 轮廓统计 checked==0（outline 自检 -41）、
+    //   ToUnicode 反查表为空（PDF 文本层错位）。2026-10-07 定位并修复。
     var t = uget(s)
     if g < len(t) {
         t[g] = 1
+        uset(s, t)
     }
 }
 
