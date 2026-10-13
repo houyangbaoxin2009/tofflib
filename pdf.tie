@@ -24,10 +24,10 @@ import "./pdf_ttf.tie"
 
 var g_off: i64 = 0;          // 当前字节偏移（累进）
 var g_dry: i64 = 0;          // 干跑开关（1 = 抑制内容输出，页面仍推进）
-var g_objs: table<string>;   // 对象体（下标 0 起 = 对象 1）
-var g_pages: table<string>;  // 每页内容流
-var g_w: i64 = 595;          // A4 宽（pt）
-var g_h: i64 = 842;          // A4 高（pt）
+pub var g_objs: table<string>;   // 对象体（下标 0 起 = 对象 1）
+pub var g_pages: table<string>;  // 每页内容流
+pub var g_w: i64 = 595;          // A4 宽（pt）
+pub var g_h: i64 = 842;          // A4 高（pt）
 
 // ---------- 数字 → ASCII ----------
 // 整数转十进制（PDF 只接受 ASCII 数字，不依赖 locale）。
