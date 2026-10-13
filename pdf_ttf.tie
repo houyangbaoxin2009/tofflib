@@ -434,7 +434,17 @@ func cmap_raw(s: i64, cp: i64) -> i64 {
 // 直址缓存（0..0x9FFF 一张表）：同一字符在文档里反复出现，逐次线性扫 cmap
 // 段表会退化为 O(字符数 × 段数) 的热点。
 func cache_init(s: i64) {
-    if len(cget(s)) > 0 {
+    // [2026-10-13 性能修复] 一律直读写全局槽：旧路径经 cget 副本 + cset 写回，
+    // 每次未命中都整表复制（40960 项 ≈ 320KB/次）。
+    var have: i64 = 0
+    if s == 0 {
+        have = len(g_c0)
+    } else if s == 1 {
+        have = len(g_c1)
+    } else {
+        have = len(g_c2)
+    }
+    if have > 0 {
         return
     }
     var t = table_new_i64()
@@ -443,7 +453,13 @@ func cache_init(s: i64) {
         table_push(t, -1)
         i = i + 1
     }
-    cset(s, t)
+    if s == 0 {
+        g_c0 = t
+    } else if s == 1 {
+        g_c1 = t
+    } else {
+        g_c2 = t
+    }
 }
 
 // 码点 → GID（0 = 缺字）
@@ -453,16 +469,28 @@ pub func gid_of(s: i64, cp: i64) -> i64 {
     }
     if cp < 40960 {
         cache_init(s)
-        var c = cget(s)
-        var v = c[cp]
+        // 直读写全局槽（rc==1 原地写，零拷贝）。旧「cget 取副本 → 写 → cset 写回」
+        // 路径每次未命中触发两次整表拷贝（≈320KB × 2/次）；首次全量排版数万个
+        // 未命中 ⇒ 数 GB 拷贝（2026-10-13 实测）。
+        var v: i64 = -1
+        if s == 0 {
+            v = g_c0[cp]
+        } else if s == 1 {
+            v = g_c1[cp]
+        } else {
+            v = g_c2[cp]
+        }
         if v >= 0 {
             return v
         }
         var g = cmap_raw(s, cp)
-        // ★ 同上：`cget(s)` 是副本，缓存写入须写回才有意义
-        //   （不写回只是让缓存永不命中、每次都重算 cmap_raw，属性能缺陷而非正确性错误）。
-        c[cp] = g
-        cset(s, c)
+        if s == 0 {
+            g_c0[cp] = g
+        } else if s == 1 {
+            g_c1[cp] = g
+        } else {
+            g_c2[cp] = g
+        }
         return g
     }
     return cmap_raw(s, cp)
@@ -682,14 +710,25 @@ pub func note_gid(s: i64, g: i64) {
     if len(uget(s)) <= g {
         used_init(s)
     }
-    // ★ 必须写回：值语义下 `uget(s)` 返回的是**副本**（全局槽 g_u0 仍持有该表 ⇒ rc>1，
-    //   写入触发写前分离，改动只落在本地副本上）。不写回则标记**静默丢失**，
-    //   已用字形表全为 0 ⇒ 轮廓统计 checked==0（outline 自检 -41）、
-    //   ToUnicode 反查表为空（PDF 文本层错位）。2026-10-07 定位并修复。
-    var t = uget(s)
-    if g < len(t) {
-        t[g] = 1
-        uset(s, t)
+    // [2026-10-13 性能修复] 直写全局槽（rc==1 原地写，零拷贝）。
+    // 旧「uget 取副本 → t[g]=1 触发写前分离 → uset 写回」路径每次标记都整表拷贝
+    // （正文槽 ≈350KB/次）；本函数逐字形调用（每次构建 ≈20 万次）⇒ 数十 GB 拷贝、
+    // 内存峰值 ~22GB。直写与 2026-10-07 写回版语义完全一致（标记仍落在全局槽，
+    // outline / ToUnicode 不受影响）。
+    if s == 0 {
+        if g < len(g_u0) && g_u0[g] != 1 {
+            g_u0[g] = 1
+        }
+        return
+    }
+    if s == 1 {
+        if g < len(g_u1) && g_u1[g] != 1 {
+            g_u1[g] = 1
+        }
+        return
+    }
+    if g < len(g_u2) && g_u2[g] != 1 {
+        g_u2[g] = 1
     }
 }
 
