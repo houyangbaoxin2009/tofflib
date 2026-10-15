@@ -11,3 +11,6 @@
 *.pptx
 # 运行时临时文件
 *.tmp
+# tpkg 规范
+target/
+_local_only/
