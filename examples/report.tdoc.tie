@@ -1,7 +1,7 @@
 type tie<tdoc>
 // report.tdoc.tie：tie 办公文档源（自定义角色 tdoc）——用 tiedoc 块函数构建
 // 说明：tie 不支持表内表字面量 [[..],[..]]；块行以 td.* 调用结果变量引用组装
-import "../tiedoc.tie" as td
+import "../src/tiedoc.tie" as td
 
 namespace report {
 

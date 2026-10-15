@@ -8,7 +8,7 @@ type tie<logic>
 // ============================================================================
 
 import "./report.tdoc.tie" as report
-import "../tiedoc.tie" as td
+import "../src/tiedoc.tie" as td
 
 func main() {
     var blocks = report.blocks()

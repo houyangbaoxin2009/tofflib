@@ -6,8 +6,8 @@ type tie<logic>
 //      examples\gen_docx.exe    # 在仓库根生成 demo.docx，双击可用 Word 打开
 // ============================================================================
 
-import "../docx.tie" as dx
-import "../officeutil.tie" as ou
+import "../src/docx.tie" as dx
+import "../src/officeutil.tie" as ou
 import "../ooxml.tie" as ox
 
 // 表格：表头合并跨列 + 主题底纹 + 对齐的列数据。

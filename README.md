@@ -33,11 +33,11 @@ tofflib 的使命是把 **tie 用作办公脚本**：
 
 ```bash
 # 编译单个模块（class 库 → 静态库）
-tiec docx.tie          # → docx.a
-tiec omml.tie          # → omml.a
-tiec vml.tie           # → vml.a
-tiec officeutil.tie    # → officeutil.a
-tiec ooxml.tie         # → ooxml.a
+tiec src/docx.tie          # → docx.a
+tiec src/omml.tie          # → omml.a
+tiec src/vml.tie           # → vml.a
+tiec src/officeutil.tie    # → officeutil.a
+tiec src/ooxml.tie         # → ooxml.a
 
 # 冒烟验证：编译并运行 probe
 tiec examples\probe.tie -o examples\probe.exe
