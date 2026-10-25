@@ -232,6 +232,31 @@ func zp_bytes(pi: i64) -> table<i64> {
     return zl.compress(zp_src(pi))
 }
 
+// 压缩结果按页缓存：save 的偏移遍历与落盘遍历各走一遍对象表，若无缓存每页要压两次。
+var g_zoff: table<i64>;
+var g_zcat: table<i64>;
+
+func zp_build() {
+    g_zoff = table_new_i64()
+    g_zcat = table_new_i64()
+    var q: i64 = 0
+    while q < len(g_pages) {
+        table_push(g_zoff, len(g_zcat))
+        var zb = zp_bytes(q)
+        var k: i64 = 0
+        while k < len(zb) {
+            table_push(g_zcat, zb[k])
+            k = k + 1
+        }
+        q = q + 1
+    }
+    table_push(g_zoff, len(g_zcat))
+}
+
+func zp_len(pi: i64) -> i64 {
+    return g_zoff[pi + 1] - g_zoff[pi]
+}
+
 func seg_page(pi: i64) {
     table_push(g_seg_kind, 2)
     table_push(g_seg_str, "")
@@ -255,6 +280,7 @@ pub func save(path: string) -> bool {
     }
     add_page_objs()
 
+    zp_build()
     var n = len(g_objs)
     var base = 3 + 5 * font_count()
     var offs = table_new_i64()
@@ -303,12 +329,12 @@ pub func save(path: string) -> bool {
             var is_content = oid >= base + 1 && (oid - base) % 2 == 1
             if is_content {
                 var pi = (oid - base) / 2
-                var zb = zp_bytes(pi)
-                var pre = i2s(oid) + " 0 obj\n<< /Length " + i2s(len(zb)) + " /Filter /FlateDecode >>\nstream\n"
+                var fl = zp_len(pi)
+                var pre = i2s(oid) + " 0 obj\n<< /Length " + i2s(fl) + " /Filter /FlateDecode >>\nstream\n"
                 seg_ascii(pre)
                 seg_page(pi)
                 seg_ascii("endstream\nendobj\n")
-                off = off + str_len(pre) + len(zb) + 17
+                off = off + str_len(pre) + fl + 17
             } else {
                 var piece = obj_text(oid, body)
                 seg_ascii(piece)
@@ -340,10 +366,11 @@ func write_segs(path: string) -> bool {
         if g_seg_kind[i] == 0 {
             push_str(out, g_seg_str[i])
         } else if g_seg_kind[i] == 2 {
-            var z = zp_bytes(g_seg_slot[i])
-            var k: i64 = 0
-            while k < len(z) {
-                table_push(out, z[k])
+            var pi = g_seg_slot[i]
+            var k = g_zoff[pi]
+            var e = g_zoff[pi + 1]
+            while k < e {
+                table_push(out, g_zcat[k])
                 k = k + 1
             }
         } else {

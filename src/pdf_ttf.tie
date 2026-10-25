@@ -264,6 +264,7 @@ pub func font_load(s: i64, path: string) -> i64 {
     if s < 0 || s >= 4 {
         return -1
     }
+    subset_reset()
     var bytes = byte_read(path)
     var blen = file_size(path)
     if blen < 12 || len(bytes) < 12 {
@@ -970,7 +971,44 @@ func ss_emit(out: ref table<i64>, data: table<i64>) {
 }
 
 // 子集字体字节；失败返回空表（调用方退回整包内嵌）
+// 子集结果按槽缓存：同一文档里 subset_len 与 subset_bytes 各要一次，重建 1MB 表两次不划算
+var g_sb0: table<i64>;
+var g_sb1: table<i64>;
+var g_sb2: table<i64>;
+
+func sb_get(s: i64) -> table<i64> {
+    if s == 0 {
+        return g_sb0
+    }
+    if s == 1 {
+        return g_sb1
+    }
+    return g_sb2
+}
+
+func sb_put(s: i64, t: table<i64>) {
+    if s == 0 {
+        g_sb0 = t
+        return
+    }
+    if s == 1 {
+        g_sb1 = t
+        return
+    }
+    g_sb2 = t
+}
+
+pub func subset_reset() {
+    g_sb0 = table_new_i64()
+    g_sb1 = table_new_i64()
+    g_sb2 = table_new_i64()
+}
+
 pub func subset_bytes(s: i64) -> table<i64> {
+    var cached = sb_get(s)
+    if len(cached) > 0 {
+        return cached
+    }
     var out = table_new_i64()
     if s < 0 || s >= g_slots {
         return out
@@ -1104,6 +1142,7 @@ pub func subset_bytes(s: i64) -> table<i64> {
     out[head_at + 9] = (adj / 65536) & 255
     out[head_at + 10] = (adj / 256) & 255
     out[head_at + 11] = adj & 255
+    sb_put(s, out)
     return out
 }
 
