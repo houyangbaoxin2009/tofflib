@@ -1,50 +1,50 @@
 type tie<logic>
 // ============================================================================
-// gen_docx.tie：tofflib 端到端示例——一份完整 .docx
-// （目录/标题/列表/高级表格/链接/分节/页眉页码）
-// 运行：tiec examples\gen_docx.tie -o examples\gen_docx.exe
-//      examples\gen_docx.exe    # 在仓库根生成 demo.docx，双击可用 Word 打开
+// gen_docx.tie：tofflib 门面端到端示例——一份完整 .docx
+// （目录 / 标题 / 加粗 / 提示 / 列表 / 表格 / 代码块 / 链接 / 分节 / 分页）
+// 运行：tiec examples\gen_docx.tie -o target\gen_docx.exe
+//      target\gen_docx.exe    # 在仓库根生成 demo.docx，双击可用 Word 打开
 // ============================================================================
 
-import "../src/docx.tie" as dx
-import "../src/officeutil.tie" as ou
-import "../ooxml.tie" as ox
-
-// 表格：表头合并跨列 + 主题底纹 + 对齐的列数据。
-func demo_table() -> string {
-    var hdr_row = table_new_string()
-    table_push(hdr_row, dx.tchead("进度汇总", 2, dx.theme("accent1"), "center"))
-    var r1 = table_new_string()
-    table_push(r1, dx.tc("写文档", 1, "", "left"))
-    table_push(r1, dx.tc("完成", 1, "", "center"))
-    var r2 = table_new_string()
-    table_push(r2, dx.tc("打包验证", 1, "", "left"))
-    table_push(r2, dx.tc("进行中", 1, "", "center"))
-    var rows = [r1, r2]
-    var gw = table_new_i64()
-    table_push(gw, 3400)
-    table_push(gw, 1600)
-    return dx.tbl_full(rows, hdr_row, gw, 5000)
-}
+import "../src/tofflib.tie" as tl
 
 func main() {
-    var body = dx.toc(1, 3, "") +
-        dx.heading("周报", 1) +
-        dx.paragraph_runs([dx.run_font("你好，tie 办公——端到端 docx", "宋体", 22, true)]) +
-        dx.para_ex([dx.run_color("要点用主题色标注：", dx.theme("accent6"))], "", 0, 0, 0) +
-        dx.bullets(["写文档", "跑测试", "打包验证"], 0) +
-        dx.numbers(["第一步", "第二步", "第三步"], 0) +
-        demo_table() +
-        dx.link("tie 语言官网", "https://github.com/tie-lang", "打开 tie-lang") +
-        dx.sect_page(0, 0, 1440, 1800, 1440, 1800) +
-        dx.heading("第二页", 2) +
-        dx.paragraph("新节由 sect_page() 分段；页眉/页脚作用于全文，目录在 Word 中右键更新。")
+    var d = tl.new_doc("tofflib 端到端示例")
+    tl.toc(d, 2)
+    tl.h1(d, "周报")
+    tl.p(d, "tie 办公文档——同一份块流可导出 docx / xlsx / pptx / pdf。")
+    tl.bold(d, "要点：块流是唯一中间表示，后端只负责各自格式的落地。")
+    tl.note(d, "提示：目录在 Word 中右键「更新域」后展开。")
+    tl.h2(d, "本周进展")
+    var items: table<string> = []
+    table_push(items, "块流模型与 td 文档源")
+    table_push(items, "四后端渲染")
+    table_push(items, "字体内嵌子集化")
+    tl.ul(d, items)
+    var steps: table<string> = []
+    table_push(steps, "写文档")
+    table_push(steps, "跑测试")
+    table_push(steps, "打包验证")
+    tl.ol(d, steps)
+    tl.h2(d, "进度表")
+    var hdr: table<string> = []
+    table_push(hdr, "任务")
+    table_push(hdr, "状态")
+    var rows: table<string> = []
+    table_push(rows, "写文档")
+    table_push(rows, "完成")
+    table_push(rows, "打包验证")
+    table_push(rows, "进行中")
+    tl.tbl(d, hdr, rows)
+    tl.h2(d, "代码")
+    tl.codeblock(d, "tie", "var d = tl.new_doc(\"示例\")\ntl.p(d, \"hello\")\ntl.docx(\"demo.docx\", d)")
+    tl.link(d, "tie 语言官网", "https://github.com/tie-lang")
+    tl.page(d)
+    tl.sec(d, "第二页")
+    tl.p(d, "新节由 sec() 分段；页眉/页脚作用于全文。")
 
-    var hdr = dx.header_para([dx.run_font("盘点周报", "宋体", 18, false)])
-    var ftr = dx.footer_para([dx.page_field()])
-
-    if ox.write_docx_hbf("demo.docx", body, hdr, ftr) {
-        println("已生成 demo.docx（目录/高级表格/链接/分节/页眉页码）")
+    if tl.docx("demo.docx", d) {
+        println("已生成 demo.docx（目录/列表/表格/代码块/链接/分节）")
     } else {
         println("写入失败")
     }

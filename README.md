@@ -29,7 +29,6 @@ tofflib 的使命是把 **tie 用作办公脚本**：
 | `ooxml.tie`     | `ooxml`     | 端到端 docx 打包：OOXML 包装配 + 纯 tie ZIP 写入器（store 免压缩）     | `ooxml.a`  |
 | `xlsx.tie`      | `xlsx`      | Excel 电子表格：SpreadsheetML 装配（单元格/冻结行/列宽/多 sheet）     | `xlsx.a`  |
 | `pptx.tie`      | `pptx`      | PowerPoint 演示：PresentationML 装配（主题/母版/布局/幻灯片/关系）    | `pptx.a`  |
-| `tiedoc.tie`    | `tiedoc`    | 旧版 tdoc（tie 源码块协议）+ 渲染 docx/xlsx/pptx（兼容保留）        | `tiedoc.a` |
 | `src/doc/td.tie`    | `td`    | tie:data 文档源解析器（值/数组/表/转义/错误定位）                 | `td.a`    |
 | `src/doc/model.tie` | `doc`   | 扁平块流模型：构建器 + 校验（tdoc v2 协议）                       | `model.a` |
 | `src/doc/load.tie`  | `doc`   | td 文档源 → 块流装载（表格/列表/代码/封面/目录）                  | `load.a`  |
@@ -71,6 +70,13 @@ var d: table<string> = []
 var err = tl.load_file("examples/hello.tdoc", d)   // 空串 = 成功
 tl.pdf("target/hello.pdf", d, "C:/Windows/Fonts/NotoSansSC-VF.ttf", "C:/Windows/Fonts/consola.ttf")
 ```
+
+## 稳定性边界
+
+`tofflib` 命名空间（`src/tofflib.tie`）是对外稳定契约。`doc/*` 与各模块命名空间
+（`docx`、`pdf`、`pdf_asm`、`pdf_ttf`、`ooxml`、`xlsx`、`pptx`、`omml`、`vml`、
+`officeutil`）属内部实现：tie 无 `private`，只能靠命名空间约定与门面收口。外部代码
+只调 `tofflib.*`；内部跨模块改签名时须同步更新门面与 `examples/probe.tie`。
 
 ## 快速开始（底层模块）
 
@@ -119,10 +125,7 @@ func main() {
 
 | 文件 | 来源 | Word | Excel |
 | ---- | ---- | ---- | ----- |
-| `demo.docx`（目录/高级表格/链接/分节/页眉页码） | `gen_docx.tie` | ✅ 21 段/1 表 | - |
-| `demo_report.docx` / `.xlsx` | `gen_report.tie`（tdoc 渲染） | ✅ | ✅ 单元格值逐行命中 |
-| `demo_tdoc.docx` | probe（tdoc 渲染） | ✅ | - |
-| `demo_report.pptx` | `gen_report.tie`（tdoc 渲染） | 结构级 ✅（.NET ZipFile 解压 CRC 通过、全部部件 XML well-formed） | - |
+| `demo.docx`（列表/表格/代码块/链接/分节） | `gen_docx.tie`（门面） | ✅ | - |
 
 真机验证发现并修复：① `toc()`/`caption()` 的域占位文本曾漏包 `<w:r>`
 （`<w:t>` 直接挂 `<w:p>` 下，schema 违规，Word 拒开）——现已包裹；② 示例中用
@@ -133,47 +136,6 @@ pptx 说明：PowerPoint COM 打开仍报 `0x80070570`（文件损坏），微�
 Office COM 真机验证。
 LibreOffice 未安装（需管理员权限，UAC 未批准）；本机以 Office COM 做真机校验，
 ODF 后端落地后再装 LibreOffice 验证 ODF。
-
-## 旧版 tdoc（tie 源码块协议，兼容保留）
-
-> 新版文档源是上面的 `tie:data` 格式（`tdoc` 角色，`.tdoc` 后缀）。
-> 本节描述的是旧版：文档写成 `.tdoc.tie` 源码、经 `tiedoc` 渲染 docx/xlsx。
-> 新代码请用门面 `tofflib.load_file + tofflib.pdf/docx/xlsx/pptx`。
-
-```tie
-// report.tdoc.tie —— 文档即 tie 源码
-type tie<tdoc>
-import "../tiedoc.tie" as td
-
-namespace report {
-    pub func title() -> string { return "周报" }
-    pub func blocks() -> table<table<string>> {
-        var r0: table<string> = td.h1("第 1 章")
-        var r1: table<string> = td.p("你好，tie 办公")
-        var r2: table<string> = td.ul(["买牛奶", "写周报"])
-        var r3: table<string> = td.tbl("项目,状态", ["文档,进行中", "打包,完成"])
-        var r4: table<string> = td.page()
-        var r5: table<string> = td.link("tie 官网", "https://tie-lang.org")
-        var rows: table<table<string>> = [r0, r1, r2, r3, r4, r5]
-        return rows
-    }
-}
-```
-
-- **角色注册**：`roles.data.tie`（文档所在目录需有一份，tiec 据此识别 `tdoc` 角色）
-- **块协议**（`tiedoc` 构建函数生产"块行"）：`h1..h9` / `p` / `b` / `center` /
-  `ul` / `ol` / `tbl`（CSV 行） / `page` / `sec` / `link` / `raw`(OOXML 透传)
-- **渲染**（`tiedoc` 命名空间）：
-  - `render_docx(path, title, blocks)` → Word
-  - `render_xlsx(path, title, blocks)` → Excel（title + tbl 展开为 sheet）
-  - `render_pptx(path, deck_title, blocks)` → PowerPoint（封面 + h 开页/要点/表格行）
-  - `csv_split(line)` → 解析 CSV（RFC 4180 子集，供表格块）
-- **入口示例**：`examples/gen_report.tie` —— `report.blocks() → demo_report.docx/.xlsx`
-
-> 语法约束（tie 编译器实测）：① 表内表字面量 `[[..],[..]]` 不支持，块行须以
-> 变量/调用结果引用组装；② 多行表字面量中元素为函数调用时受 ASI 影响（单行或
-> 变量引用）；③ 全局表只能空表初始化，文档内容须在函数内构建；
-> ④ `roles.data.tie` 须与文档文件同目录。
 
 ## 各模块公开接口
 
@@ -310,7 +272,6 @@ tofflib/
 │   ├── ooxml.tie        # OOXML 包装配 + ZIP 写入器（内部）
 │   ├── xlsx.tie         # Excel 装配（内部）
 │   ├── pptx.tie         # PowerPoint 装配（内部）
-│   ├── tiedoc.tie       # 旧版 tdoc 渲染（兼容）
 │   ├── pdf.tie          # PDF 文档层（内部）
 │   ├── pdf_asm.tie      # PDF 对象/流写入 + 自检（内部）
 │   └── pdf_ttf.tie      # TrueType 解析/子集/ToUnicode（内部）
