@@ -710,6 +710,7 @@ func i2s(v: i64) -> string {
         sb_append_byte(sb, 48 + digs[i])
         i = i - 1
     }
+    return sb_build(sb)
 }
 
 // 扁平表：cells 为表头 + 各单元格按行主序展开（cols 列、总格数 %cols==0），

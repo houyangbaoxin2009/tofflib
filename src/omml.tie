@@ -56,7 +56,7 @@ pub func raw(frag: string) -> string {
 }
 
 // 行内公式：<m:oMath>parts</m:oMath>（将一组 run/结构片段包成一个公式）。
-pub func inline(parts: table<string>) -> string {
+pub func inline_math(parts: table<string>) -> string {
     var sb = string_builder()
     sb_append(sb, "<m:oMath>")
     append_all(sb, parts)
@@ -66,7 +66,7 @@ pub func inline(parts: table<string>) -> string {
 
 // 整段（显示）公式：<m:oMathPara><m:oMath>…</m:oMath></m:oMathPara>。
 pub func omath_para(parts: table<string>) -> string {
-    return "<m:oMathPara>" + inline(parts) + "</m:oMathPara>"
+    return "<m:oMathPara>" + inline_math(parts) + "</m:oMathPara>"
 }
 
 // 分数 a/b：<m:f><m:num>a</m:num><m:den>b</m:den></m:f>。
