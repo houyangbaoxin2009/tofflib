@@ -217,6 +217,7 @@ func stream_text(content: string) -> string {
 // 每次按页重建压缩结果（确定性纯函数），不引入缓存嵌套表。
 
 func zp_src(pi: i64) -> table<i64> {
+    page_freeze()
     var out = table_new_i64()
     var t = g_pages[pi]
     var n = str_len(t)
@@ -265,6 +266,7 @@ func seg_page(pi: i64) {
 
 // 落盘：登记根对象 → 字体对象 → 页对象，然后按编号顺序输出为段列表。
 pub func save(path: string) -> bool {
+    page_freeze()
     // 先备好 ToUnicode 槽位（add_font_objs 会往里写）
     g_tounicode = table_new_string()
     var tz: i64 = 0
@@ -360,6 +362,7 @@ pub func save(path: string) -> bool {
 
 // 段列表 → 字节表 → 文件（一次写盘）
 func write_segs(path: string) -> bool {
+    page_freeze()
     var out = table_new_i64()
     var i: i64 = 0
     while i < len(g_seg_kind) {
@@ -651,6 +654,7 @@ pub func verify_objs() -> i64 { return g_verify_objs }
 
 // ③ 内容：逐 GID 校验落在字体范围内（扫内存中的页内容）
 pub func verify_content(path: string) -> i64 {
+    page_freeze()
     var total: i64 = 0
     var bad: i64 = 0
     var nd: i64 = 0
@@ -708,6 +712,7 @@ pub func verify_notdef() -> i64 { return g_verify_notdef }
 
 // ④ 版面：所有文本定位落在页面内（按 "Td" 反查 x、y，对行首前缀免疫）
 pub func verify_layout(w: i64, h: i64) -> i64 {
+    page_freeze()
     var pi: i64 = 0
     var segs: i64 = 0
     while pi < len(g_pages) {

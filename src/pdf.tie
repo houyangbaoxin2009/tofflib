@@ -25,7 +25,9 @@ import "./pdf_ttf.tie"
 var g_off: i64 = 0;          // 当前字节偏移（累进）
 var g_dry: i64 = 0;          // 干跑开关（1 = 抑制内容输出，页面仍推进）
 pub var g_objs: table<string>;   // 对象体（下标 0 起 = 对象 1）
-pub var g_pages: table<string>;  // 每页内容流
+pub var g_pages: table<string>;  // 每页内容流（page_freeze 后有效）
+pub var g_pcmd: table<string>;   // 待拼内容流片段（按页顺序累积）
+pub var g_pstart: table<i64>;    // 每页片段在 g_pcmd 中的起始下标
 pub var g_w: i64 = 595;          // A4 宽（pt）
 pub var g_h: i64 = 842;          // A4 高（pt）
 
@@ -133,6 +135,8 @@ pub func begin_doc(w: i64, h: i64) {
     g_off = 0
     g_objs = table_new_string()
     g_pages = table_new_string()
+    g_pcmd = table_new_string()
+    g_pstart = table_new_i64()
 }
 
 // 取指定页的内容流文本（自检/调试用）
@@ -140,6 +144,7 @@ pub func begin_doc(w: i64, h: i64) {
 // 新增一页，返回页序号（0 起）。内容流由调用方用 text_at 追加。
 pub func add_page() -> i64 {
     table_push(g_pages, "")
+    table_push(g_pstart, len(g_pcmd))
     return len(g_pages) - 1
 }
 
@@ -149,7 +154,39 @@ pub func raw(page: i64, cmd: string) {
     if g_dry == 1 {
         return
     }
-    g_pages[page] = g_pages[page] + cmd
+    if len(g_pstart) == 0 {
+        g_pages[page] = g_pages[page] + cmd
+        return
+    }
+    table_push(g_pcmd, cmd)
+}
+
+// 把累积的片段一次性拼进 g_pages。
+//
+// 为什么：`g_pages[p] = g_pages[p] + cmd` 逐次拼接会按页大小做平方级拷贝
+//（spec 77 页 ≈ 10 万段、单页 9~70KB ⇒ 约 1GB 级临时拷贝，运行期常驻堆随之上涨）。
+// 这里每页用一次 string_builder，拼接开销降为线性；冻结后再 raw 仍走 +（少见）。
+pub func page_freeze() {
+    if len(g_pcmd) == 0 {
+        return
+    }
+    var np = len(g_pstart)
+    var p: i64 = 0
+    while p < np {
+        var sb = string_builder()
+        var k = g_pstart[p]
+        var e = len(g_pcmd)
+        if p + 1 < np {
+            e = g_pstart[p + 1]
+        }
+        while k < e {
+            sb_append(sb, g_pcmd[k])
+            k = k + 1
+        }
+        g_pages[p] = sb_build(sb)
+        p = p + 1
+    }
+    g_pcmd = table_new_string()
 }
 
 // 干跑开关：抑制内容输出但页面照常推进（目录页码预扫用）
