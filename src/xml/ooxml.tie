@@ -11,7 +11,7 @@ type tie<class>
 //   - 一步生成 write_docx()：正文 XML → .docx 文件（file_write 内置）
 //
 // 命名空间：ooxml。调用方式（class 库，编译为 ooxml.a）：
-//   import "./docx.tie" as dx
+//   import "../office/docx.tie" as dx
 //   import "./ooxml.tie" as ox
 //   var doc = dx.paragraph_runs([dx.run_font("周报", "宋体", 22, true)]) +
 //             dx.tbl([[ou.fmt_date(2026,8,30), "进行中"]], [], 3000)
@@ -24,7 +24,7 @@ type tie<class>
 // 根骨架与 A4 节设置）。
 // ============================================================================
 
-import "./docx.tie" as dx
+import "../office/docx.tie" as dx
 
 namespace ooxml {
 

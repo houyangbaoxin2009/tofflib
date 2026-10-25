@@ -5,13 +5,13 @@ type tie<logic>
 // 运行：tiec probe.tie -o probe.exe && probe.exe；任一断言不符即 panic（非零退出）。
 // ============================================================================
 
-import "../src/docx.tie" as dx
-import "../src/omml.tie" as mm
-import "../src/vml.tie" as vm
-import "../src/officeutil.tie" as ou
-import "../src/ooxml.tie" as ox
-import "../src/xlsx.tie" as xs
-import "../src/pptx.tie" as ppx
+import "../src/office/docx.tie" as dx
+import "../src/xml/omml.tie" as mm
+import "../src/xml/vml.tie" as vm
+import "../src/office/officeutil.tie" as ou
+import "../src/xml/ooxml.tie" as ox
+import "../src/office/xlsx.tie" as xs
+import "../src/office/pptx.tie" as ppx
 
 // 断言 helper：got != want 时 panic 并指出模块/用例。
 func check(name: string, got: string, want: string) {

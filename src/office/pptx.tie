@@ -18,7 +18,7 @@ type tie<class>
 //   pp.write_pptx("out.pptx", [s])
 // ============================================================================
 
-import "./ooxml.tie" as ox
+import "../xml/ooxml.tie" as ox
 
 namespace pptx {
 

@@ -22,17 +22,18 @@ tofflib 的使命是把 **tie 用作办公脚本**：
 
 | 模块            | 命名空间       | 职责                                                        | 编译产物      |
 | --------------- | ----------- | --------------------------------------------------------- | --------- |
-| `docx.tie`      | `docx`      | Word 文档骨架：段落/run/字体、标题/列表/分页/页码、表格，组装成 OOXML 文档正文 XML  | `docx.a`  |
-| `omml.tie`      | `omml`      | Word 公式：OMML 结构生成器（分数/上下标/定界符/n-ary 求和积分）        | `omml.a`  |
-| `vml.tie`       | `vml`       | Word 原生绘图：VML 形状组/矩形+文本框/带箭头直线                    | `vml.a`   |
-| `officeutil.tie` | `officeutil` | 日常办公：日期时间、CSV/对齐表格文本、待办清单、编号列表                | `officeutil.a` |
-| `ooxml.tie`     | `ooxml`     | 端到端 docx 打包：OOXML 包装配 + 纯 tie ZIP 写入器（store 免压缩）     | `ooxml.a`  |
-| `xlsx.tie`      | `xlsx`      | Excel 电子表格：SpreadsheetML 装配（单元格/冻结行/列宽/多 sheet）     | `xlsx.a`  |
-| `pptx.tie`      | `pptx`      | PowerPoint 演示：PresentationML 装配（主题/母版/布局/幻灯片/关系）    | `pptx.a`  |
+| `office/docx.tie` | `docx`      | Word 文档骨架：段落/run/字体、标题/列表/分页/页码、表格，组装成 OOXML 文档正文 XML  | `docx.a`  |
+| `xml/omml.tie`  | `omml`      | Word 公式：OMML 结构生成器（分数/上下标/定界符/n-ary 求和积分）        | `omml.a`  |
+| `xml/vml.tie`   | `vml`       | Word 原生绘图：VML 形状组/矩形+文本框/带箭头直线                    | `vml.a`   |
+| `office/officeutil.tie` | `officeutil` | 日常办公：日期时间、CSV/对齐表格文本、待办清单、编号列表                | `officeutil.a` |
+| `xml/ooxml.tie` | `ooxml`     | 端到端 docx 打包：OOXML 包装配 + 纯 tie ZIP 写入器（store 免压缩）     | `ooxml.a`  |
+| `office/xlsx.tie` | `xlsx`      | Excel 电子表格：SpreadsheetML 装配（单元格/冻结行/列宽/多 sheet）     | `xlsx.a`  |
+| `office/pptx.tie` | `pptx`      | PowerPoint 演示：PresentationML 装配（主题/母版/布局/幻灯片/关系）    | `pptx.a`  |
 | `src/doc/td.tie`    | `td`    | tie:data 文档源解析器（值/数组/表/转义/错误定位）                 | `td.a`    |
 | `src/doc/model.tie` | `doc`   | 扁平块流模型：构建器 + 校验（tdoc v2 协议）                       | `model.a` |
 | `src/doc/load.tie`  | `doc`   | td 文档源 → 块流装载（表格/列表/代码/封面/目录）                  | `load.a`  |
 | `src/doc/render.tie`| `doc`   | 块流 → docx / xlsx / pptx / pdf 四后端                             | `render.a`|
+| `src/doc/pdfdoc.tie`| `pdfdoc`| 报告排版层：自动换行/分页、标题层级、代码块高亮、目录与页码（PDF 后端复用） | `pdfdoc.a`|
 | `src/tofflib.tie`   | `tofflib` | 对外门面：文档构建 + 装载 + 四后端渲染                          | `tofflib.a`|
 
 ## 快速开始（门面 + tdoc 源）
@@ -268,11 +269,11 @@ PDF 由 `pdf.tie`（绘制 API）+ `pdf_ttf.tie`（TrueType 解析、GID 排版�
 
 | 项目 | 优化前 | 优化后 |
 | --- | --- | --- |
-| PDF 体积 | 19,327,234 B | 828,157 B（23.3×） |
+| PDF 体积 | 19,327,234 B | 828,158 B（23.3×） |
 | 构建耗时 | 3.17 s | 2.4 s |
 | 峰值工作集 | 1,075.8 MB | 486 MB |
 
-构建耗时包含 1.36 MB 内容流的纯 tie deflate（快速路径约 0.9 s）；体积与内存收益远大于这部分开销。输出对同一输入逐字节确定（SHA-256 前缀 `d336f4f1`）。
+构建耗时包含 1.36 MB 内容流的纯 tie deflate（快速路径约 0.9 s）；体积与内存收益远大于这部分开销。输出对同一输入逐字节确定（SHA-256 前缀 `ff2456f5`）。
 
 ## 工程结构
 
@@ -280,21 +281,25 @@ PDF 由 `pdf.tie`（绘制 API）+ `pdf_ttf.tie`（TrueType 解析、GID 排版�
 tofflib/
 ├── src/
 │   ├── tofflib.tie      # 门面（对外稳定入口）
-│   ├── doc/             # tdoc v2：td 解析 / 块流模型 / 装载 / 四后端渲染
+│   ├── doc/             # tdoc v2：td 解析 / 块流模型 / 装载 / 四后端渲染 / 报告排版
 │   │   ├── td.tie
 │   │   ├── model.tie
 │   │   ├── load.tie
-│   │   └── render.tie
-│   ├── docx.tie         # Word 骨架（内部）
-│   ├── omml.tie         # Word 公式（内部）
-│   ├── vml.tie          # Word 绘图（内部）
-│   ├── officeutil.tie   # 办公小工具（内部）
-│   ├── ooxml.tie        # OOXML 包装配 + ZIP 写入器（内部）
-│   ├── xlsx.tie         # Excel 装配（内部）
-│   ├── pptx.tie         # PowerPoint 装配（内部）
-│   ├── pdf.tie          # PDF 文档层（内部）
-│   ├── pdf_asm.tie      # PDF 对象/流写入 + 自检（内部）
-│   └── pdf_ttf.tie      # TrueType 解析/子集/ToUnicode（内部）
+│   │   ├── render.tie
+│   │   └── pdfdoc.tie   # 排版层（原 tie-spec 内嵌实现，现已归位）
+│   ├── office/          # Word / Excel / PowerPoint 装配（内部）
+│   │   ├── docx.tie
+│   │   ├── xlsx.tie
+│   │   ├── pptx.tie
+│   │   └── officeutil.tie
+│   ├── xml/             # OOXML 容器与 Word 方言（内部）
+│   │   ├── ooxml.tie
+│   │   ├── omml.tie
+│   │   └── vml.tie
+│   └── pdf/             # PDF 底层（内部）
+│       ├── pdf.tie
+│       ├── pdf_asm.tie
+│       └── pdf_ttf.tie
 ├── examples/
 │   ├── hello.tie        # 门面示例：tdoc → 四份产物
 │   ├── hello.tdoc       # td 文档源

@@ -5,11 +5,11 @@ type tie<class>
 // 渲染器只消费扁平块流（model.tie 协议），不依赖 table<table>；
 // 校验失败返回 false（错误定位用 doc.validate）。
 // ============================================================================
-import "../docx.tie" as dx
-import "../ooxml.tie" as ox
-import "../xlsx.tie" as xs
-import "../pptx.tie" as px
-import "../pdf.tie" as pd
+import "../office/docx.tie" as dx
+import "../xml/ooxml.tie" as ox
+import "../office/xlsx.tie" as xs
+import "../office/pptx.tie" as px
+import "../pdf/pdf.tie" as pd
 import "./model.tie" as doc
 
 namespace render {

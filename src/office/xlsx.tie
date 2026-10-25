@@ -17,7 +17,7 @@ type tie<class>
 //   xs.write_xlsx("out.xlsx", [sheet], ["数据"])
 // ============================================================================
 
-import "./ooxml.tie" as ox
+import "../xml/ooxml.tie" as ox
 
 namespace xlsx {
 
