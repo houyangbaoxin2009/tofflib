@@ -386,7 +386,8 @@ func write_segs(path: string) -> bool {
         }
         i = i + 1
     }
-    return byte_write(path, out)
+    var bwr = byte_write(path, out)
+    return bwr
 }
 
 // ASCII 串 → 字节序列（ASCII 下 str_len == 字节数）
@@ -780,39 +781,47 @@ pub func verify_empty() -> i64 { return g_verify_empty }
 func split_lines(s: string) -> table<string> {
     var out = table_new_string()
     var n = str_len(s)
-    var cur = ""
+    var sb = string_builder()
+    var cnt: i64 = 0
     var i: i64 = 0
     while i < n {
-        if str_byte(s, i) == 10 {
-            table_push(out, cur)
-            cur = ""
+        var b = str_byte(s, i)
+        if b == 10 {
+            table_push(out, sb_build(sb))
+            sb = string_builder()
+            cnt = 0
         } else {
-            cur = cur + str_from_code(str_byte(s, i))
+            sb_append_byte(sb, b)
+            cnt = cnt + 1
         }
         i = i + 1
     }
-    table_push(out, cur)
+    table_push(out, sb_build(sb))
     return out
 }
 
 func split_spaces(s: string) -> table<string> {
     var out = table_new_string()
     var n = str_len(s)
-    var cur = ""
+    var sb = string_builder()
+    var cnt: i64 = 0
     var i: i64 = 0
     while i < n {
-        if str_byte(s, i) == 32 {
-            if str_len(cur) > 0 {
-                table_push(out, cur)
-                cur = ""
+        var b = str_byte(s, i)
+        if b == 32 {
+            if cnt > 0 {
+                table_push(out, sb_build(sb))
+                sb = string_builder()
+                cnt = 0
             }
         } else {
-            cur = cur + str_from_code(str_byte(s, i))
+            sb_append_byte(sb, b)
+            cnt = cnt + 1
         }
         i = i + 1
     }
-    if str_len(cur) > 0 {
-        table_push(out, cur)
+    if cnt > 0 {
+        table_push(out, sb_build(sb))
     }
     return out
 }
