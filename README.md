@@ -58,6 +58,9 @@ export TIE_TRM_LITE_LIB=F:/Projects/tie-repo/trm-lite/target/trm_lite.a
         ["ul", ["第一条", "第二条"]],
         ["tbl", ["能力", "状态"], ["表格", "已支持"], ["代码块", "已支持"]],
         ["code", "tie", "pub func main() -> i64 {\n    return 0\n}"],
+        ["quote", "引用块：左侧竖线 + 灰斜体。"],
+        ["hr"],
+        ["cap", "表：能力覆盖"],
         ["page"],
     ],
 ]
