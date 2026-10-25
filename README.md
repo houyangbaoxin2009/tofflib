@@ -57,6 +57,8 @@ export TIE_TRM_LITE_LIB=F:/Projects/tie-repo/trm-lite/target/trm_lite.a
         ["p", "这份文档来自 td 文档源。"],
         ["ul", ["第一条", "第二条"]],
         ["tbl", ["能力", "状态"], ["表格", "已支持"], ["代码块", "已支持"]],
+        // 带列宽的表格：最后一个数组是列宽（twips，长度 = 列数）
+        ["tblw", ["能力", "分布"], ["表格", "docx"], ["代码块", "全后端"], [1800, 7560]],
         ["code", "tie", "pub func main() -> i64 {\n    return 0\n}"],
         ["quote", "引用块：左侧竖线 + 灰斜体。"],
         ["hr"],

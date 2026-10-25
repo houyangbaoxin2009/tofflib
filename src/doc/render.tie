@@ -119,6 +119,24 @@ pub func docx(path: string, t: table<string>) -> bool {
             }
             sb_append(sb, dx.tbl_flat(cols, cells, 0))
             i = i + 3 + total
+        } else if k == "tblw" {
+            var cols: i64 = to_i(t[i + 1])
+            var rows: i64 = to_i(t[i + 2])
+            var wts = table_new_string()
+            var wj: i64 = 0
+            while wj < cols {
+                table_push(wts, t[i + 3 + wj])
+                wj = wj + 1
+            }
+            var cells = table_new_string()
+            var total: i64 = cols * (rows + 1)
+            var j: i64 = 0
+            while j < total {
+                table_push(cells, t[i + 3 + cols + j])
+                j = j + 1
+            }
+            sb_append(sb, dx.tbl_flat_w(cols, cells, wts))
+            i = i + 3 + cols + total
         } else if k == "code" {
             sb_append(sb, dx.codeblock_xml(t[i + 2], "F3F3F3"))
             i = i + 3
@@ -220,6 +238,23 @@ pub func xlsx(path: string, t: table<string>) -> bool {
                 rr = rr + 1
             }
             i = i + 3 + cols * (rows + 1)
+        } else if k == "tblw" {
+            var cols: i64 = to_i(t[i + 1])
+            var rows: i64 = to_i(t[i + 2])
+            var rr: i64 = 0
+            while rr <= rows {
+                row_begin(sb, r)
+                var c: i64 = 0
+                while c < cols {
+                    var cell_txt: string = t[i + 3 + cols + rr * cols + c]
+                    sb_append(sb, xs.text_cell(c + 1, r, cell_txt, rr == 0))
+                    c = c + 1
+                }
+                sb_append(sb, "</row>")
+                r = r + 1
+                rr = rr + 1
+            }
+            i = i + 3 + cols + cols * (rows + 1)
         } else if k == "code" {
             var src: string = t[i + 2]
             var p: i64 = 0
@@ -251,7 +286,11 @@ pub func xlsx(path: string, t: table<string>) -> bool {
             r = r + 1
             i = i + 2
         } else if k == "page" || k == "sec" || k == "cover" || k == "toc" {
-            if k == "cover" || k == "toc" || k == "sec" {
+            // RCA：cover 是「kind + 标题 + 副标题」三 token，早期误当两 token 处理，
+            // 导致其后所有块错位（xlsx/pptx 曾把后续 token 当正文行输出）。
+            if k == "cover" {
+                i = i + 3
+            } else if k == "toc" || k == "sec" {
                 i = i + 2
             } else {
                 i = i + 1
@@ -320,6 +359,24 @@ pub func pptx(path: string, t: table<string>) -> bool {
                 rr = rr + 1
             }
             i = i + 3 + cols * (rows + 1)
+        } else if k == "tblw" {
+            var cols: i64 = to_i(t[i + 1])
+            var rows: i64 = to_i(t[i + 2])
+            var rr: i64 = 0
+            while rr <= rows {
+                var line: string = ""
+                var c: i64 = 0
+                while c < cols {
+                    if c > 0 {
+                        line = line + " | "
+                    }
+                    line = line + t[i + 3 + cols + rr * cols + c]
+                    c = c + 1
+                }
+                table_push(bullets, line)
+                rr = rr + 1
+            }
+            i = i + 3 + cols + cols * (rows + 1)
         } else if k == "code" {
             var src: string = t[i + 2]
             var p: i64 = 0
@@ -345,7 +402,11 @@ pub func pptx(path: string, t: table<string>) -> bool {
             table_push(bullets, "表：" + t[i + 1])
             i = i + 2
         } else if k == "page" || k == "sec" || k == "cover" || k == "toc" {
-            if k == "cover" || k == "toc" || k == "sec" {
+            // RCA：cover 是「kind + 标题 + 副标题」三 token，早期误当两 token 处理，
+            // 导致其后所有块错位（xlsx/pptx 曾把后续 token 当正文行输出）。
+            if k == "cover" {
+                i = i + 3
+            } else if k == "toc" || k == "sec" {
                 i = i + 2
             } else {
                 i = i + 1
@@ -446,6 +507,37 @@ func pdf_one(t: table<string>, i: i64, collect: i64) -> i64 {
         pdoc.bullet(items)
         g_pdf_wrote = 1
         return i + 2 + n
+    }
+    if k == "tblw" {
+        var cols: i64 = to_i(t[i + 1])
+        var rows_n: i64 = to_i(t[i + 2])
+        var widths = table_new_i64()
+        var wj: i64 = 0
+        while wj < cols {
+            table_push(widths, to_i(t[i + 3 + wj]))
+            wj = wj + 1
+        }
+        var hdr = table_new_string()
+        var c: i64 = 0
+        while c < cols {
+            table_push(hdr, t[i + 3 + cols + c])
+            c = c + 1
+        }
+        var rows: table<table<string>> = []
+        var r: i64 = 0
+        while r < rows_n {
+            var row = table_new_string()
+            var cc: i64 = 0
+            while cc < cols {
+                table_push(row, t[i + 3 + cols + cols + r * cols + cc])
+                cc = cc + 1
+            }
+            table_push(rows, row)
+            r = r + 1
+        }
+        pdoc.tbl(hdr, rows, widths)
+        g_pdf_wrote = 1
+        return i + 3 + cols + cols * (rows_n + 1)
     }
     if k == "tbl" {
         var cols: i64 = to_i(t[i + 1])

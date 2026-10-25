@@ -166,6 +166,58 @@ func load_block(blk: i64, bi: i64, out: ref table<string>) -> string {
         }
         return ""
     }
+    if kind == "tblw" {
+        if n < 3 {
+            return where + "tblw 需要表头、至少一行与列宽数组"
+        }
+        var header: i64 = arg_node(blk, 1)
+        if td.type_of(header) != 5 {
+            return where + "tblw 表头必须是数组"
+        }
+        var cols: i64 = td.arr_len(header)
+        if cols < 1 {
+            return where + "tblw 表头不能为空"
+        }
+        var wn: i64 = arg_node(blk, n - 1)
+        if td.type_of(wn) != 5 {
+            return where + "tblw 最后一个元素必须是列宽数组"
+        }
+        if td.arr_len(wn) != cols {
+            return where + "tblw 列宽有 " + to_string(td.arr_len(wn)) + " 个（表头 " + to_string(cols) + " 列）"
+        }
+        table_push(out, "tblw")
+        table_push(out, to_string(cols))
+        table_push(out, to_string(n - 3))
+        var wc: i64 = 0
+        while wc < cols {
+            var wnode: i64 = td.arr_at(wn, wc)
+            if td.type_of(wnode) != 2 {
+                return where + "tblw 列宽必须是整数"
+            }
+            table_push(out, to_string(td.int_val(wnode)))
+            wc = wc + 1
+        }
+        var eh: string = push_str_array(header, out, where + "tblw 表头")
+        if str_len(eh) > 0 {
+            return eh
+        }
+        var r: i64 = 2
+        while r < n - 1 {
+            var row: i64 = arg_node(blk, r)
+            if td.type_of(row) != 5 {
+                return where + "tblw 第 " + to_string(r - 1) + " 行必须是数组"
+            }
+            if td.arr_len(row) != cols {
+                return where + "tblw 第 " + to_string(r - 1) + " 行有 " + to_string(td.arr_len(row)) + " 列（表头 " + to_string(cols) + "）"
+            }
+            var er: string = push_str_array(row, out, where + "tblw 行")
+            if str_len(er) > 0 {
+                return er
+            }
+            r = r + 1
+        }
+        return ""
+    }
     if kind == "code" {
         if !arity_is(blk, 3) {
             return where + "code 需要 3 个元素（语言、文本）"

@@ -62,6 +62,10 @@ pub func ul(t: ref table<string>, items: table<string>) {
     m.ul(t, items)
 }
 
+pub func tbl_w(t: ref table<string>, header: table<string>, widths: table<string>, rows: table<string>) {
+    m.tbl_w(t, header, widths, rows)
+}
+
 pub func ol(t: ref table<string>, items: table<string>) {
     m.ol(t, items)
 }

@@ -803,4 +803,43 @@ pub func tbl_flat(cols: i64, cells: table<string>, col_width_twips: i64) -> stri
     return sb_build(sb)
 }
 
+// 带列宽的扁平表格：grid_widths 为 twips 数字串（长度 = cols）。
+pub func tbl_flat_w(cols: i64, cells: table<string>, grid_widths: table<string>) -> string {
+    var sb = string_builder()
+    sb_append(sb, "<w:tbl><w:tblPr><w:tblW w:w=\"9360\" w:type=\"dxa\"/>")
+    sb_append(sb, tbl_borders(4, "auto"))
+    sb_append(sb, "<w:tblLayout w:type=\"fixed\"/></w:tblPr><w:tblGrid>")
+    var c0: i64 = 0
+    while c0 < cols {
+        sb_append(sb, "<w:gridCol w:w=\"")
+        sb_append(sb, grid_widths[c0])
+        sb_append(sb, "\"/>")
+        c0 = c0 + 1
+    }
+    sb_append(sb, "</w:tblGrid>")
+    var n: i64 = len(cells)
+    var r: i64 = 0
+    while r * cols < n {
+        var bold: bool = r == 0
+        sb_append(sb, "<w:tr>")
+        var c: i64 = 0
+        while c < cols && r * cols + c < n {
+            sb_append(sb, "<w:tc><w:tcPr><w:tcW w:w=\"")
+            sb_append(sb, grid_widths[c])
+            sb_append(sb, "\" w:type=\"dxa\"/></w:tcPr><w:p>")
+            if bold {
+                sb_append(sb, run_font(cells[r * cols + c], "", 0, true))
+            } else {
+                sb_append(sb, run(cells[r * cols + c]))
+            }
+            sb_append(sb, "</w:p></w:tc>")
+            c = c + 1
+        }
+        sb_append(sb, "</w:tr>")
+        r = r + 1
+    }
+    sb_append(sb, "</w:tbl>")
+    return sb_build(sb)
+}
+
 }   // namespace docx
