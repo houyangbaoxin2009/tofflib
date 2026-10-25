@@ -32,7 +32,7 @@ tofflib 的使命是把 **tie 用作办公脚本**：
 | `src/doc/td.tie`    | `td`    | tie:data 文档源解析器（值/数组/表/转义/错误定位）                 | `td.a`    |
 | `src/doc/model.tie` | `doc`   | 扁平块流模型：构建器 + 校验（tdoc v2 协议）                       | `model.a` |
 | `src/doc/load.tie`  | `doc`   | td 文档源 → 块流装载（表格/列表/代码/封面/目录）                  | `load.a`  |
-| `src/doc/render.tie`| `doc`   | 块流 → docx / xlsx / pptx / pdf 四后端                             | `render.a`|
+| `src/doc/render.tie`| `doc`   | 块流 → docx / xlsx / pptx / pdf 四后端（PDF 只做块流映射，排版委托 pdfdoc） | `render.a`|
 | `src/doc/pdfdoc.tie`| `pdfdoc`| 报告排版层：自动换行/分页、标题层级、代码块高亮、目录与页码（PDF 后端复用） | `pdfdoc.a`|
 | `src/tofflib.tie`   | `tofflib` | 对外门面：文档构建 + 装载 + 四后端渲染                          | `tofflib.a`|
 
