@@ -13,8 +13,10 @@ tofflib 的使命是把 **tie 用作办公脚本**：
 零外部运行时依赖，只依赖 tie 底座原语（`str_len`/`str_char`/`len`/`table` +
 `string_builder`）。循环拼接统一走 StringBuilder（O(n)），碎片拼装用 `+`。
 
-> **本库只负责把结构"生成"成 XML/文本字符串**。若需进一步把字符串写成文件，
-> 直接用等语言底座原语 `file_write(path, content)` 即可（tofflib 不引入额外依赖）。
+> 对外推荐入口是门面 `src/tofflib.tie`：把文档写成 **tdoc 文档源**（`tie:data`），
+> 由门面装载成扁平块流，再渲染成 **docx / xlsx / pptx / pdf** 四份产物。
+> 底层 XML 生成器（`docx`/`omml`/`vml`/`ooxml`/`xlsx`/`pptx`）与 PDF 引擎（`pdf`/`pdf_asm`/`pdf_ttf`）
+> 保留为内部/高级用法：它们多数只产字符串，由上层负责写盘。
 
 ## 模块清单
 
@@ -27,9 +29,50 @@ tofflib 的使命是把 **tie 用作办公脚本**：
 | `ooxml.tie`     | `ooxml`     | 端到端 docx 打包：OOXML 包装配 + 纯 tie ZIP 写入器（store 免压缩）     | `ooxml.a`  |
 | `xlsx.tie`      | `xlsx`      | Excel 电子表格：SpreadsheetML 装配（单元格/冻结行/列宽/多 sheet）     | `xlsx.a`  |
 | `pptx.tie`      | `pptx`      | PowerPoint 演示：PresentationML 装配（主题/母版/布局/幻灯片/关系）    | `pptx.a`  |
-| `tiedoc.tie`    | `tiedoc`    | tie 办公表达格式：tdoc 角色块构建 + 渲染 docx/xlsx/pptx            | `tiedoc.a` |
+| `tiedoc.tie`    | `tiedoc`    | 旧版 tdoc（tie 源码块协议）+ 渲染 docx/xlsx/pptx（兼容保留）        | `tiedoc.a` |
+| `src/doc/td.tie`    | `td`    | tie:data 文档源解析器（值/数组/表/转义/错误定位）                 | `td.a`    |
+| `src/doc/model.tie` | `doc`   | 扁平块流模型：构建器 + 校验（tdoc v2 协议）                       | `model.a` |
+| `src/doc/load.tie`  | `doc`   | td 文档源 → 块流装载（表格/列表/代码/封面/目录）                  | `load.a`  |
+| `src/doc/render.tie`| `doc`   | 块流 → docx / xlsx / pptx / pdf 四后端                             | `render.a`|
+| `src/tofflib.tie`   | `tofflib` | 对外门面：文档构建 + 装载 + 四后端渲染                          | `tofflib.a`|
 
-## 快速开始
+## 快速开始（门面 + tdoc 源）
+
+```bash
+# 编译门面示例（工作目录 = tofflib 根）
+tiec examples/hello.tie -o target/hello.exe --no-cache
+target/hello.exe        # 装载 examples/hello.tdoc，产出四份产物到 target/
+
+# 需要环境变量指向 trm-lite 运行时
+export TIE_TRM_LITE_LIB=F:/Projects/tie-repo/trm-lite/target/trm_lite.a
+```
+
+文档源 `examples/hello.tdoc` 是 `tie:data`：
+
+```tie
+[
+    "title": "tofflib 示例",
+    "blocks": [
+        ["h1", "第一章 入门"],
+        ["p", "这份文档来自 td 文档源。"],
+        ["ul", ["第一条", "第二条"]],
+        ["tbl", ["能力", "状态"], ["表格", "已支持"], ["代码块", "已支持"]],
+        ["code", "tie", "pub func main() -> i64 {\n    return 0\n}"],
+        ["page"],
+    ],
+]
+```
+
+代码侧只有三行：
+
+```tie
+import "../src/tofflib.tie" as tl
+var d: table<string> = []
+var err = tl.load_file("examples/hello.tdoc", d)   // 空串 = 成功
+tl.pdf("target/hello.pdf", d, "C:/Windows/Fonts/NotoSansSC-VF.ttf", "C:/Windows/Fonts/consola.ttf")
+```
+
+## 快速开始（底层模块）
 
 ```bash
 # 编译单个模块（class 库 → 静态库）
@@ -91,11 +134,11 @@ Office COM 真机验证。
 LibreOffice 未安装（需管理员权限，UAC 未批准）；本机以 Office COM 做真机校验，
 ODF 后端落地后再装 LibreOffice 验证 ODF。
 
-## tie 办公表达格式（tdoc）
+## 旧版 tdoc（tie 源码块协议，兼容保留）
 
-**tdoc** 是 tofflib 定义的**用 tie 语言表达办公文档**的源码格式：文档本身是一个
-`xxx.tdoc.tie` 文件（自定义角色 `tdoc`，注册于 `roles.data.tie`），内容 100% 符合
-tie 语法、可被 `tiec` 编译校验；由 `tiedoc` 渲染库导出为 docx/xlsx。
+> 新版文档源是上面的 `tie:data` 格式（`tdoc` 角色，`.tdoc` 后缀）。
+> 本节描述的是旧版：文档写成 `.tdoc.tie` 源码、经 `tiedoc` 渲染 docx/xlsx。
+> 新代码请用门面 `tofflib.load_file + tofflib.pdf/docx/xlsx/pptx`。
 
 ```tie
 // report.tdoc.tie —— 文档即 tie 源码
@@ -253,19 +296,33 @@ namespace report {
 
 ```
 tofflib/
-├── docx.tie          # Word 文档骨架
-├── omml.tie          # Word 公式 OMML
-├── vml.tie           # Word 绘图 VML
-├── officeutil.tie     # 办公小工具
-├── ooxml.tie         # 端到端 docx 打包（装配 + ZIP）
+├── src/
+│   ├── tofflib.tie      # 门面（对外稳定入口）
+│   ├── doc/             # tdoc v2：td 解析 / 块流模型 / 装载 / 四后端渲染
+│   │   ├── td.tie
+│   │   ├── model.tie
+│   │   ├── load.tie
+│   │   └── render.tie
+│   ├── docx.tie         # Word 骨架（内部）
+│   ├── omml.tie         # Word 公式（内部）
+│   ├── vml.tie          # Word 绘图（内部）
+│   ├── officeutil.tie   # 办公小工具（内部）
+│   ├── ooxml.tie        # OOXML 包装配 + ZIP 写入器（内部）
+│   ├── xlsx.tie         # Excel 装配（内部）
+│   ├── pptx.tie         # PowerPoint 装配（内部）
+│   ├── tiedoc.tie       # 旧版 tdoc 渲染（兼容）
+│   ├── pdf.tie          # PDF 文档层（内部）
+│   ├── pdf_asm.tie      # PDF 对象/流写入 + 自检（内部）
+│   └── pdf_ttf.tie      # TrueType 解析/子集/ToUnicode（内部）
 ├── examples/
-│   ├── probe.tie     # 冒烟验证（导入全模块 + 断言）
-│   └── gen_docx.tie  # 端到端示例：生成 demo.docx（标题/列表/表格/页码）
-├── .gitignore
-├── LICENSE           # Tie Public License v2.0 (TPL 2.0)
+│   ├── hello.tie        # 门面示例：tdoc → 四份产物
+│   ├── hello.tdoc       # td 文档源
+│   └── probe.tie        # 内部模块冒烟验证
+├── target/              # 构建产物（不入库）
+├── LICENSE              # Tie Public License v2.3
 └── README.md
 ```
 
 ## 许可证
 
-tofflib 依据项目根目录 [LICENSE](LICENSE)（Tie Public License v2.0 (TPL 2.0)）发布。
+tofflib 依据项目根目录 [LICENSE](LICENSE)（Tie Public License v2.3）发布。
