@@ -1,0 +1,287 @@
+type tie<class>
+// ============================================================================
+// doc/model.tie —— tdoc 块协议 v2：构建器 + 校验（tofflib 内部模块）
+//
+// 为什么是「扁平 token 流」而不是 table<table<string>>：
+//   tie 的动态表构造只有 table_new_i64/f64/string/bool 四种，**没有
+//   table_new_table**，因此 table<table<string>> 无法作为动态表按 ref
+//   追加（实测：ref 参数实参必须是 table_new_* 创建的动态表）。
+//   故一份文档 = 一条扁平 table<string>：kind token 后随定长参数，
+//   表格类块用「列数 + 行数 + 行主序单元格」编码，全程无分隔符、无 CSV。
+//
+// 协议（一行 token 流，渲染器唯一契约）：
+//   ["doc", title]                       文档头（必须首块，恰好一次）
+//   ["h1".."h9", text]                   标题（数字即级别）
+//   ["p", text]                          段落（纯文本）
+//   ["b", text] / ["center", text]       加粗段落 / 居中段落
+//   ["ul", n, item...]                   无序列表（n = 条目数）
+//   ["ol", n, item...]                   有序列表
+//   ["tbl", cols, nrows, cell...]        表格：cols 列表头，nrows 数据行，
+//                                        单元格行主序（表头在前）
+//   ["code", lang, text]                 代码块
+//   ["note", text]                       要点/提示段
+//   ["link", text, url]                  超链接段
+//   ["page"]                             分页
+//   ["sec", title]                       分节（新页 + 节标题）
+//   ["cover", title, subtitle]           封面
+//   ["toc", depth]                       目录（depth 1..3）
+//
+// 约定：所有构建函数只追加 token，不做 IO；校验集中在 validate()，
+// 错误信息带 token 下标，便于文档作者定位。
+// ============================================================================
+
+namespace doc {
+
+// 起始 token 数（"doc", title）
+pub func empty() -> table<string> {
+    return table_new_string()
+}
+
+// 新建文档流（首块 doc 头）。
+pub func new_doc(title: string) -> table<string> {
+    var b: table<string> = table_new_string()
+    table_push(b, "doc")
+    table_push(b, title)
+    return b
+}
+
+// 标题：level 1..9 由调用方保证（h1..h9 分别有便捷函数）。
+pub func h(b: ref table<string>, level: i64, s: string) {
+    var kind: string = "h" + to_string(level)
+    table_push(b, kind)
+    table_push(b, s)
+}
+
+pub func h1(b: ref table<string>, s: string) {
+    h(b, 1, s)
+}
+
+pub func h2(b: ref table<string>, s: string) {
+    h(b, 2, s)
+}
+
+pub func h3(b: ref table<string>, s: string) {
+    h(b, 3, s)
+}
+
+pub func p(b: ref table<string>, s: string) {
+    table_push(b, "p")
+    table_push(b, s)
+}
+
+pub func bold(b: ref table<string>, s: string) {
+    table_push(b, "b")
+    table_push(b, s)
+}
+
+pub func center(b: ref table<string>, s: string) {
+    table_push(b, "center")
+    table_push(b, s)
+}
+
+pub func ul(b: ref table<string>, items: table<string>) {
+    table_push(b, "ul")
+    table_push(b, to_string(len(items)))
+    var i: i64 = 0
+    while i < len(items) {
+        table_push(b, items[i])
+        i = i + 1
+    }
+}
+
+pub func ol(b: ref table<string>, items: table<string>) {
+    table_push(b, "ol")
+    table_push(b, to_string(len(items)))
+    var i: i64 = 0
+    while i < len(items) {
+        table_push(b, items[i])
+        i = i + 1
+    }
+}
+
+// 表格：header 为表头单元格，rows 为行主序数据单元格（len(rows) 必须是 cols 的倍数）。
+pub func tbl(b: ref table<string>, header: table<string>, rows: table<string>) {
+    var cols: i64 = len(header)
+    var nrows: i64 = 0
+    if cols > 0 {
+        nrows = len(rows) / cols
+    }
+    table_push(b, "tbl")
+    table_push(b, to_string(cols))
+    table_push(b, to_string(nrows))
+    var i: i64 = 0
+    while i < cols {
+        table_push(b, header[i])
+        i = i + 1
+    }
+    var j: i64 = 0
+    while j < len(rows) {
+        table_push(b, rows[j])
+        j = j + 1
+    }
+}
+
+pub func codeblock(b: ref table<string>, lang: string, s: string) {
+    table_push(b, "code")
+    table_push(b, lang)
+    table_push(b, s)
+}
+
+pub func note(b: ref table<string>, s: string) {
+    table_push(b, "note")
+    table_push(b, s)
+}
+
+pub func link(b: ref table<string>, s: string, url: string) {
+    table_push(b, "link")
+    table_push(b, s)
+    table_push(b, url)
+}
+
+pub func page(b: ref table<string>) {
+    table_push(b, "page")
+}
+
+pub func sec(b: ref table<string>, title: string) {
+    table_push(b, "sec")
+    table_push(b, title)
+}
+
+pub func cover(b: ref table<string>, title: string, subtitle: string) {
+    table_push(b, "cover")
+    table_push(b, title)
+    table_push(b, subtitle)
+}
+
+pub func toc(b: ref table<string>, depth: i64) {
+    table_push(b, "toc")
+    table_push(b, to_string(depth))
+}
+
+// ---------- 校验 ----------
+
+func is_h(k: string) -> bool {
+    if str_len(k) != 2 {
+        return false
+    }
+    if str_byte(k, 0) != 104 {
+        return false
+    }
+    var d: i64 = str_byte(k, 1)
+    if d < 49 || d > 57 {
+        return false
+    }
+    return true
+}
+
+// 读一个非负整数字符串 token；非法返回 -1。
+func as_count(t: string) -> i64 {
+    if str_len(t) == 0 {
+        return -1
+    }
+    var i: i64 = 0
+    var v: i64 = 0
+    while i < str_len(t) {
+        var d: i64 = str_byte(t, i)
+        if d < 48 || d > 57 {
+            return -1
+        }
+        v = v * 10 + (d - 48)
+        i = i + 1
+    }
+    return v
+}
+
+// 校验整条 token 流：合法返回空串，否则返回「token 下标: 原因」。
+pub func validate(b: table<string>) -> string {
+    var n: i64 = len(b)
+    if n < 2 {
+        return "0: 缺少 doc 头"
+    }
+    if b[0] != "doc" {
+        return "0: 首块必须是 doc（实际 " + b[0] + "）"
+    }
+    var i: i64 = 2
+    while i < n {
+        var k: string = b[i]
+        if k == "doc" {
+            return to_string(i) + ": doc 头重复"
+        } else if is_h(k) {
+            if i + 1 >= n {
+                return to_string(i) + ": 标题缺文本"
+            }
+            i = i + 2
+        } else if k == "p" || k == "b" || k == "center" || k == "note" {
+            if i + 1 >= n {
+                return to_string(i) + ": " + k + " 缺文本"
+            }
+            i = i + 2
+        } else if k == "ul" || k == "ol" {
+            if i + 1 >= n {
+                return to_string(i) + ": " + k + " 缺条目数"
+            }
+            var cnt: i64 = as_count(b[i + 1])
+            if cnt < 0 {
+                return to_string(i) + ": " + k + " 条目数非法"
+            }
+            if i + 2 + cnt > n {
+                return to_string(i) + ": " + k + " 条目越界（声明 " + b[i + 1] + "）"
+            }
+            i = i + 2 + cnt
+        } else if k == "tbl" {
+            if i + 2 >= n {
+                return to_string(i) + ": tbl 缺列数/行数"
+            }
+            var cols: i64 = as_count(b[i + 1])
+            var nrows: i64 = as_count(b[i + 2])
+            if cols <= 0 || nrows < 0 {
+                return to_string(i) + ": tbl 列数/行数非法"
+            }
+            var need: i64 = cols * (nrows + 1)
+            if i + 3 + need > n {
+                return to_string(i) + ": tbl 单元格越界（需要 " + to_string(need) + "）"
+            }
+            i = i + 3 + need
+        } else if k == "code" {
+            if i + 2 >= n {
+                return to_string(i) + ": code 缺语言/文本"
+            }
+            i = i + 3
+        } else if k == "link" {
+            if i + 2 >= n {
+                return to_string(i) + ": link 缺文本/地址"
+            }
+            i = i + 3
+        } else if k == "page" {
+            i = i + 1
+        } else if k == "sec" {
+            if i + 1 >= n {
+                return to_string(i) + ": sec 缺标题"
+            }
+            i = i + 2
+        } else if k == "cover" {
+            if i + 2 >= n {
+                return to_string(i) + ": cover 缺标题/副标题"
+            }
+            i = i + 3
+        } else if k == "toc" {
+            if i + 1 >= n {
+                return to_string(i) + ": toc 缺深度"
+            }
+            var d: i64 = as_count(b[i + 1])
+            if d < 1 || d > 3 {
+                return to_string(i) + ": toc 深度必须是 1..3"
+            }
+            i = i + 2
+        } else {
+            return to_string(i) + ": 未知块 " + k
+        }
+    }
+    return ""
+}
+
+// 便捷：校验通过返回 true。
+pub func ok(b: table<string>) -> bool {
+    return str_len(validate(b)) == 0
+}
+}

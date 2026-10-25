@@ -1,0 +1,258 @@
+type tie<class>
+// ============================================================================
+// doc/load.tie —— td 文档 → tdoc 块流（tofflib 内部模块）
+//
+// 文档源（.tdoc，tie:data 语法）：
+//   [
+//       "title": "文档标题",
+//       "blocks": [
+//           ["h1", "第 1 章"],
+//           ["p", "正文段落"],
+//           ["ul", ["条目一", "条目二"]],
+//           ["tbl", ["项", "值"], ["版本", "2026.2"], ["协议", "TPL-2.3"]],
+//           ["code", "tie", "func main() {}"],
+//           ["page"],
+//       ],
+//   ]
+//
+// 块形状（与 model.tie 协议一一对应）：
+//   ["h1".."h9", text] / ["p"|"b"|"center"|"note", text]
+//   ["ul"|"ol", [item...]] / ["code", lang, text] / ["link", text, url]
+//   ["tbl", [表头...], [行...], ...] / ["page"] / ["sec", title]
+//   ["cover", title, subtitle] / ["toc", depth]
+//
+// 入口：load_td(root, out) / load_file(path, out)；返回错误消息（空串=成功），
+// 错误带块下标（blocks[i]）与原因。
+// ============================================================================
+import "./td.tie" as td
+import "./model.tie" as doc
+
+namespace doc {
+
+// 块参数 i（0 起）的字符串值（非字符串 → 空串）。
+func arg_str(blk: i64, i: i64) -> string {
+    if i < 0 || i >= td.arr_len(blk) {
+        return ""
+    }
+    return td.str_val(td.arr_at(blk, i))
+}
+
+// 块参数 i（0 起）的节点 id（越界 → -1）。
+func arg_node(blk: i64, i: i64) -> i64 {
+    if i < 0 || i >= td.arr_len(blk) {
+        return -1
+    }
+    return td.arr_at(blk, i)
+}
+
+// 块参数个数是否恰好为 n。
+func arity_is(blk: i64, n: i64) -> bool {
+    return td.arr_len(blk) == n
+}
+
+// 取字符串数组节点（如 ul 的条目、tbl 的表头）为 token 追加；
+// 非数组或含非字符串元素 → 错误串。
+func push_str_array(arr: i64, out: ref table<string>, what: string) -> string {
+    if td.type_of(arr) != 5 {
+        return what + " 必须是字符串数组"
+    }
+    var n: i64 = td.arr_len(arr)
+    var i: i64 = 0
+    while i < n {
+        var e: i64 = td.arr_at(arr, i)
+        if td.type_of(e) != 4 {
+            return what + " 第 " + to_string(i) + " 项不是字符串"
+        }
+        table_push(out, td.str_val(e))
+        i = i + 1
+    }
+    return ""
+}
+
+// 追加一个块的 token；返回错误串（空=成功）。bi 仅用于报错定位。
+pub func load_block(blk: i64, bi: i64, out: ref table<string>) -> string {
+    var where: string = "blocks[" + to_string(bi) + "]: "
+    if td.type_of(blk) != 5 {
+        return where + "块必须是数组"
+    }
+    var n: i64 = td.arr_len(blk)
+    if n < 1 {
+        return where + "空块"
+    }
+    var k: i64 = td.arr_at(blk, 0)
+    if td.type_of(k) != 4 {
+        return where + "块类型必须是字符串"
+    }
+    var kind: string = td.str_val(k)
+    if str_len(kind) == 2 && str_byte(kind, 0) == 104 {
+        var d: i64 = str_byte(kind, 1)
+        if d >= 49 && d <= 57 {
+            if !arity_is(blk, 2) {
+                return where + kind + " 需要 2 个元素"
+            }
+            table_push(out, kind)
+            table_push(out, arg_str(blk, 1))
+            return ""
+        }
+    }
+    if kind == "p" || kind == "b" || kind == "center" || kind == "note" {
+        if !arity_is(blk, 2) {
+            return where + kind + " 需要 2 个元素"
+        }
+        table_push(out, kind)
+        table_push(out, arg_str(blk, 1))
+        return ""
+    }
+    if kind == "ul" || kind == "ol" {
+        if !arity_is(blk, 2) {
+            return where + kind + " 需要 2 个元素（条目数组）"
+        }
+        var items: i64 = arg_node(blk, 1)
+        var cnt: i64 = td.arr_len(items)
+        table_push(out, kind)
+        table_push(out, to_string(cnt))
+        return push_str_array(items, out, where + kind)
+    }
+    if kind == "tbl" {
+        if n < 2 {
+            return where + "tbl 需要表头数组与至少一行"
+        }
+        var header: i64 = arg_node(blk, 1)
+        if td.type_of(header) != 5 {
+            return where + "tbl 表头必须是数组"
+        }
+        var cols: i64 = td.arr_len(header)
+        if cols < 1 {
+            return where + "tbl 表头不能为空"
+        }
+        var nrows: i64 = n - 2
+        table_push(out, "tbl")
+        table_push(out, to_string(cols))
+        table_push(out, to_string(nrows))
+        var eh: string = push_str_array(header, out, where + "tbl 表头")
+        if str_len(eh) > 0 {
+            return eh
+        }
+        var r: i64 = 2
+        while r < n {
+            var row: i64 = arg_node(blk, r)
+            if td.type_of(row) != 5 {
+                return where + "tbl 第 " + to_string(r - 1) + " 行必须是数组"
+            }
+            if td.arr_len(row) != cols {
+                return where + "tbl 第 " + to_string(r - 1) + " 行有 " + to_string(td.arr_len(row)) + " 列（表头 " + to_string(cols) + "）"
+            }
+            var er: string = push_str_array(row, out, where + "tbl 行")
+            if str_len(er) > 0 {
+                return er
+            }
+            r = r + 1
+        }
+        return ""
+    }
+    if kind == "code" {
+        if !arity_is(blk, 3) {
+            return where + "code 需要 3 个元素（语言、文本）"
+        }
+        table_push(out, "code")
+        table_push(out, arg_str(blk, 1))
+        table_push(out, arg_str(blk, 2))
+        return ""
+    }
+    if kind == "link" {
+        if !arity_is(blk, 3) {
+            return where + "link 需要 3 个元素（文本、地址）"
+        }
+        table_push(out, "link")
+        table_push(out, arg_str(blk, 1))
+        table_push(out, arg_str(blk, 2))
+        return ""
+    }
+    if kind == "page" {
+        if !arity_is(blk, 1) {
+            return where + "page 不带参数"
+        }
+        table_push(out, "page")
+        return ""
+    }
+    if kind == "sec" {
+        if !arity_is(blk, 2) {
+            return where + "sec 需要 2 个元素"
+        }
+        table_push(out, "sec")
+        table_push(out, arg_str(blk, 1))
+        return ""
+    }
+    if kind == "cover" {
+        if !arity_is(blk, 3) {
+            return where + "cover 需要 3 个元素（标题、副标题）"
+        }
+        table_push(out, "cover")
+        table_push(out, arg_str(blk, 1))
+        table_push(out, arg_str(blk, 2))
+        return ""
+    }
+    if kind == "toc" {
+        if !arity_is(blk, 2) {
+            return where + "toc 需要深度"
+        }
+        var dn: i64 = arg_node(blk, 1)
+        if td.type_of(dn) != 2 {
+            return where + "toc 深度必须是整数"
+        }
+        table_push(out, "toc")
+        table_push(out, to_string(td.int_val(dn)))
+        return ""
+    }
+    return where + "未知块类型 " + kind
+}
+
+// td 根节点 → 块流；返回错误串（空=成功）。out 须由调用方 table_new_string() 创建。
+pub func load_td(root: i64, out: ref table<string>) -> string {
+    if td.type_of(root) != 6 {
+        return "文档根节点必须是表（[ ... ]）"
+    }
+    var title: string = td.get_str(root, "title")
+    table_push(out, "doc")
+    table_push(out, title)
+    var blocks: i64 = td.map_get(root, "blocks")
+    if blocks < 0 {
+        return "缺少 blocks 数组"
+    }
+    if td.type_of(blocks) != 5 {
+        return "blocks 必须是数组"
+    }
+    var n: i64 = td.arr_len(blocks)
+    var i: i64 = 0
+    while i < n {
+        var err: string = load_block(td.arr_at(blocks, i), i, out)
+        if str_len(err) > 0 {
+            return err
+        }
+        i = i + 1
+    }
+    var verr: string = doc.validate(out)
+    if str_len(verr) > 0 {
+        return "块流校验失败: " + verr
+    }
+    return ""
+}
+
+// 读 .tdoc 文件并转为块流；返回错误串（空=成功）。
+pub func load_file(path: string, out: ref table<string>) -> string {
+    var root: i64 = td.parse_data(path)
+    if root < 0 {
+        return "td 解析失败: " + td.err_msg()
+    }
+    return load_td(root, out)
+}
+// td 解析入口（文档源为 td 数据；实现见 td.tie，对外只经 doc 命名空间）。
+pub func parse(s: string) -> i64 {
+    return td.parse(s)
+}
+
+// td 解析错误消息。
+pub func err_msg() -> string {
+    return td.err_msg()
+}
+}

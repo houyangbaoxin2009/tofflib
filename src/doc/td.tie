@@ -1,0 +1,1000 @@
+type tie<class>
+// ============================================================================
+// td.tie —— tie:data（td）读取器（tofflib 内部模块）
+//
+// 移植自 tiec/compiler/td.tie + config_p1.tie（自包含，零 import）。
+// 仅保留：节点池 + 解析 + 访问器；删除分层合并 / profile / CLI 覆盖 / dump。
+// 语法：表与数组同为 [...]，首个条目是 "key": value → 表，否则 → 数组；
+//   支持 // 行注释、条目间逗号可选（容忍尾逗号）、字符串/整数/浮点/bool/嵌套容器。
+// 节点表示（平行表）：类型 0=null 1=bool 2=int 3=float 4=str 5=array 6=map。
+// ============================================================================
+pub var c_types: table<i64>;
+pub var c_ivals: table<i64>;
+pub var c_fvals: table<f64>;
+pub var c_strs: table<string>;
+pub var c_kids: table<i64>;
+pub var c_ovals: table<i64>;
+pub var c_elem_flat: table<i64>;
+pub var c_key_flat: table<i64>;
+pub var c_val_flat: table<i64>;
+pub var c_err_msg: string = "";
+// 解析器位置游标（全局，见文件头"位置推进"说明）
+pub var g_cpos: i64 = 0;
+
+
+namespace td {
+func new_node(ty: i64) -> i64 {
+    table_push(c_types, ty)
+    table_push(c_ivals, 0)
+    table_push(c_fvals, 0.0)
+    table_push(c_strs, "")
+    table_push(c_kids, -1)
+    table_push(c_ovals, 0)
+    return len(c_types) - 1
+}
+
+// 字符串节点：文本入字符串池 c_strs，节点 c_ivals 存其索引。返回节点 id。
+func new_str_node(content: string) -> i64 {
+    var n = new_node(4)
+    var idx: i64 = -1
+    var i: i64 = 0
+    // 池内去重（与 json 一致：同文本复用索引）
+    while i < len(c_strs) {
+        if c_strs[i] == content {
+            idx = i
+        }
+        i = i + 1
+    }
+    if idx < 0 {
+        table_push(c_strs, content)
+        idx = len(c_strs) - 1
+    }
+    c_ivals[n] = idx
+    return n
+}
+
+// 表键登记：向 map 节点追加一个键值对（键为字符串，值节点已构造）。
+// 返回 map 节点 id（链式构造用）。
+func map_add(n: i64, key: string, val: i64) -> i64 {
+    // 键入字符串池（去重），登记键/值
+    var k = new_str_node(key)
+    table_push(c_key_flat, c_ivals[k])
+    table_push(c_val_flat, val)
+    c_ovals[n] = c_ovals[n] + 1
+    return n
+}
+
+// 数组追加一个元素节点。返回 array 节点 id（链式构造用）。
+func arr_add(n: i64, val: i64) -> i64 {
+    table_push(c_elem_flat, val)
+    c_ovals[n] = c_ovals[n] + 1
+    return n
+}
+
+// 把收集到的键值对一次性登记到全局扁平表，并设置节点键区间。
+// 关键：一个 map 的键必须在全局 flat 中连续存放——嵌套构造/解析时若
+// 边解析边 push，内层表的键会插入外层表的键序列中间，破坏 map_get 的
+// 区间扫描。故所有「构造表」路径都先收集到局部表，完成后统一登记。
+func commit_map(n: i64, keys: table<string>, vals: table<i64>) {
+    var cnt: i64 = len(keys)
+    c_kids[n] = len(c_key_flat)
+    c_ovals[n] = cnt
+    var i: i64 = 0
+    while i < cnt {
+        var k = new_str_node(keys[i])
+        table_push(c_key_flat, c_ivals[k])
+        table_push(c_val_flat, vals[i])
+        i = i + 1
+    }
+}
+
+// 表键覆盖：把 n 中已存在的 key 的值槽替换为 val（不新增键）。
+// 键不存在返回 -1（调用方决定如何处理）；成功返回 n。
+// 用于 apply_cli：CLI 覆盖的都是默认/配置文件里已有的键，原地改槽位
+// 不会破坏全局扁平表的连续布局（新增键需 push 到末尾，会打乱区间）。
+func map_set(n: i64, key: string, val: i64) -> i64 {
+    if type_of(n) != 6 {
+        return -1
+    }
+    var start: i64 = c_kids[n]
+    var cnt: i64 = c_ovals[n]
+    var i: i64 = 0
+    while i < cnt {
+        if c_strs[c_key_flat[start + i]] == key {
+            c_val_flat[start + i] = val
+            return n
+        }
+        i = i + 1
+    }
+    return -1
+}
+
+// 截取 s 的 [start, end) 子串（码点级）；越界自动收敛；start>=end 返回空串。
+pub func slice(s: string, start: i64, end: i64) -> string {
+    var n: i64 = str_len(s)
+    var lo: i64 = start
+    if lo < 0 {
+        lo = 0
+    }
+    if lo > n {
+        lo = n
+    }
+    var hi: i64 = end
+    if hi < 0 {
+        hi = 0
+    }
+    if hi > n {
+        hi = n
+    }
+    var out: string = ""
+    var i: i64 = lo
+    while i < hi {
+        out = out + str_char(s, i)
+        i = i + 1
+    }
+    return out
+}
+
+// 查找 sub 在 s 中首次出现的位置（0 起字符索引）；未找到返回 -1。
+func find(s: string, sub: string) -> i64 {
+    var n: i64 = str_len(s)
+    var m: i64 = str_len(sub)
+    if m == 0 {
+        return 0
+    }
+    if m > n {
+        return -1
+    }
+    var i: i64 = 0
+    while i <= n - m {
+        var j: i64 = 0
+        var matched: bool = true
+        while j < m && matched {
+            // 嵌套 if 防越界：i+j 必在 [0, n) 内（外层保证 i <= n-m）
+            if str_char(s, i + j) != str_char(sub, j) {
+                matched = false
+            }
+            j = j + 1
+        }
+        if matched {
+            return i
+        }
+        i = i + 1
+    }
+    return -1
+}
+
+// 判断 s 是否以 prefix 开头。
+func starts_with(s: string, prefix: string) -> bool {
+    var n: i64 = str_len(s)
+    var m: i64 = str_len(prefix)
+    if m > n {
+        return false
+    }
+    var i: i64 = 0
+    while i < m {
+        if str_char(s, i) != str_char(prefix, i) {
+            return false
+        }
+        i = i + 1
+    }
+    return true
+}
+
+// 跳过空白（空格 32 / 制表 9 / 换行 10 / 回车 13）与 // 行注释，推进 g_cpos。
+func skip_ws(s: string) {
+    var n: i64 = str_len(s)
+    while g_cpos < n {
+        var c = str_char(s, g_cpos)
+        var cp: i64 = char_code(c)
+        if cp == 32 || cp == 9 || cp == 10 || cp == 13 {
+            g_cpos = g_cpos + 1
+        } else if cp == 47 && g_cpos + 1 < n && str_char(s, g_cpos + 1) == "/" {
+            // 行注释：跳到行尾（换行符本身由下一轮跳过）
+            while g_cpos < n {
+                if str_char(s, g_cpos) == "\n" {
+                    break
+                }
+                g_cpos = g_cpos + 1
+            }
+        } else {
+            return
+        }
+    }
+}
+
+// 解析字符串（含引号）：处理转义 \" \\ \/ \n \r \t。
+// 返回 str 节点 id；失败 -1（c_err_msg 已置）。
+func parse_string(s: string) -> i64 {
+    var n: i64 = str_len(s)
+    // 跳过开引号
+    g_cpos = g_cpos + 1
+    // 计算当前码点 g_cpos 对应的字节偏移 bpos（str_byte 按字节索引；str_char 为 O(i)，
+    // 循环内逐码点调用会退化为 O(n²)，故改用 O(1) 的 str_byte 推进）。
+    var bpos: i64 = 0
+    var idx: i64 = 0
+    while idx < g_cpos && idx < n {
+        var lb = str_byte(s, bpos)
+        var bl: i64 = 1
+        if lb >= 240 {
+            bl = 4
+        } else if lb >= 224 {
+            bl = 3
+        } else if lb >= 192 {
+            bl = 2
+        }
+        bpos = bpos + bl
+        idx = idx + 1
+    }
+    var out_h = string_builder()
+    while g_cpos < n {
+        var b = str_byte(s, bpos)
+        if b == 34 {
+            // 闭引号（"）：返回字符串节点
+            g_cpos = g_cpos + 1
+            return new_str_node(sb_build(out_h))
+        }
+        if b == 92 {
+            // 转义序列（\）
+            if g_cpos + 1 >= n {
+                c_err_msg = "td 字符串转义不完整（位置 " + to_string(g_cpos) + "）"
+                return -1
+            }
+            var eb = str_byte(s, bpos + 1)
+            if eb == 34 {
+                sb_append_byte(out_h, 34)
+                g_cpos = g_cpos + 2
+                bpos = bpos + 2
+            } else if eb == 92 {
+                sb_append_byte(out_h, 92)
+                g_cpos = g_cpos + 2
+                bpos = bpos + 2
+            } else if eb == 47 {
+                sb_append_byte(out_h, 47)
+                g_cpos = g_cpos + 2
+                bpos = bpos + 2
+            } else if eb == 110 {
+                sb_append_byte(out_h, 10)
+                g_cpos = g_cpos + 2
+                bpos = bpos + 2
+            } else if eb == 114 {
+                sb_append_byte(out_h, 13)
+                g_cpos = g_cpos + 2
+                bpos = bpos + 2
+            } else if eb == 116 {
+                sb_append_byte(out_h, 9)
+                g_cpos = g_cpos + 2
+                bpos = bpos + 2
+            } else {
+                c_err_msg = "td 未知转义 \\" + str_char(s, g_cpos + 1) + "（位置 " + to_string(g_cpos) + "）"
+                return -1
+            }
+        } else {
+            // 普通字符（可能多字节码点）：整字符按字节长度复制
+            var bl: i64 = 1
+            if b >= 240 {
+                bl = 4
+            } else if b >= 224 {
+                bl = 3
+            } else if b >= 192 {
+                bl = 2
+            }
+            var k: i64 = 0
+            while k < bl {
+                sb_append_byte(out_h, str_byte(s, bpos + k))
+                k = k + 1
+            }
+            g_cpos = g_cpos + 1
+            bpos = bpos + bl
+        }
+    }
+    c_err_msg = "td 字符串未闭合"
+    return -1
+}
+
+// 解析关键字字面量（true/false）：匹配整个关键字。
+func parse_literal(s: string, word: string, value: i64) -> i64 {
+    var m: i64 = str_len(word)
+    var n: i64 = str_len(s)
+    var i: i64 = 0
+    while i < m {
+        if g_cpos + i >= n || str_char(s, g_cpos + i) != str_char(word, i) {
+            c_err_msg = "td 字面量不完整（位置 " + to_string(g_cpos) + "）"
+            return -1
+        }
+        i = i + 1
+    }
+    g_cpos = g_cpos + m
+    var nd = new_node(1)
+    c_ivals[nd] = value
+    return nd
+}
+
+// 解析数字：-? 整数 (. 小数)?。收集数字字符后用 parse_int/parse_float 解析。
+func parse_number(s: string) -> i64 {
+    var n: i64 = str_len(s)
+    var digits: string = ""
+    // 可选负号
+    if g_cpos < n && str_char(s, g_cpos) == "-" {
+        digits = digits + "-"
+        g_cpos = g_cpos + 1
+    }
+    var is_float: bool = false
+    var started: bool = false
+    // 整数部分
+    while g_cpos < n {
+        var c = str_char(s, g_cpos)
+        var cp: i64 = char_code(c)
+        if cp >= 48 && cp <= 57 {
+            digits = digits + c
+            started = true
+            g_cpos = g_cpos + 1
+        } else {
+            break
+        }
+    }
+    if !started {
+        c_err_msg = "td 数字缺少整数部分（位置 " + to_string(g_cpos) + "）"
+        return -1
+    }
+    // 小数部分
+    if g_cpos < n && str_char(s, g_cpos) == "." {
+        is_float = true
+        digits = digits + "."
+        g_cpos = g_cpos + 1
+        var fstarted: bool = false
+        while g_cpos < n {
+            var c2 = str_char(s, g_cpos)
+            var cp2: i64 = char_code(c2)
+            if cp2 >= 48 && cp2 <= 57 {
+                digits = digits + c2
+                fstarted = true
+                g_cpos = g_cpos + 1
+            } else {
+                break
+            }
+        }
+        if !fstarted {
+            c_err_msg = "td 数字小数部分缺少数字（位置 " + to_string(g_cpos) + "）"
+            return -1
+        }
+    }
+    if is_float {
+        var nd = new_node(3)
+        c_fvals[nd] = parse_float(digits)
+        return nd
+    }
+    var nd2 = new_node(2)
+    c_ivals[nd2] = parse_int(digits)
+    return nd2
+}
+
+// 解析一个值（表/数组/字符串/数字/布尔），推进 g_cpos。失败返回 -1。
+// 注意：str_char 返回的单字符立即用于比较，不跨函数持有。
+func parse_value(s: string) -> i64 {
+    skip_ws(s)
+    var n: i64 = str_len(s)
+    if g_cpos >= n {
+        c_err_msg = "td 值意外结束"
+        return -1
+    }
+    var c = str_char(s, g_cpos)
+    var cp: i64 = char_code(c)
+    if cp == 91 {
+        return parse_container(s)
+    }
+    if cp == 34 {
+        return parse_string(s)
+    }
+    if cp == 116 {
+        return parse_literal(s, "true", 1)
+    }
+    if cp == 102 {
+        return parse_literal(s, "false", 0)
+    }
+    if cp == 45 || (cp >= 48 && cp <= 57) {
+        return parse_number(s)
+    }
+    c_err_msg = "td 值意外字符（位置 " + to_string(g_cpos) + "）"
+    return -1
+}
+
+// 解析容器 [ ... ]：表（键值对）或数组（值列表），靠首个条目区分。
+// 首条目是 `"key": value` 形式 → 表；否则 → 数组。空容器视为空数组。
+// 条目间逗号可选（容忍尾逗号：] 前的 , 跳过）。
+func parse_container(s: string) -> i64 {
+    var n: i64 = str_len(s)
+    // 跳过 [
+    g_cpos = g_cpos + 1
+    skip_ws(s)
+    // 空容器：直接 ] → 空数组
+    if g_cpos < n && str_char(s, g_cpos) == "]" {
+        var en = new_node(5)
+        c_kids[en] = len(c_elem_flat)
+        c_ovals[en] = 0
+        g_cpos = g_cpos + 1
+        return en
+    }
+    // 探测首条目形态：读一个字符串，看其后是否跟 ':'（表键）还是裸值
+    skip_ws(s)
+    if g_cpos >= n {
+        c_err_msg = "td 容器未闭合"
+        return -1
+    }
+    var is_map: bool = false
+    if str_char(s, g_cpos) == "\"" {
+        // 可能是键（表）或字符串元素（数组）：先解析字符串，再窥探 ':'
+        var save: i64 = g_cpos
+        var probe = parse_string(s)
+        if probe < 0 {
+            return -1
+        }
+        skip_ws(s)
+        if g_cpos < n && str_char(s, g_cpos) == ":" {
+            is_map = true
+        }
+        // 无论表还是数组：游标回退到探测起点，由 body 函数统一从头解析
+        //（probe 节点丢弃；表形态 body 会重新读键，数组形态 body 会重新读值）
+        g_cpos = save
+    }
+    if is_map {
+        return parse_map_body(s)
+    }
+    return parse_array_body(s)
+}
+
+// 解析表主体（首个键已确认存在，尚未消费）：`"key": value, ...`。
+func parse_map_body(s: string) -> i64 {
+    var n: i64 = str_len(s)
+    var nd = new_node(6)
+    // 键/值先收集到局部表，解析完成后统一登记到全局扁平表：
+    // 嵌套子表解析时会向 c_key_flat/c_val_flat push 自身键值，
+    // 若边解析边登记，子表条目会插入本表键区间中间，破坏连续布局。
+    var keys: table<string> = table_new_string()
+    var vals: table<i64> = table_new_i64()
+    var cnt: i64 = 0
+    while true {
+        skip_ws(s)
+        if g_cpos >= n {
+            c_err_msg = "td 表未闭合"
+            return -1
+        }
+        // 键必须是字符串
+        if str_char(s, g_cpos) != "\"" {
+            c_err_msg = "td 表键必须是字符串（位置 " + to_string(g_cpos) + "）"
+            return -1
+        }
+        var knode = parse_string(s)
+        if knode < 0 {
+            return -1
+        }
+        var ktext = c_strs[c_ivals[knode]]
+        table_push(keys, ktext)
+        skip_ws(s)
+        if g_cpos >= n || str_char(s, g_cpos) != ":" {
+            c_err_msg = "td 表期望 :（位置 " + to_string(g_cpos) + "）"
+            return -1
+        }
+        g_cpos = g_cpos + 1
+        var v = parse_value(s)
+        if v < 0 {
+            return -1
+        }
+        table_push(vals, v)
+        cnt = cnt + 1
+        skip_ws(s)
+        if g_cpos >= n {
+            c_err_msg = "td 表未闭合"
+            return -1
+        }
+        var c = str_char(s, g_cpos)
+        if c == "," {
+            g_cpos = g_cpos + 1
+            // 尾逗号：跳过空白后若直接是 ] 则闭合
+            skip_ws(s)
+            if g_cpos < n && str_char(s, g_cpos) == "]" {
+                g_cpos = g_cpos + 1
+                break
+            }
+        } else if c == "]" {
+            g_cpos = g_cpos + 1
+            break
+        } else {
+            c_err_msg = "td 表期望 , 或 ]（位置 " + to_string(g_cpos) + "）"
+            return -1
+        }
+    }
+    commit_map(nd, keys, vals)
+    return nd
+}
+
+// 解析数组主体（首元素尚未消费）：`v1, v2, ...`。
+// 元素先收集到局部表，完成后统一登记（同 parse_map_body：嵌套子表解析
+// 时内层元素先 push 到全局 c_elem_flat，若边解析边登记会插入本数组
+// 元素序列中间，破坏区间扫描）。
+func parse_array_body(s: string) -> i64 {
+    var n: i64 = str_len(s)
+    var nd = new_node(5)
+    var elems: table<i64> = table_new_i64()
+    var cnt: i64 = 0
+    while true {
+        var v = parse_value(s)
+        if v < 0 {
+            return -1
+        }
+        table_push(elems, v)
+        cnt = cnt + 1
+        skip_ws(s)
+        if g_cpos >= n {
+            c_err_msg = "td 数组未闭合"
+            return -1
+        }
+        var c = str_char(s, g_cpos)
+        if c == "," {
+            g_cpos = g_cpos + 1
+            // 尾逗号：跳过空白后若直接是 ] 则闭合
+            skip_ws(s)
+            if g_cpos < n && str_char(s, g_cpos) == "]" {
+                g_cpos = g_cpos + 1
+                break
+            }
+        } else if c == "]" {
+            g_cpos = g_cpos + 1
+            break
+        } else {
+            c_err_msg = "td 数组期望 , 或 ]（位置 " + to_string(g_cpos) + "）"
+            return -1
+        }
+    }
+    c_kids[nd] = len(c_elem_flat)
+    c_ovals[nd] = cnt
+    var i: i64 = 0
+    while i < cnt {
+        table_push(c_elem_flat, elems[i])
+        i = i + 1
+    }
+    return nd
+}
+
+// 剥离 td 文件头部的声明行/注释行/空行（`type tie<data>` 等），返回纯表文本。
+// 规则：跳过文件开头所有空行、// 注释行、`type tie` 声明行；遇首个其他行停止。
+func strip_header(src: string) -> string {
+    var lines: table<string> = table_new_string()
+    var cur: string = ""
+    var n: i64 = str_len(src)
+    var i: i64 = 0
+    while i < n {
+        var c = str_char(src, i)
+        if c == "\n" {
+            table_push(lines, cur)
+            cur = ""
+        } else {
+            cur = cur + c
+        }
+        i = i + 1
+    }
+    if str_len(cur) > 0 {
+        table_push(lines, cur)
+    }
+    var out: string = ""
+    var k: i64 = 0
+    var started: bool = false
+    while k < len(lines) {
+        var line = lines[k]
+        var t = trim(line)
+        if !started {
+            if str_len(t) == 0 {
+                // 空行跳过
+                k = k + 1
+                continue
+            }
+            if starts_with(t, "//") {
+                // 注释行跳过
+                k = k + 1
+                continue
+            }
+            if starts_with(t, "type tie") {
+                // 声明行跳过
+                k = k + 1
+                continue
+            }
+            started = true
+        }
+        if str_len(out) > 0 {
+            out = out + "\n"
+        }
+        out = out + line
+        k = k + 1
+    }
+    return out
+}
+
+// 去除字符串首尾空白（空格/制表/换行/回车）。
+pub func trim(s: string) -> string {
+    var n: i64 = str_len(s)
+    var start: i64 = 0
+    while start < n {
+        var c = str_char(s, start)
+        var cp: i64 = char_code(c)
+        if cp == 32 || cp == 9 || cp == 10 || cp == 13 {
+            start = start + 1
+        } else {
+            break
+        }
+    }
+    var end: i64 = n
+    while end > start {
+        var c2 = str_char(s, end - 1)
+        var cp2: i64 = char_code(c2)
+        if cp2 == 32 || cp2 == 9 || cp2 == 10 || cp2 == 13 {
+            end = end - 1
+        } else {
+            break
+        }
+    }
+    return slice(s, start, end)
+}
+
+// 重置节点存储：清空全部列式表 + 错误消息 + 游标。
+func reset_store() {
+    c_types = table_new_i64()
+    c_ivals = table_new_i64()
+    c_fvals = table_new_f64()
+    c_strs = table_new_string()
+    c_kids = table_new_i64()
+    c_ovals = table_new_i64()
+    c_elem_flat = table_new_i64()
+    c_key_flat = table_new_i64()
+    c_val_flat = table_new_i64()
+    c_err_msg = ""
+    g_cpos = 0
+}
+
+// 可选表名剥离：若正文（去前导空白后）形如 `标识符 = [`，则返回 '[' 起的子串；
+// 否则原样返回。仅当 '=' 后紧跟 '['（表字面量）才剥离，避免误伤普通内容。
+func skip_opt_table_name(body: string) -> string {
+    var n: i64 = str_len(body)
+    var i: i64 = 0
+    // 前导空白
+    while i < n {
+        var c = str_char(body, i)
+        var cp: i64 = char_code(c)
+        if cp == 32 || cp == 9 || cp == 10 || cp == 13 {
+            i = i + 1
+        } else {
+            break
+        }
+    }
+    // 首 token：标识符（字母/下划线开头，后接字母数字下划线）
+    var start: i64 = i
+    while i < n {
+        var c = str_char(body, i)
+        var cp: i64 = char_code(c)
+        if (cp >= 97 && cp <= 122) || (cp >= 65 && cp <= 90) || cp == 95 ||
+            (i > start && cp >= 48 && cp <= 57) {
+            i = i + 1
+        } else {
+            break
+        }
+    }
+    if i == start {
+        return body
+    }
+    // 标识符后空白，找 '='
+    var j: i64 = i
+    while j < n {
+        var c = str_char(body, j)
+        var cp: i64 = char_code(c)
+        if cp == 32 || cp == 9 || cp == 10 || cp == 13 {
+            j = j + 1
+        } else {
+            break
+        }
+    }
+    if j >= n || str_char(body, j) != "=" {
+        return body
+    }
+    // '=' 后空白，确认 '['（表字面量）
+    var k: i64 = j + 1
+    while k < n {
+        var c = str_char(body, k)
+        var cp: i64 = char_code(c)
+        if cp == 32 || cp == 9 || cp == 10 || cp == 13 {
+            k = k + 1
+        } else {
+            break
+        }
+    }
+    if k < n && str_char(body, k) == "[" {
+        return slice(body, k, n)
+    }
+    return body
+}
+
+// 追加解析 td 文件（不重置存储）：供 load_merge 分层加载使用。
+// 失败返回 -1（c_err_msg 含信息）。
+func parse_file_append(path: string) -> i64 {
+    var content = file_read(path)
+    if str_len(content) == 0 {
+        c_err_msg = "td 文件为空或读取失败: " + path
+        return -1
+    }
+    var body = strip_header(content)
+    return parse_append(body)
+}
+
+// ---------- 节点构造（内部） ----------
+
+
+// ---------- 字符串工具（自备，只依赖底座原语） ----------
+
+
+// ---------- 解析（递归下降） ----------
+
+
+// ---------- 解析入口（pub） ----------
+
+
+// 追加解析（不重置存储）：在既有节点存储之上继续解析，返回根节点 id（>=0）；
+// 失败 -1。游标/错误消息归零，但不清空列式表——先前的节点 id 保持有效，
+// 供 load_merge 分层合并使用（避免 build_defaults 的根被后续解析清空）。
+pub func parse_append(s: string) -> i64 {
+    c_err_msg = ""
+    g_cpos = 0
+    var root = parse_value(s)
+    if root < 0 {
+        return -1
+    }
+    // 根值后只允许空白
+    skip_ws(s)
+    if g_cpos < str_len(s) {
+        c_err_msg = "td 根值后有额外内容（位置 " + to_string(g_cpos) + "）"
+        return -1
+    }
+    return root
+}
+
+// 解析 td 文本（已剥离头部声明），成功返回根节点 id（>=0）；失败 -1。
+// 顶层必须恰一个容器（表或数组）；允许前后空白。独立解析（先重置存储）。
+pub func parse(s: string) -> i64 {
+    reset_store()
+    return parse_append(s)
+}
+
+// 解析 td 文件（file_read + 剥离头部 + parse）；失败返回 -1（c_err_msg 含信息）。
+pub func parse_file(path: string) -> i64 {
+    var content = file_read(path)
+    if str_len(content) == 0 {
+        c_err_msg = "td 文件为空或读取失败: " + path
+        return -1
+    }
+    var body = strip_header(content)
+    return parse(body)
+}
+
+// 解析 tie:data 数据文件（--compress-data 用）：复用 strip_header 剥离 `type tie<data>`
+// 等头部行，再支持**可选表名**（`name = [...]`，无 var；首标识符 + '=' + '[' 时跳过
+// 表名部分，从 '[' 起解析）。裸表（无表名）原样。失败返回 -1（c_err_msg 含信息）。
+pub func parse_data(path: string) -> i64 {
+    var content = file_read(path)
+    if str_len(content) == 0 {
+        c_err_msg = "data 文件为空或读取失败: " + path
+        return -1
+    }
+    var body = strip_header(content)
+    body = skip_opt_table_name(body)
+    return parse(body)
+}
+
+
+// 最近一次操作的错误消息（成功时为空串）。
+pub func err_msg() -> string {
+    return c_err_msg
+}
+
+// ---------- 访问器 ----------
+
+// 节点类型码（0-6；非法 id 返回 -1）。
+pub func type_of(n: i64) -> i64 {
+    if n < 0 || n >= len(c_types) {
+        return -1
+    }
+    return c_types[n]
+}
+
+// int/bool 节点的值（bool: 0/1；其他类型返回 0）。
+pub func int_val(n: i64) -> i64 {
+    if n < 0 || n >= len(c_types) {
+        return 0
+    }
+    if c_types[n] == 1 || c_types[n] == 2 {
+        return c_ivals[n]
+    }
+    return 0
+}
+
+// float 节点的值（其他类型返回 0.0）。供 td→zd 平铺等消费方取浮点值。
+pub func float_val(n: i64) -> f64 {
+    if n < 0 || n >= len(c_types) {
+        return 0.0
+    }
+    if c_types[n] == 3 {
+        return c_fvals[n]
+    }
+    return 0.0
+}
+
+// str 节点的文本（其他类型返回空串）。
+pub func str_val(n: i64) -> string {
+    if n < 0 || n >= len(c_types) {
+        return ""
+    }
+    if c_types[n] == 4 {
+        return c_strs[c_ivals[n]]
+    }
+    return ""
+}
+
+// 数组元素个数（非数组返回 0）。
+pub func arr_len(n: i64) -> i64 {
+    if type_of(n) != 5 {
+        return 0
+    }
+    return c_ovals[n]
+}
+
+// 数组第 i 个元素节点（越界返回 -1）。
+pub func arr_at(n: i64, i: i64) -> i64 {
+    if type_of(n) != 5 {
+        return -1
+    }
+    if i < 0 || i >= c_ovals[n] {
+        return -1
+    }
+    return c_elem_flat[c_kids[n] + i]
+}
+
+// 表按键取值节点（键不存在返回 -1；重复键取最后登记——区间靠后者）。
+pub func map_get(n: i64, key: string) -> i64 {
+    if type_of(n) != 6 {
+        return -1
+    }
+    var start: i64 = c_kids[n]
+    var cnt: i64 = c_ovals[n]
+    var found: i64 = -1
+    var i: i64 = 0
+    while i < cnt {
+        if c_strs[c_key_flat[start + i]] == key {
+            found = c_val_flat[start + i]
+        }
+        i = i + 1
+    }
+    return found
+}
+
+// 表键个数（非表返回 0）。
+pub func map_len(n: i64) -> i64 {
+    if type_of(n) != 6 {
+        return 0
+    }
+    return c_ovals[n]
+}
+
+// 表第 i 个键名（越界返回空串）。
+pub func map_key(n: i64, i: i64) -> string {
+    if type_of(n) != 6 {
+        return ""
+    }
+    if i < 0 || i >= c_ovals[n] {
+        return ""
+    }
+    return c_strs[c_key_flat[c_kids[n] + i]]
+}
+
+// 表第 i 个值节点（越界返回 -1）。
+pub func map_val(n: i64, i: i64) -> i64 {
+    if type_of(n) != 6 {
+        return -1
+    }
+    if i < 0 || i >= c_ovals[n] {
+        return -1
+    }
+    return c_val_flat[c_kids[n] + i]
+}
+
+// 点分路径查找：path 形如 "tiec.backend"（空段忽略）。
+// 逐段 map_get 下钻；任何一段不是表/不存在 → 返回 -1。
+pub func path_get(root: i64, path: string) -> i64 {
+    if type_of(root) != 6 {
+        return -1
+    }
+    var n: i64 = str_len(path)
+    if n == 0 {
+        return root
+    }
+    var cur: i64 = root
+    var seg: string = ""
+    var i: i64 = 0
+    while i <= n {
+        var at_end: bool = (i == n)
+        var is_dot: bool = false
+        if !at_end {
+            if str_char(path, i) == "." {
+                is_dot = true
+            }
+        }
+        if at_end || is_dot {
+            if str_len(seg) > 0 {
+                cur = map_get(cur, seg)
+                if cur < 0 {
+                    return -1
+                }
+                // 段间不要求中间节点是表（map_get 本身已校验）
+                seg = ""
+            }
+        } else {
+            seg = seg + str_char(path, i)
+        }
+        i = i + 1
+    }
+    return cur
+}
+
+// 便捷访问：路径字符串值（不存在/非字符串 → 空串）。
+pub func get_str(root: i64, path: string) -> string {
+    var n = path_get(root, path)
+    if n < 0 {
+        return ""
+    }
+    return str_val(n)
+}
+
+// 便捷访问：路径整数值（不存在/非整数 → 0）。
+pub func get_int(root: i64, path: string) -> i64 {
+    var n = path_get(root, path)
+    if n < 0 {
+        return 0
+    }
+    return int_val(n)
+}
+
+// 便捷访问：路径布尔值（不存在/非布尔 → false）。
+pub func get_bool(root: i64, path: string) -> bool {
+    var n = path_get(root, path)
+    if n < 0 {
+        return false
+    }
+    return int_val(n) != 0
+}
+
+// 便捷访问：路径数组/字符串 → 逗号分隔序列（跨模块传参载体，规避表参数限制）。
+// 数组：逐元素拼接（元素取 str_val，非字符串元素跳过）；字符串：原样返回。
+// 不存在 → 空串。
+pub func get_list(root: i64, path: string) -> string {
+    var n = path_get(root, path)
+    if n < 0 {
+        return ""
+    }
+    if type_of(n) == 4 {
+        return str_val(n)
+    }
+    if type_of(n) != 5 {
+        return ""
+    }
+    var out: string = ""
+    var cnt: i64 = c_ovals[n]
+    var i: i64 = 0
+    while i < cnt {
+        var e = c_elem_flat[c_kids[n] + i]
+        if type_of(e) == 4 {
+            if out != "" {
+                out = out + ","
+            }
+            out = out + c_strs[c_ivals[e]]
+        }
+        i = i + 1
+    }
+    return out
+}
+
+}
