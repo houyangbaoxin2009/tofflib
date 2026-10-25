@@ -1,0 +1,22 @@
+// tofflib 门面示例：hello.tdoc
+// 文档即数据：块流由 load_file 装载，四个后端渲染同一份内容。
+[
+    "title": "tofflib 示例",
+    "blocks": [
+        ["cover", "tofflib 示例", "tdoc 文档源 · 四后端渲染"],
+        ["toc", 2],
+        ["h1", "第一章 入门"],
+        ["p", "这份文档来自 td 文档源，而不是 tie 源码。"],
+        ["b", "一个文档源，四种产物。"],
+        ["ul", ["docx：Office 办公文档", "xlsx：表格", "pptx：演示稿", "pdf：印刷用排版"]],
+        ["h2", "表格"],
+        ["tbl", ["能力", "状态"], ["表格", "已支持"], ["代码块", "已支持"], ["页脚页码", "PDF 支持"]],
+        ["h2", "代码"],
+        ["code", "tie", "pub func main() -> i64 {\n    return 0\n}"],
+        ["note", "示例覆盖了正文、列表、表格、代码与分页。"],
+        ["page"],
+        ["h1", "第二章 结构"],
+        ["p", "块流是扁平 table<string>，一行一块。"],
+        ["link", "项目主页", "https://github.com/tie-lang/tie"],
+    ],
+]

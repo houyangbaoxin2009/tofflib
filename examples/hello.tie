@@ -1,0 +1,41 @@
+type tie<logic>
+// tofflib 门面示例：装载 hello.tdoc，渲染四份产物。
+// 编译：tiec examples/hello.tie -o target/hello.exe --no-cache
+// 运行（工作目录 = tofflib 根）：target/hello.exe
+import "../src/tofflib.tie" as tl
+
+func main() -> i64 {
+    // load_file 用文档源的 title 生成 doc 头，故从空块流开始
+    var d: table<string> = []
+    var err = tl.load_file("examples/hello.tdoc", d)
+    if err != "" {
+        println("装载失败: " + err)
+        return 1
+    }
+    var v = tl.validate(d)
+    if v != "" {
+        println("校验失败: " + v)
+        return 1
+    }
+    var ok: i64 = 1
+    if !tl.docx("target/hello.docx", d) {
+        println("docx 渲染失败")
+        ok = 0
+    }
+    if !tl.xlsx("target/hello.xlsx", d) {
+        println("xlsx 渲染失败")
+        ok = 0
+    }
+    if !tl.pptx("target/hello.pptx", d) {
+        println("pptx 渲染失败")
+        ok = 0
+    }
+    if !tl.pdf("target/hello.pdf", d, "C:/Windows/Fonts/NotoSansSC-VF.ttf", "C:/Windows/Fonts/consola.ttf") {
+        println("pdf 渲染失败")
+        ok = 0
+    }
+    if ok == 1 {
+        println("ALL PASS")
+    }
+    return 1 - ok
+}

@@ -1,0 +1,114 @@
+type tie<class>
+// tofflib 门面（对外唯一稳定入口）
+//
+// 文档模型是「扁平块流」：table<string>，一行一块，首元素是块名。
+// 见 src/doc/model.tie 的协议注释；文档源（.tdoc，tie:data）由 load_file 装载。
+//
+// 旧模块（docx/omml/vml/ooxml/xlsx/pptx/tiedoc/pdf/pdf_asm/pdf_ttf）保留，
+// 但属于内部/高级用法——新代码只依赖本门面。
+
+import "./doc/model.tie" as m
+import "./doc/load.tie" as ld
+import "./doc/render.tie" as rd
+
+namespace tofflib {
+
+// ---------- 文档构建 ----------
+pub func new_doc(title: string) -> table<string> {
+    return m.new_doc(title)
+}
+
+pub func h1(t: ref table<string>, s: string) {
+    m.h1(t, s)
+}
+
+pub func h2(t: ref table<string>, s: string) {
+    m.h2(t, s)
+}
+
+pub func h3(t: ref table<string>, s: string) {
+    m.h3(t, s)
+}
+
+pub func p(t: ref table<string>, s: string) {
+    m.p(t, s)
+}
+
+pub func bold(t: ref table<string>, s: string) {
+    m.bold(t, s)
+}
+
+pub func center(t: ref table<string>, s: string) {
+    m.center(t, s)
+}
+
+pub func note(t: ref table<string>, s: string) {
+    m.note(t, s)
+}
+
+pub func ul(t: ref table<string>, items: table<string>) {
+    m.ul(t, items)
+}
+
+pub func ol(t: ref table<string>, items: table<string>) {
+    m.ol(t, items)
+}
+
+// 表格：表头 cells 在前，rows 按行主序扁平排列（列数 = len(header)）。
+pub func tbl(t: ref table<string>, header: table<string>, rows: table<string>) {
+    m.tbl(t, header, rows)
+}
+
+pub func codeblock(t: ref table<string>, lang: string, s: string) {
+    m.codeblock(t, lang, s)
+}
+
+pub func link(t: ref table<string>, s: string, url: string) {
+    m.link(t, s, url)
+}
+
+pub func page(t: ref table<string>) {
+    m.page(t)
+}
+
+pub func sec(t: ref table<string>, title: string) {
+    m.sec(t, title)
+}
+
+pub func cover(t: ref table<string>, title: string, subtitle: string) {
+    m.cover(t, title, subtitle)
+}
+
+pub func toc(t: ref table<string>, depth: i64) {
+    m.toc(t, depth)
+}
+
+// 校验块流；返回空串表示通过，否则是带 token 下标的错误描述。
+pub func validate(t: table<string>) -> string {
+    return m.validate(t)
+}
+
+// ---------- 文档源装载 ----------
+// 把 .tdoc（tie:data）里的 blocks 追加到 out；返回空串表示成功。
+pub func load_file(path: string, out: ref table<string>) -> string {
+    return ld.load_file(path, out)
+}
+
+// ---------- 渲染 ----------
+pub func docx(path: string, t: table<string>) -> bool {
+    return rd.docx(path, t)
+}
+
+pub func xlsx(path: string, t: table<string>) -> bool {
+    return rd.xlsx(path, t)
+}
+
+pub func pptx(path: string, t: table<string>) -> bool {
+    return rd.pptx(path, t)
+}
+
+pub func pdf(path: string, t: table<string>, body_font: string, mono_font: string) -> bool {
+    return rd.pdf(path, t, body_font, mono_font)
+}
+
+}
