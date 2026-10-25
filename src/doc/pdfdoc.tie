@@ -80,8 +80,29 @@ func tw(txt: string, size: i64, slot: i64, fb: i64) -> i64 {
     return pdf.shape_width(pdf.shape(slot, fb, txt), size)
 }
 
+// 合成粗体：用文本渲染模式 2（填充+描边）代替二次绘制——不产生重复文本，
+// 复制/检索结果与普通段落一致（TrueType 单字重字体没有真粗体面可嵌）。
+var g_bold: i64 = 0;
+var dp_dry: i64 = 0;
+
 func put(x: i64, y: i64, size: i64, slot: i64, txt: string) {
-    pdf.text_shaped(dp_page, x, y, size * 100, pdf.shape(slot, SLOT_BODY, txt))
+    var sh = pdf.shape(slot, SLOT_BODY, txt)
+    if g_bold == 1 && dp_dry == 0 {
+        pdf.raw(dp_page, "2 Tr " + pdf.f2s(size * 3) + " w
+")
+    }
+    pdf.text_shaped(dp_page, x, y, size * 100, sh)
+    if g_bold == 1 && dp_dry == 0 {
+        pdf.raw(dp_page, "0 Tr
+")
+    }
+}
+
+// 加粗段落（整段）。
+pub func p_bold(s: string) {
+    g_bold = 1
+    p(s)
+    g_bold = 0
 }
 
 // 带颜色的文本（语法高亮用）
@@ -161,8 +182,10 @@ pub func reset_doc() {
     dp_y = DP_H - DP_MT
 }
 
-pub func dry_on() { pdf.dry_on() }
-pub func dry_off() { pdf.dry_off() }
+pub func dry_on() { dp_dry = 1
+    pdf.dry_on() }
+pub func dry_off() { dp_dry = 0
+    pdf.dry_off() }
 
 // 兼容旧调用名
 pub func begin() {

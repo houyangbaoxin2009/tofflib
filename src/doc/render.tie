@@ -354,8 +354,13 @@ func pdf_one(t: table<string>, i: i64, collect: i64) -> i64 {
         g_pdf_wrote = 1
         return i + 2
     }
-    if k == "p" || k == "b" {
+    if k == "p" {
         pdoc.p(t[i + 1])
+        g_pdf_wrote = 1
+        return i + 2
+    }
+    if k == "b" {
+        pdoc.p_bold(t[i + 1])
         g_pdf_wrote = 1
         return i + 2
     }
