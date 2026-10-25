@@ -710,6 +710,43 @@ func i2s(v: i64) -> string {
         sb_append_byte(sb, 48 + digs[i])
         i = i - 1
     }
+}
+
+// 扁平表：cells 为表头 + 各单元格按行主序展开（cols 列、总格数 %cols==0），
+// 供 tdoc 块流直接渲染，避免 table<table<string>> 依赖。
+pub func tbl_flat(cols: i64, cells: table<string>, col_width_twips: i64) -> string {
+    var sb = string_builder()
+    sb_append(sb, "<w:tbl>")
+    sb_append(sb, "<w:tblPr>")
+    var w: i64 = col_width_twips
+    if w <= 0 {
+        w = 9360
+    }
+    sb_append(sb, "<w:tblW w:w=\"")
+    sb_append(sb, i2s(w))
+    sb_append(sb, "\" w:type=\"dxa\"/>")
+    sb_append(sb, tbl_borders(4, "auto"))
+    sb_append(sb, "</w:tblPr>")
+    var n: i64 = len(cells)
+    var r: i64 = 0
+    while r * cols < n {
+        var bold: bool = r == 0
+        sb_append(sb, "<w:tr>")
+        var c: i64 = 0
+        while c < cols && r * cols + c < n {
+            sb_append(sb, "<w:tc><w:p>")
+            if bold {
+                sb_append(sb, run_font(cells[r * cols + c], "", 0, true))
+            } else {
+                sb_append(sb, run(cells[r * cols + c]))
+            }
+            sb_append(sb, "</w:p></w:tc>")
+            c = c + 1
+        }
+        sb_append(sb, "</w:tr>")
+        r = r + 1
+    }
+    sb_append(sb, "</w:tbl>")
     return sb_build(sb)
 }
 

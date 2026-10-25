@@ -1,0 +1,134 @@
+type tie<class>
+// ============================================================================
+// doc/render.tie —— tdoc 块流 → 各格式渲染后端（tofflib 内部模块）
+//
+// 当前：docx。渲染器只消费扁平块流（model.tie 协议），不依赖 table<table>；
+// 校验失败返回 false（错误定位用 doc.validate）。
+// ============================================================================
+import "../docx.tie" as dx
+import "../ooxml.tie" as ox
+import "./model.tie" as doc
+
+namespace render {
+
+func to_i(s: string) -> i64 {
+    return parse_int(s)
+}
+
+func is_heading(k: string) -> bool {
+    return str_len(k) == 2 && str_byte(k, 0) == 104 && str_byte(k, 1) >= 49 && str_byte(k, 1) <= 57
+}
+
+// 代码块：按行拆开，每行一个等宽段落（行内换行在 OOXML run 里非法）。
+func code_lines(sb: i64, src: string) -> void {
+    var i: i64 = 0
+    var n: i64 = str_len(src)
+    var start: i64 = 0
+    while i <= n {
+        if i == n || str_byte(src, i) == 10 {
+            var line: string = str_sub_bytes(src, start, i - start)
+            var rr = table_new_string()
+            table_push(rr, dx.run_font(line, "Consolas", 18, false))
+            table_append_sb(sb, dx.paragraph_runs(rr))
+            start = i + 1
+        }
+        i = i + 1
+    }
+}
+
+func table_append_sb(sb: i64, s2: string) -> void {
+    sb_append(sb, s2)
+}
+
+// 渲染 docx；t 为 model.tie 块流。成功写盘返回 true。
+pub func docx(path: string, t: table<string>) -> bool {
+    var verr: string = doc.validate(t)
+    if str_len(verr) > 0 {
+        return false
+    }
+    var sb = string_builder()
+    sb_append(sb, dx.heading(t[1], 1))
+    var n: i64 = len(t)
+    var i: i64 = 2
+    while i < n {
+        var k: string = t[i]
+        if is_heading(k) {
+            sb_append(sb, dx.heading(t[i + 1], str_byte(k, 1) - 48))
+            i = i + 2
+        } else if k == "p" {
+            sb_append(sb, dx.paragraph(t[i + 1]))
+            i = i + 2
+        } else if k == "b" {
+            var rr = table_new_string()
+            table_push(rr, dx.run_font(t[i + 1], "", 0, true))
+            sb_append(sb, dx.paragraph_runs(rr))
+            i = i + 2
+        } else if k == "center" {
+            var rr = table_new_string()
+            table_push(rr, dx.run(t[i + 1]))
+            sb_append(sb, dx.para_center(rr))
+            i = i + 2
+        } else if k == "note" {
+            var rr = table_new_string()
+            table_push(rr, dx.run("注：" + t[i + 1]))
+            sb_append(sb, dx.paragraph_runs(rr))
+            i = i + 2
+        } else if k == "ul" || k == "ol" {
+            var cnt: i64 = to_i(t[i + 1])
+            var items = table_new_string()
+            var j: i64 = 0
+            while j < cnt {
+                table_push(items, t[i + 2 + j])
+                j = j + 1
+            }
+            if k == "ul" {
+                sb_append(sb, dx.bullets(items, 1))
+            } else {
+                sb_append(sb, dx.numbers(items, 1))
+            }
+            i = i + 2 + cnt
+        } else if k == "tbl" {
+            var cols: i64 = to_i(t[i + 1])
+            var rows: i64 = to_i(t[i + 2])
+            var cells = table_new_string()
+            var total: i64 = cols * (rows + 1)
+            var j: i64 = 0
+            while j < total {
+                table_push(cells, t[i + 3 + j])
+                j = j + 1
+            }
+            sb_append(sb, dx.tbl_flat(cols, cells, 0))
+            i = i + 3 + total
+        } else if k == "code" {
+            code_lines(sb, t[i + 2])
+            i = i + 3
+        } else if k == "page" {
+            sb_append(sb, dx.page_break())
+            i = i + 1
+        } else if k == "sec" {
+            sb_append(sb, dx.sect_a4())
+            i = i + 2
+        } else if k == "link" {
+            sb_append(sb, dx.link(t[i + 1], t[i + 2], ""))
+            i = i + 3
+        } else if k == "cover" {
+            sb_append(sb, dx.heading(t[i + 1], 1))
+            sb_append(sb, dx.para_center(dx_run_tbl(t[i + 2])))
+            sb_append(sb, dx.page_break())
+            i = i + 3
+        } else if k == "toc" {
+            sb_append(sb, dx.toc(1, to_i(t[i + 1]), ""))
+            i = i + 2
+        } else {
+            i = i + 1
+        }
+    }
+    return ox.write_docx(path, sb_build(sb), false)
+}
+
+func dx_run_tbl(s2: string) -> table<string> {
+    var rr = table_new_string()
+    table_push(rr, dx.run(s2))
+    return rr
+}
+}
