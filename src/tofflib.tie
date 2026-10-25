@@ -46,6 +46,18 @@ pub func note(t: ref table<string>, s: string) {
     m.note(t, s)
 }
 
+pub func quote(t: ref table<string>, s: string) {
+    m.quote(t, s)
+}
+
+pub func hr(t: ref table<string>) {
+    m.hr(t)
+}
+
+pub func caption(t: ref table<string>, s: string) {
+    m.caption(t, s)
+}
+
 pub func ul(t: ref table<string>, items: table<string>) {
     m.ul(t, items)
 }

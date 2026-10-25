@@ -345,6 +345,22 @@ pub func p(s: string) {
     para(s, SZ_BODY, LH_BODY, 0, SLOT_BODY)
 }
 
+pub func quote_block(s: string) {
+    para("│ " + s, SZ_BODY, LH_BODY, 16, SLOT_BODY)
+}
+
+pub func caption(s: string) {
+    para(s, 8, 11, 0, SLOT_BODY)
+}
+
+pub func hr() {
+    if dp_y - 12 < DP_BOTTOM {
+        new_page()
+    }
+    pdf.hline(cur_page(), DP_ML, dp_y - 6, DP_ML + DP_COLW, 60)
+    dp_y = dp_y - 16
+}
+
 func para(s: string, size: i64, lh: i64, ind: i64, slot: i64) {
     var lines = wrap(s, size, DP_COLW - ind, slot)
     var i: i64 = 0

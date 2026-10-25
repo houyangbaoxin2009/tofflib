@@ -519,6 +519,22 @@ pub func callout_xml(msg: string) -> string {
     return sb_build(sb)
 }
 
+// 引用块：左灰竖线 + 斜体灰字
+pub func quote_xml(msg: string) -> string {
+    var sb = string_builder()
+    sb_append(sb, "<w:p><w:pPr><w:pBdr><w:left w:val=\"single\" w:sz=\"18\" w:space=\"6\" w:color=\"BFBFBF\"/></w:pBdr>")
+    sb_append(sb, "<w:spacing w:before=\"120\" w:after=\"120\"/><w:ind w:left=\"240\" w:right=\"160\"/></w:pPr>")
+    sb_append(sb, "<w:r><w:rPr><w:i/><w:color w:val=\"595959\"/></w:rPr><w:t xml:space=\"preserve\">")
+    sb_append(sb, escape(msg))
+    sb_append(sb, "</w:t></w:r></w:p>")
+    return sb_build(sb)
+}
+
+// 分隔线：仅带下边框的空段落
+pub func hr_xml() -> string {
+    return "<w:p><w:pPr><w:pBdr><w:bottom w:val=\"single\" w:sz=\"6\" w:space=\"1\" w:color=\"BFBFBF\"/></w:pBdr><w:spacing w:before=\"120\" w:after=\"120\"/></w:pPr></w:p>"
+}
+
 pub func tbl_borders(sz: i64, color: string) -> string {
     var s: i64 = sz
     if s <= 0 {
