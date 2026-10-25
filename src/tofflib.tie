@@ -66,6 +66,20 @@ pub func para(t: ref table<string>, runs: table<string>) {
     m.para(t, runs)
 }
 
+// 页眉/页脚（每文档至多一次）；{page} 在 docx/xlsx 中展开为页码域。
+pub func header(t: ref table<string>, s: string) {
+    m.header(t, s)
+}
+
+pub func footer(t: ref table<string>, s: string) {
+    m.footer(t, s)
+}
+
+// 整段脚注锚点（文末按出现顺序编号）。
+pub func note_ref(t: ref table<string>, s: string) {
+    m.note_ref(t, s)
+}
+
 pub func caption(t: ref table<string>, s: string) {
     m.caption(t, s)
 }

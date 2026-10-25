@@ -47,7 +47,16 @@ pub func is_block_kind(k: string) -> bool {
     if k == "code" || k == "link" || k == "page" || k == "sec" { return true }
     if k == "cover" || k == "toc" || k == "quote" || k == "hr" { return true }
     if k == "cap" || k == "right" || k == "just" || k == "para" { return true }
+    if k == "header" || k == "footer" || k == "note_ref" { return true }
     return false
+}
+
+// 是否为脚注 run（"fn|脚注内容"）。前缀 ASCII，可安全按字节判定。
+pub func is_fn_token(r: string) -> bool {
+    if str_len(r) < 3 {
+        return false
+    }
+    return str_byte(r, 0) == 102 && str_byte(r, 1) == 110 && str_byte(r, 2) == 124
 }
 
 
@@ -123,8 +132,10 @@ pub func just(b: ref table<string>, s: string) {
     table_push(b, s)
 }
 
-// 富文本段落：runs 里每个 run 形如 "b|加粗" / "i|斜体" / "m|等宽" / "link|文本|URL"，
-// 无前缀的 run 是普通文本。run 文本不得恰好等于块名（块流是扁平的，靠块名判边界）。
+// 富文本段落：runs 里每个 run 形如 "b|加粗" / "i|斜体" / "m|等宽" / "link|文本|URL" /
+// "fn|脚注内容"；无前缀的 run 是普通文本。run 文本不得恰好等于块名
+// （块流是扁平的，靠块名判边界）。"fn|" 产生行内上标锚点，脚注文本按出现顺序
+// 收集到文末「注释」区。
 pub func para(b: ref table<string>, runs: table<string>) {
     table_push(b, "para")
     var i: i64 = 0
@@ -213,6 +224,24 @@ pub func toc(b: ref table<string>, depth: i64) {
     table_push(b, to_string(depth))
 }
 
+// 页眉 / 页脚：每文档各至多一次（重复由 validate 报错）；text 为空串表示清除。
+// footer 中的 {page} 占位在 docx/xlsx 后端替换为页码域。
+pub func header(b: ref table<string>, s: string) {
+    table_push(b, "header")
+    table_push(b, s)
+}
+
+pub func footer(b: ref table<string>, s: string) {
+    table_push(b, "footer")
+    table_push(b, s)
+}
+
+// 独立脚注锚点段：整段即一个上标锚点，文本进入文末注释区。
+pub func note_ref(b: ref table<string>, s: string) {
+    table_push(b, "note_ref")
+    table_push(b, s)
+}
+
 // ---------- 校验 ----------
 
 func is_h(k: string) -> bool {
@@ -278,11 +307,37 @@ pub func validate(b: table<string>) -> string {
     if b[0] != "doc" {
         return "0: 首块必须是 doc（实际 " + b[0] + "）"
     }
+    var seen_header: bool = false
+    var seen_footer: bool = false
     var i: i64 = 2
     while i < n {
         var k: string = b[i]
         if k == "doc" {
             return to_string(i) + ": doc 头重复"
+        } else if k == "header" || k == "footer" {
+            if i + 1 >= n {
+                return to_string(i) + ": " + k + " 缺文本"
+            }
+            if k == "header" {
+                if seen_header {
+                    return to_string(i) + ": header 重复（每文档至多一次；先写空串清除再重设）"
+                }
+                seen_header = true
+            } else {
+                if seen_footer {
+                    return to_string(i) + ": footer 重复（每文档至多一次；先写空串清除再重设）"
+                }
+                seen_footer = true
+            }
+            i = i + 2
+        } else if k == "note_ref" {
+            if i + 1 >= n {
+                return to_string(i) + ": note_ref 缺文本"
+            }
+            if str_len(b[i + 1]) == 0 {
+                return to_string(i) + ": note_ref 文本不能为空"
+            }
+            i = i + 2
         } else if is_h(k) {
             if i + 1 >= n {
                 return to_string(i) + ": 标题缺文本"
@@ -367,6 +422,13 @@ pub func validate(b: table<string>) -> string {
             }
             if vj == i + 1 {
                 return to_string(i) + ": para 至少需要一个 run"
+            }
+            var fv: i64 = i + 1
+            while fv < vj {
+                if is_fn_token(b[fv]) && str_len(b[fv]) <= 3 {
+                    return to_string(fv) + ": fn| 脚注文本不能为空"
+                }
+                fv = fv + 1
             }
             i = vj
         } else if k == "hr" {

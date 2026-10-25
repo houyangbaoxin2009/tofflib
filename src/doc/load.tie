@@ -21,6 +21,8 @@ type tie<class>
 //   ["tbl", [表头...], [行...], ...] / ["page"] / ["sec", title]
 //   ["cover", title, subtitle] / ["toc", depth]
 //   ["quote", text] / ["hr"] / ["cap", text]
+//   ["header", text] / ["footer", text] / ["note_ref", text]
+//   ["para", run...]（run 可为普通文本或 b| i| m| link| fn| 前缀）
 //
 // 入口：load_td(root, out) / load_file(path, out)；返回错误消息（空串=成功），
 // 错误带块下标（blocks[i]）与原因。
@@ -105,6 +107,14 @@ func load_block(blk: i64, bi: i64, out: ref table<string>) -> string {
         return ""
     }
     if kind == "right" || kind == "just" {
+        if !arity_is(blk, 2) {
+            return where + kind + " 需要 2 个元素"
+        }
+        table_push(out, kind)
+        table_push(out, arg_str(blk, 1))
+        return ""
+    }
+    if kind == "header" || kind == "footer" || kind == "note_ref" {
         if !arity_is(blk, 2) {
             return where + kind + " 需要 2 个元素"
         }

@@ -92,6 +92,62 @@ func docx_run(r: string) -> string {
     return dx.run(r)
 }
 
+// 页眉/页脚：按 {page} 占位切分（逐码点比对，占位为 ASCII）。
+func hf_split(s: string) -> (head: string, tail: string, hit: bool) {
+    var n: i64 = str_len(s)
+    var i: i64 = 0
+    while i + 6 <= n {
+        if str_char(s, i) == "{" && str_char(s, i + 1) == "p" && str_char(s, i + 2) == "a" &&
+            str_char(s, i + 3) == "g" && str_char(s, i + 4) == "e" && str_char(s, i + 5) == "}" {
+            var h: string = ""
+            var j: i64 = 0
+            while j < i {
+                h = h + str_char(s, j)
+                j = j + 1
+            }
+            var tl: string = ""
+            var t2: i64 = i + 6
+            while t2 < n {
+                tl = tl + str_char(s, t2)
+                t2 = t2 + 1
+            }
+            return (h, tl, true)
+        }
+        i = i + 1
+    }
+    return (s, "", false)
+}
+
+// 页眉/页脚文本 → docx run 列表：{page} 展开为 PAGE 域。
+func hf_runs(s: string) -> table<string> {
+    var out = table_new_string()
+    var (a, b, hit) = hf_split(s)
+    if hit {
+        if str_len(a) > 0 {
+            table_push(out, dx.run(a))
+        }
+        table_push(out, dx.page_field())
+        if str_len(b) > 0 {
+            table_push(out, dx.run(b))
+        }
+    } else if str_len(s) > 0 {
+        table_push(out, dx.run(s))
+    }
+    return out
+}
+
+// 脚注 run（fn| 前缀）的正文：去掉前三个字节前缀，其余按码点拼接。
+func fn_body(r: string) -> string {
+    var out: string = ""
+    var i: i64 = 3
+    var n: i64 = str_len(r)
+    while i < n {
+        out = out + str_char(r, i)
+        i = i + 1
+    }
+    return out
+}
+
 pub func docx(path: string, t: table<string>) -> bool {
     var verr: string = doc.validate(t)
     if str_len(verr) > 0 {
@@ -106,6 +162,11 @@ pub func docx(path: string, t: table<string>) -> bool {
         ci = ci + 1
     }
     var sb = string_builder()
+    var hdr: string = ""
+    var ftr: string = ""
+    var ftr_set: i64 = 0
+    var fn_no: i64 = 0
+    var notes = table_new_string()
     if has_cover == 0 {
         sb_append(sb, dx.heading(t[1], 1))
     }
@@ -154,10 +215,32 @@ pub func docx(path: string, t: table<string>) -> bool {
             var kids2 = table_new_string()
             i = i + 1
             while i < len(t) && !doc.is_block_kind(t[i]) {
-                table_push(kids2, docx_run(t[i]))
+                if doc.is_fn_token(t[i]) {
+                    fn_no = fn_no + 1
+                    table_push(notes, fn_body(t[i]))
+                    table_push(kids2, dx.run("[" + to_string(fn_no) + "]"))
+                    table_push(kids2, dx.footnote_ref(fn_no))
+                } else {
+                    table_push(kids2, docx_run(t[i]))
+                }
                 i = i + 1
             }
             sb_append(sb, dx.para_ex(kids2, "left", 0, 0, 0))
+        } else if k == "header" {
+            hdr = t[i + 1]
+            i = i + 2
+        } else if k == "footer" {
+            ftr = t[i + 1]
+            ftr_set = 1
+            i = i + 2
+        } else if k == "note_ref" {
+            fn_no = fn_no + 1
+            table_push(notes, t[i + 1])
+            var nr = table_new_string()
+            table_push(nr, dx.run("[" + to_string(fn_no) + "]"))
+            table_push(nr, dx.footnote_ref(fn_no))
+            sb_append(sb, dx.paragraph_runs(nr))
+            i = i + 2
         } else if k == "ul" || k == "ol" {
             var cnt: i64 = to_i(t[i + 1])
             var items = table_new_string()
@@ -231,7 +314,22 @@ pub func docx(path: string, t: table<string>) -> bool {
             i = i + 1
         }
     }
-    return ox.write_docx(path, sb_build(sb), true)
+    var hdr_xml: string = ""
+    if str_len(hdr) > 0 {
+        hdr_xml = dx.header_para(hf_runs(hdr))
+    }
+    var ftr_xml: string = ""
+    if ftr_set == 0 {
+        // 既有无头尾文档：保持居中页码页脚（向后兼容）。
+        ftr_xml = dx.footer_para([dx.page_field()])
+    } else if str_len(ftr) > 0 {
+        ftr_xml = dx.footer_para(hf_runs(ftr))
+    }
+    var notes_xml: string = ""
+    if len(notes) > 0 {
+        notes_xml = dx.footnotes_xml(notes)
+    }
+    return ox.write_docx_hbfn(path, sb_build(sb), hdr_xml, ftr_xml, notes_xml)
 }
 
 func dx_run_tbl(s2: string) -> table<string> {
@@ -261,6 +359,10 @@ pub func xlsx(path: string, t: table<string>) -> bool {
         return false
     }
     var sb = string_builder()
+    var hdr: string = ""
+    var ftr: string = ""
+    var fn_no: i64 = 0
+    var notes = table_new_string()
     sb_append(sb, "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>")
     sb_append(sb, "<worksheet xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\" ")
     sb_append(sb, "xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\">")
@@ -358,11 +460,27 @@ pub func xlsx(path: string, t: table<string>) -> bool {
             var xtxt: string = ""
             i = i + 1
             while i < len(t) && !doc.is_block_kind(t[i]) {
-                xtxt = xtxt + run_text(t[i])
+                if doc.is_fn_token(t[i]) {
+                    fn_no = fn_no + 1
+                    table_push(notes, fn_body(t[i]))
+                    xtxt = xtxt + "[" + to_string(fn_no) + "]"
+                } else {
+                    xtxt = xtxt + run_text(t[i])
+                }
                 i = i + 1
             }
             put_row(sb, r, xtxt, false)
             r = r + 1
+        } else if k == "header" {
+            hdr = t[i + 1]
+            i = i + 2
+        } else if k == "footer" {
+            ftr = t[i + 1]
+            i = i + 2
+        } else if k == "note_ref" {
+            fn_no = fn_no + 1
+            table_push(notes, t[i + 1])
+            i = i + 2
         } else if k == "page" || k == "sec" || k == "cover" || k == "toc" {
             // RCA：cover 是「kind + 标题 + 副标题」三 token，早期误当两 token 处理，
             // 导致其后所有块错位（xlsx/pptx 曾把后续 token 当正文行输出）。
@@ -379,7 +497,20 @@ pub func xlsx(path: string, t: table<string>) -> bool {
             i = i + 2
         }
     }
-    sb_append(sb, "</sheetData></worksheet>")
+    // 脚注降级：文末「注释」行（单元格），正文锚点处已带 [n]。
+    if len(notes) > 0 {
+        put_row(sb, r, "注释", true)
+        r = r + 1
+        var ni: i64 = 0
+        while ni < len(notes) {
+            put_row(sb, r, "[" + to_string(ni + 1) + "] " + notes[ni], false)
+            r = r + 1
+            ni = ni + 1
+        }
+    }
+    sb_append(sb, "</sheetData>")
+    sb_append(sb, xs.header_footer(hdr, ftr))
+    sb_append(sb, "</worksheet>")
     var docs = table_new_string()
     table_push(docs, sb_build(sb))
     var names = table_new_string()
@@ -397,6 +528,8 @@ pub func pptx(path: string, t: table<string>) -> bool {
     }
     var slides = table_new_string()
     var bullets = table_new_string()
+    var notes = table_new_string()
+    var fn_no: i64 = 0
     var cur: string = t[1]
     var pushed: bool = false
     var n: i64 = len(t)
@@ -486,10 +619,23 @@ pub func pptx(path: string, t: table<string>) -> bool {
             var qtxt: string = ""
             i = i + 1
             while i < len(t) && !doc.is_block_kind(t[i]) {
-                qtxt = qtxt + run_text(t[i])
+                if doc.is_fn_token(t[i]) {
+                    fn_no = fn_no + 1
+                    table_push(notes, fn_body(t[i]))
+                    qtxt = qtxt + "[" + to_string(fn_no) + "]"
+                } else {
+                    qtxt = qtxt + run_text(t[i])
+                }
                 i = i + 1
             }
             table_push(bullets, qtxt)
+        } else if k == "header" || k == "footer" {
+            // pptx 无页眉/页脚部件：降级忽略（README 已注明）。
+            i = i + 2
+        } else if k == "note_ref" {
+            fn_no = fn_no + 1
+            table_push(notes, t[i + 1])
+            i = i + 2
         } else if k == "page" || k == "sec" || k == "cover" || k == "toc" {
             // RCA：cover 是「kind + 标题 + 副标题」三 token，早期误当两 token 处理，
             // 导致其后所有块错位（xlsx/pptx 曾把后续 token 当正文行输出）。
@@ -508,6 +654,16 @@ pub func pptx(path: string, t: table<string>) -> bool {
     if len(bullets) > 0 || !pushed {
         table_push(slides, px.slide_title_bullets(cur, bullets))
     }
+    // 脚注降级：末尾「注释」幻灯片，按 [n] 列出。
+    if len(notes) > 0 {
+        var nb = table_new_string()
+        var ni: i64 = 0
+        while ni < len(notes) {
+            table_push(nb, "[" + to_string(ni + 1) + "] " + notes[ni])
+            ni = ni + 1
+        }
+        table_push(slides, px.slide_title_bullets("注释", nb))
+    }
     return px.write_pptx(path, slides)
 }
 
@@ -520,6 +676,8 @@ pub func pptx(path: string, t: table<string>) -> bool {
 var g_pdf_cover: i64 = 0;
 // 当前页是否已写过正文（cover 前是否需要先翻页）
 var g_pdf_wrote: i64 = 0;
+// 脚注编号游标（每遍排版归零，保证两遍编号一致）
+var g_fn_no: i64 = 0;
 
 // 单块 → 下一次下标。collect=1 为目录收集干跑（此时 toc 块不落页）。
 func pdf_one(t: table<string>, i: i64, collect: i64) -> i64 {
@@ -594,7 +752,12 @@ func pdf_one(t: table<string>, i: i64, collect: i64) -> i64 {
         var ptxt: string = ""
         var pj: i64 = i + 1
         while pj < len(t) && !doc.is_block_kind(t[pj]) {
-            ptxt = ptxt + run_text(t[pj])
+            if doc.is_fn_token(t[pj]) {
+                g_fn_no = g_fn_no + 1
+                ptxt = ptxt + "[" + to_string(g_fn_no) + "]"
+            } else {
+                ptxt = ptxt + run_text(t[pj])
+            }
             pj = pj + 1
         }
         pdoc.p(ptxt)
@@ -684,12 +847,22 @@ func pdf_one(t: table<string>, i: i64, collect: i64) -> i64 {
     if k == "code" {
         pdoc.codeblock(t[i + 2])
         g_pdf_wrote = 1
-        return i + 4
+        return i + 3
     }
     if k == "link" {
         pdoc.p(t[i + 1] + "（" + t[i + 2] + "）")
         g_pdf_wrote = 1
         return i + 3
+    }
+    if k == "header" || k == "footer" {
+        // header/footer 在 pdf() 预扫描后统一设置；此处仅推进下标。
+        return i + 2
+    }
+    if k == "note_ref" {
+        g_fn_no = g_fn_no + 1
+        pdoc.p(t[i + 1] + " [" + to_string(g_fn_no) + "]")
+        g_pdf_wrote = 1
+        return i + 2
     }
     if k == "page" {
         pdoc.pagebreak()
@@ -731,6 +904,31 @@ func pdf_pass(t: table<string>, collect: i64) {
 }
 
 // 渲染 PDF：块流 → pdfdoc（两遍排版：先收集目录页码，再正式出页）。
+// 预扫描：按出现顺序收集脚注正文（para 内 fn| run 与 note_ref 块）。
+func collect_notes(t: table<string>) -> table<string> {
+    var out = table_new_string()
+    var n: i64 = len(t)
+    var i: i64 = 0
+    while i < n {
+        var k: string = t[i]
+        if k == "note_ref" {
+            table_push(out, t[i + 1])
+            i = i + 2
+        } else if k == "para" {
+            i = i + 1
+            while i < n && !doc.is_block_kind(t[i]) {
+                if doc.is_fn_token(t[i]) {
+                    table_push(out, fn_body(t[i]))
+                }
+                i = i + 1
+            }
+        } else {
+            i = i + 1
+        }
+    }
+    return out
+}
+
 pub func pdf(path: string, t: table<string>, body_font: string, mono_font: string) -> bool {
     if str_len(doc.validate(t)) > 0 {
         return false
@@ -744,12 +942,28 @@ pub func pdf(path: string, t: table<string>, body_font: string, mono_font: strin
         }
         ci = ci + 1
     }
+    var hdr: string = ""
+    var ftr: string = ""
+    var si: i64 = 0
+    while si + 1 < len(t) {
+        if t[si] == "header" {
+            hdr = t[si + 1]
+        }
+        if t[si] == "footer" {
+            ftr = t[si + 1]
+        }
+        si = si + 1
+    }
+    pdoc.set_header(hdr)
+    pdoc.set_footer(ftr)
+    var notes = collect_notes(t)
     pdoc.init_fonts(body_font, mono_font)
     pdoc.toc_clear()
     // 收集遍：只推进分页并记录标题页码
     pdoc.reset_doc()
     pdoc.toc_on()
     pdoc.dry_on()
+    g_fn_no = 0
     pdf_pass(t, 1)
     pdoc.dry_off()
     var tpages = pdoc.toc_pages()
@@ -758,7 +972,9 @@ pub func pdf(path: string, t: table<string>, body_font: string, mono_font: strin
     pdoc.reset_doc()
     pdoc.toc_off()
     g_pdf_wrote = 0
+    g_fn_no = 0
     pdf_pass(t, 0)
+    pdoc.notes_section(notes)
     return pdoc.end(path)
 }
 }

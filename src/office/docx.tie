@@ -842,4 +842,41 @@ pub func tbl_flat_w(cols: i64, cells: table<string>, grid_widths: table<string>)
     return sb_build(sb)
 }
 
+// ---- 脚注 ----
+
+// 正文脚注引用 run：上标样式（FootnoteReference）+ w:footnoteReference id=n。
+pub func footnote_ref(n: i64) -> string {
+    return "<w:r><w:rPr><w:rStyle w:val=\"FootnoteReference\"/></w:rPr>" +
+        "<w:footnoteReference w:id=\"" + i2s(n) + "\"/></w:r>"
+}
+
+// 脚注条目段落：段样式 FootnoteText + 上标编号 + 正文。
+func footnote_item(n: i64, txt: string) -> string {
+    return "<w:p><w:pPr><w:pStyle w:val=\"FootnoteText\"/></w:pPr>" +
+        "<w:r><w:rPr><w:rStyle w:val=\"FootnoteReference\"/></w:rPr>" +
+        run_text(i2s(n)) + "</w:r>" +
+        run(txt) + "</w:p>"
+}
+
+// fontnotes.xml 部件：分隔项（id=-1 separator、id=0 continuationSeparator）
+// + 按出现顺序编号的脚注条目（id 从 1 起，与 footnote_ref 对应）。
+pub func footnotes_xml(notes: table<string>) -> string {
+    var sb = string_builder()
+    sb_append(sb, "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>")
+    sb_append(sb, "<w:footnotes xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\">")
+    sb_append(sb, "<w:footnote w:type=\"separator\" w:id=\"-1\"><w:p><w:r><w:separator/></w:r></w:p></w:footnote>")
+    sb_append(sb, "<w:footnote w:type=\"continuationSeparator\" w:id=\"0\"><w:p><w:r><w:continuationSeparator/></w:r></w:p></w:footnote>")
+    var i: i64 = 0
+    while i < len(notes) {
+        sb_append(sb, "<w:footnote w:id=\"")
+        sb_append(sb, i2s(i + 1))
+        sb_append(sb, "\">")
+        sb_append(sb, footnote_item(i + 1, notes[i]))
+        sb_append(sb, "</w:footnote>")
+        i = i + 1
+    }
+    sb_append(sb, "</w:footnotes>")
+    return sb_build(sb)
+}
+
 }   // namespace docx

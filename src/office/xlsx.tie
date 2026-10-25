@@ -133,6 +133,56 @@ pub func sheet_doc(name: string, sheet_data_xml: string, col_widths: table<i64>,
     return sb_build(sb)
 }
 
+// 页眉/页脚部件（worksheet 级）：{page} 占位替换为 &P 页码域；
+// 文本做 XML 转义（含 & < >）。两者都空时返回空串（不输出 headerFooter）。
+pub func header_footer(hdr: string, ftr: string) -> string {
+    if str_len(hdr) == 0 && str_len(ftr) == 0 {
+        return ""
+    }
+    var sb = string_builder()
+    sb_append(sb, "<headerFooter>")
+    if str_len(hdr) > 0 {
+        sb_append(sb, "<oddHeader>")
+        sb_append(sb, hf_text(hdr))
+        sb_append(sb, "</oddHeader>")
+    }
+    if str_len(ftr) > 0 {
+        sb_append(sb, "<oddFooter>")
+        sb_append(sb, hf_text(ftr))
+        sb_append(sb, "</oddFooter>")
+    }
+    sb_append(sb, "</headerFooter>")
+    return sb_build(sb)
+}
+
+// 页眉/页脚文本：按码点扫 {page}，段文本转义，占位输出 &amp;P（Excel 页码域）。
+func hf_text(s: string) -> string {
+    var sb = string_builder()
+    var n: i64 = str_len(s)
+    var i: i64 = 0
+    var cur: string = ""
+    while i < n {
+        var hit: bool = false
+        if i + 6 <= n {
+            if str_char(s, i) == "{" && str_char(s, i + 1) == "p" && str_char(s, i + 2) == "a" &&
+                str_char(s, i + 3) == "g" && str_char(s, i + 4) == "e" && str_char(s, i + 5) == "}" {
+                hit = true
+            }
+        }
+        if hit {
+            sb_append(sb, escape(cur))
+            sb_append(sb, "&amp;P")
+            cur = ""
+            i = i + 6
+        } else {
+            cur = cur + str_char(s, i)
+            i = i + 1
+        }
+    }
+    sb_append(sb, escape(cur))
+    return sb_build(sb)
+}
+
 // 便捷：纯文本二维表 → sheetData（header 为可选加粗表头行，占第一行；数据行顺延）。
 pub func sheet_text_rows(cells_rows: table<table<string>>, header: table<string>) -> string {
     var sb = string_builder()

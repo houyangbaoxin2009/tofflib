@@ -78,6 +78,28 @@ export TIE_TRM_LITE_LIB=F:/Projects/tie-repo/trm-lite/target/trm_lite.a
 `para` 的 run 前缀：`b|` 加粗、`i|` 斜体、`m|` 等宽、`link|文本|URL` 链接；无前缀为普通文本。run 文本不得恰好等于块名（扁平块流靠块名判边界）。
 
 各后端保真度：docx 全量（`w:jc` 对齐、`w:b` 加粗、等宽字体、`fldSimple` 链接）；pdf 支持右对齐/两端对齐，行内 run 按纯文本拼接；xlsx/pptx 按整段文本落位（单元格与项目符号自身不含行内样式）。
+
+### 页眉 / 页脚 / 脚注（tdoc 块）
+
+```tie
+["header", "统一页眉 · {page} 可选页码占位"],
+["footer", "第 {page} 页"],
+["para", "正文…", "fn|行内脚注：锚点出上标编号，文本汇总到文末注释区。"],
+["note_ref", "整段脚注锚点（来源不写 para 时用）。"],
+```
+
+块清单与校验：`header`、`footer` 各 2 token，每文档至多一次（重复由 `validate` 报错，不静默覆盖）；文本为空即清除该部件。`note_ref` 2 token；`para` 的 `fn|` run 文本不得为空，编号按全文档出现顺序。
+
+门面入口：`header(t, s)`、`footer(t, s)`、`note_ref(t, s)`。
+
+各后端保真度：
+
+| 能力 | docx | pdf | xlsx | pptx |
+| --- | --- | --- | --- | --- |
+| 页眉/页脚 | 真部件 `header1.xml`/`footer1.xml` + `w:headerReference`/`w:footerReference`，`{page}` → `PAGE` 域 | 每页顶部居中页眉、底部页脚（左文本、右页码） | worksheet `<headerFooter>/<oddHeader>/<oddFooter>`，`{page}` → `&P` | **忽略**（不生成部件，降级见下） |
+| 脚注 | 真脚注：`footnotes.xml` + `w:footnoteReference` + `FootnoteReference`/`FootnoteText` 样式 | 脚注锚点在段落末尾追加 `[n]`，文末“注释”区小号字列出 | 文末注释行（单元格文本） | 末页“注释”项目符号页 |
+
+降级说明：pptx 后端**忽略** header/footer（不生成任何部件）；xlsx/pptx 的脚注均退化为文末注释文本（xlsx 单元格行、pptx 末页项目符号），pdf 的脚注不做真正的页底注文，而是段落末 `[n]` + 文末注释区；docx 为真页眉/页脚与真脚注。
 ```
 
 代码侧只有三行：
@@ -173,6 +195,8 @@ ODF 后端落地后再装 LibreOffice 验证 ODF。
 | `numbers`    | `numbers(txts: table<string>, level: i64) -> string`                          | 整组有序列表（多行拼接）                 |
 | `page_break` | `page_break() -> string`                                                      | 分页符段落 `<w:br w:type="page"/>`  |
 | `page_field` | `page_field() -> string`                                                      | 页码域 run 序列（PAGE，入页眉/页脚）        |
+| `footnote_ref` | `footnote_ref(n: i64) -> string`                                            | 正文脚注引用 run（`w:footnoteReference`）    |
+| `footnotes_xml` | `footnotes_xml(notes: table<string>) -> string`                            | 脚注部件 XML（含 separator/continuationSeparator） |
 | `header_para`| `header_para(children: table<string>) -> string`                              | 页眉部件内容 `<w:hdr>`（供 ooxml 装配）    |
 | `footer_para`| `footer_para(children: table<string>) -> string`                              | 页脚部件内容 `<w:ftr>`                |
 | `para_center`| `para_center(children: table<string>) -> string`                              | 居中段落（如页脚页码）                   |
@@ -263,6 +287,8 @@ ODF 后端落地后再装 LibreOffice 验证 ODF。
 | `docx_parts_hbf` | `docx_parts_hbf(body_xml, header_xml, footer_xml: string) -> (names, datas: table<string>)` | 装配含页眉/页脚的部件（header1/footer1 按需）   |
 | `write_docx`| `write_docx(path: string, body_xml: string, footer_page: bool) -> bool`   | 正文 XML → 真实 .docx 文件（字节表写入，二进制安全）    |
 | `write_docx_hbf` | `write_docx_hbf(path, body_xml, header_xml, footer_xml: string) -> bool` | 正文 + 页眉/页脚部件 → .docx 文件             |
+| `docx_parts_hbfn` | `docx_parts_hbfn(body_xml, header_xml, footer_xml, footnotes_xml: string) -> (names, datas: table<string>)` | 装配页眉/页脚/脚注全部部件              |
+| `write_docx_hbfn` | `write_docx_hbfn(path, body_xml, header_xml, footer_xml, footnotes_xml: string) -> bool` | 正文 + 页眉/页脚 + 脚注 → .docx            |
 
 > 正文约定：`body_xml` 为 `<w:body>` 内部内容块拼接（段落/表格/列表等），**不含**
 > 末尾 `<w:sectPr>`——装配器统一追加末节（A4 或带页眉/页脚引用）；正文中插

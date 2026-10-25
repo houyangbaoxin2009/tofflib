@@ -148,7 +148,7 @@ pub func docx_parts_hbf(body_xml: string, header_xml: string, footer_xml: string
     var has_h: bool = str_len(header_xml) > 0
     var has_f: bool = str_len(footer_xml) > 0
     table_push(names, "[Content_Types].xml")
-    table_push(datas, content_types(has_h, has_f))
+    table_push(datas, content_types(has_h, has_f, false))
     table_push(names, "_rels/.rels")
     table_push(datas, root_rels())
     table_push(names, "word/document.xml")
@@ -160,7 +160,7 @@ pub func docx_parts_hbf(body_xml: string, header_xml: string, footer_xml: string
     table_push(names, "word/settings.xml")
     table_push(datas, settings_xml())
     table_push(names, "word/_rels/document.xml.rels")
-    table_push(datas, doc_rels(has_h, has_f))
+    table_push(datas, doc_rels(has_h, has_f, false))
     if has_h {
         table_push(names, "word/header1.xml")
         table_push(datas, header_xml)
@@ -179,6 +179,48 @@ pub func docx_parts(body_xml: string, footer_page: bool) -> (names: table<string
         footer_xml = dx.footer_para([dx.page_field()])
     }
     return docx_parts_hbf(body_xml, "", footer_xml)
+}
+
+// 含真脚注的 docx 装配：在页眉/页脚基础上增加 word/footnotes.xml（rId6）。
+pub func docx_parts_hbfn(body_xml: string, header_xml: string, footer_xml: string, footnotes_xml: string) -> (names: table<string>, datas: table<string>) {
+    var names = table_new_string()
+    var datas = table_new_string()
+    var has_h: bool = str_len(header_xml) > 0
+    var has_f: bool = str_len(footer_xml) > 0
+    var has_n: bool = str_len(footnotes_xml) > 0
+    table_push(names, "[Content_Types].xml")
+    table_push(datas, content_types(has_h, has_f, has_n))
+    table_push(names, "_rels/.rels")
+    table_push(datas, root_rels())
+    table_push(names, "word/document.xml")
+    table_push(datas, dx.root_open() + body_xml + document_sect(has_h, has_f) + dx.root_close())
+    table_push(names, "word/styles.xml")
+    table_push(datas, styles_xml())
+    table_push(names, "word/numbering.xml")
+    table_push(datas, numbering_xml())
+    table_push(names, "word/settings.xml")
+    table_push(datas, settings_xml())
+    table_push(names, "word/_rels/document.xml.rels")
+    table_push(datas, doc_rels(has_h, has_f, has_n))
+    if has_h {
+        table_push(names, "word/header1.xml")
+        table_push(datas, header_xml)
+    }
+    if has_f {
+        table_push(names, "word/footer1.xml")
+        table_push(datas, footer_xml)
+    }
+    if has_n {
+        table_push(names, "word/footnotes.xml")
+        table_push(datas, footnotes_xml)
+    }
+    return (names, datas)
+}
+
+// 一步生成含真脚注的 .docx。
+pub func write_docx_hbfn(path: string, body_xml: string, header_xml: string, footer_xml: string, footnotes_xml: string) -> bool {
+    var (names, datas) = docx_parts_hbfn(body_xml, header_xml, footer_xml, footnotes_xml)
+    return byte_write(path, str_to_bytes(zip_store(names, datas)))
 }
 
 // 一步生成 .docx（含页眉/页脚）：正文 XML + 页眉/页脚部件内容 → path 文件。
@@ -246,7 +288,7 @@ func strip_prefix(s: string, prefix_len: i64) -> string {
 }
 
 // [Content_Types].xml：声明全部部件类型（页眉/页脚按需）。
-func content_types(has_header: bool, has_footer: bool) -> string {
+func content_types(has_header: bool, has_footer: bool, has_notes: bool) -> string {
     var sb = string_builder()
     sb_append(sb, "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>")
     sb_append(sb, "<Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\">")
@@ -262,6 +304,9 @@ func content_types(has_header: bool, has_footer: bool) -> string {
     }
     if has_footer {
         sb_append(sb, "<Override PartName=\"/word/footer1.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml\"/>")
+    }
+    if has_notes {
+        sb_append(sb, "<Override PartName=\"/word/footnotes.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.wordprocessingml.footnotes+xml\"/>")
     }
     sb_append(sb, "</Types>")
     return sb_build(sb)
@@ -288,7 +333,7 @@ func settings_xml() -> string {
     return sb_build(sb)
 }
 
-func doc_rels(has_header: bool, has_footer: bool) -> string {
+func doc_rels(has_header: bool, has_footer: bool, has_notes: bool) -> string {
     var sb = string_builder()
     sb_append(sb, "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>")
     sb_append(sb, "<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">")
@@ -301,6 +346,9 @@ func doc_rels(has_header: bool, has_footer: bool) -> string {
     if has_header {
         sb_append(sb, "<Relationship Id=\"rId4\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/header\" Target=\"header1.xml\"/>")
     }
+    if has_notes {
+        sb_append(sb, "<Relationship Id=\"rId6\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/footnotes\" Target=\"footnotes.xml\"/>")
+    }
     sb_append(sb, "</Relationships>")
     return sb_build(sb)
 }
@@ -312,6 +360,8 @@ func styles_xml() -> string {
     sb_append(sb, "<w:styles xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\">")
     sb_append(sb, "<w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:ascii=\"Calibri\" w:hAnsi=\"Calibri\" w:eastAsia=\"宋体\"/><w:sz w:val=\"21\"/></w:rPr></w:rPrDefault></w:docDefaults>")
     sb_append(sb, "<w:style w:type=\"paragraph\" w:default=\"1\" w:styleId=\"Normal\"><w:name w:val=\"Normal\"/></w:style>")
+    sb_append(sb, "<w:style w:type=\"character\" w:styleId=\"FootnoteReference\"><w:name w:val=\"footnote reference\"/><w:rPr><w:vertAlign w:val=\"superscript\"/></w:rPr></w:style>")
+    sb_append(sb, "<w:style w:type=\"paragraph\" w:styleId=\"FootnoteText\"><w:name w:val=\"footnote text\"/><w:basedOn w:val=\"Normal\"/><w:pPr><w:spacing w:after=\"0\"/></w:pPr><w:rPr><w:sz w:val=\"18\"/></w:rPr></w:style>")
     var i: i64 = 1
     while i <= 9 {
         sb_append(sb, heading_style(i))

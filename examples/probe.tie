@@ -7,6 +7,7 @@ type tie<logic>
 
 import "../src/office/docx.tie" as dx
 import "../src/xml/omml.tie" as mm
+import "../src/doc/model.tie" as md
 import "../src/xml/vml.tie" as vm
 import "../src/office/officeutil.tie" as ou
 import "../src/xml/ooxml.tie" as ox
@@ -412,11 +413,93 @@ func main() {
     check("ppx.write_pptx-pk", file_pk("demo_out.pptx"), "true")
 
 
+    // ================= 页眉/页脚 + 脚注（model / docx / ooxml / xlsx） =================
+    var okh = "false"
+    if md.is_block_kind("header") {
+        okh = "true"
+    }
+    check("md.is_block_kind-header", okh, "true")
+    var okf = "false"
+    if md.is_block_kind("footer") {
+        okf = "true"
+    }
+    check("md.is_block_kind-footer", okf, "true")
+    var okr = "false"
+    if md.is_block_kind("note_ref") {
+        okr = "true"
+    }
+    check("md.is_block_kind-note_ref", okr, "true")
+    var okfn = "false"
+    if md.is_fn_token("fn|脚注") {
+        okfn = "true"
+    }
+    check("md.is_fn_token-hit", okfn, "true")
+    var oknb = "false"
+    if md.is_fn_token("b|粗") {
+        oknb = "true"
+    }
+    check("md.is_fn_token-miss", oknb, "false")
+
+    var d1 = md.new_doc("页眉页脚与脚注")
+    md.header(d1, "页眉 H")
+    md.footer(d1, "第 {page} 页")
+    md.note_ref(d1, "整段脚注")
+    var fr1 = table_new_string()
+    table_push(fr1, "正文")
+    table_push(fr1, "fn|行内脚注")
+    md.para(d1, fr1)
+    check("md.validate-hf-ok", md.validate(d1), "")
+
+    var d2 = md.new_doc("t")
+    md.header(d2, "a")
+    md.header(d2, "b")
+    check("md.validate-dup-header", has(md.validate(d2), "header 重复"), "true")
+
+    var d3 = md.new_doc("t")
+    table_push(d3, "header")
+    check("md.validate-header-arity", has(md.validate(d3), "header 缺文本"), "true")
+
+    var d4 = md.new_doc("t")
+    md.note_ref(d4, "")
+    check("md.validate-note_ref-empty", has(md.validate(d4), "note_ref 文本不能为空"), "true")
+
+    var d5 = md.new_doc("t")
+    var fe = table_new_string()
+    table_push(fe, "正文")
+    table_push(fe, "fn|")
+    md.para(d5, fe)
+    check("md.validate-fn-empty", has(md.validate(d5), "fn| 脚注文本不能为空"), "true")
+
+    check("dx.footnote_ref", dx.footnote_ref(3),
+        "<w:r><w:rPr><w:rStyle w:val=\"FootnoteReference\"/></w:rPr>" +
+        "<w:footnoteReference w:id=\"3\"/></w:r>")
+    var fnotes = table_new_string()
+    table_push(fnotes, "脚注一")
+    var fx = dx.footnotes_xml(fnotes)
+    check("dx.footnotes_xml-sep", has(fx, "w:type=\"separator\" w:id=\"-1\""), "true")
+    check("dx.footnotes_xml-cont", has(fx, "w:type=\"continuationSeparator\" w:id=\"0\""), "true")
+    check("dx.footnotes_xml-text", has(fx, "脚注一"), "true")
+
+    var (on, od) = ox.docx_parts_hbfn("<w:p/>", "<w:p/>", "<w:p/>", fx)
+    check("ox.docx_parts_hbfn-footnotes", t_has(on, "word/footnotes.xml"), "true")
+    var ci = t_idx(on, "[Content_Types].xml")
+    check("ox.docx_parts_hbfn-ct", has(od[ci], "footnotes+xml"), "true")
+    var di = t_idx(on, "word/document.xml")
+    check("ox.docx_parts_hbfn-headerref", has(od[di], "w:headerReference"), "true")
+    var ri = t_idx(on, "word/_rels/document.xml.rels")
+    check("ox.docx_parts_hbfn-rels", has(od[ri], "footnotes.xml"), "true")
+
+    var hf = xs.header_footer("页眉 H", "第 {page} 页")
+    check("xs.header_footer-odd", has(hf, "<oddHeader>页眉 H</oddHeader>"), "true")
+    check("xs.header_footer-page", has(hf, "第 &amp;P 页"), "true")
+    check("xs.header_footer-empty", xs.header_footer("", ""), "")
+
     // 打印组装出的整段 docx 文档片段，供人工核对
     println("---- 组装示例 ----")
     println(dx.root_open() + dx.paragraph("你好，tie 办公") + txml +
         mm.omath_para(ip) + grp + dx.root_close())
     println("---- 结束 ----")
+    println("ALL OK")
 }
 
 // 整数断言 helper（如 CRC32 向量）。
@@ -470,4 +553,28 @@ func has(s: string, sub: string) -> string {
         i = i + 1
     }
     return "false"
+}
+
+// 表内精确查找（probe 断言辅助）。
+func t_has(t: table<string>, s: string) -> string {
+    var i: i64 = 0
+    while i < len(t) {
+        if t[i] == s {
+            return "true"
+        }
+        i = i + 1
+    }
+    return "false"
+}
+
+// 表内精确查找下标（找不到返回 -1）。
+func t_idx(t: table<string>, s: string) -> i64 {
+    var i: i64 = 0
+    while i < len(t) {
+        if t[i] == s {
+            return i
+        }
+        i = i + 1
+    }
+    return -1
 }
