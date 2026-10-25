@@ -1,4 +1,5 @@
 type tie<class>
+import "/std/zlib.tie" as zl
 // pdf_asm.tie —— PDF 装配与落盘（多字体版；tofflib 内部模块，纯 tie）
 // ============================================================
 // 职责：把已登记的页与内容流装配成完整 PDF 字节串，写入文件，并做生成后自检。
@@ -112,7 +113,7 @@ func add_font_objs(slot: i64) {
         " /ItalicAngle 0 /Ascent " + i2s(asc1000(slot)) + " /Descent " + i2s(desc1000(slot)) +
         " /CapHeight " + i2s(asc1000(slot)) + " /StemV 80 /FontFile2 " + i2s(6 + 5 * slot) + " 0 R >>")
     // FontFile2 二进制流（体在输出阶段单独插入）
-    var fl = font_bytes_len(slot)
+    var fl = subset_len(slot)
     add_obj("<< /Length " + i2s(fl) + " /Length1 " + i2s(fl) + " >>")
     // ToUnicode CMap（流）：把 GID 映回 Unicode，使文本可复制/可搜索
     var tu = tounicode_cmap(slot)
@@ -211,6 +212,32 @@ func stream_text(content: string) -> string {
     return "stream\n" + content + "endstream\nendobj\n"
 }
 
+// ---------- 内容流压缩（/FlateDecode）----------
+// 为什么做：内容流是唯一能无损压缩且体积可观的文本面（spec 1.36MB → 184KB）。
+// 每次按页重建压缩结果（确定性纯函数），不引入缓存嵌套表。
+
+func zp_src(pi: i64) -> table<i64> {
+    var out = table_new_i64()
+    var t = g_pages[pi]
+    var n = str_len(t)
+    var i: i64 = 0
+    while i < n {
+        table_push(out, str_byte(t, i))
+        i = i + 1
+    }
+    return out
+}
+
+func zp_bytes(pi: i64) -> table<i64> {
+    return zl.compress(zp_src(pi))
+}
+
+func seg_page(pi: i64) {
+    table_push(g_seg_kind, 2)
+    table_push(g_seg_str, "")
+    table_push(g_seg_slot, pi)
+}
+
 // 落盘：登记根对象 → 字体对象 → 页对象，然后按编号顺序输出为段列表。
 pub func save(path: string) -> bool {
     // 先备好 ToUnicode 槽位（add_font_objs 会往里写）
@@ -271,18 +298,22 @@ pub func save(path: string) -> bool {
             seg_ascii(pre)
             seg_font(font_slot)
             seg_ascii(suf)
-            off = off + str_len(pre) + font_bytes_len(font_slot) + str_len(suf)
+            off = off + str_len(pre) + subset_len(font_slot) + str_len(suf)
         } else {
             var is_content = oid >= base + 1 && (oid - base) % 2 == 1
-            var piece = ""
             if is_content {
                 var pi = (oid - base) / 2
-                piece = i2s(oid) + " 0 obj\n" + body + "\n" + stream_text(g_pages[pi])
+                var zb = zp_bytes(pi)
+                var pre = i2s(oid) + " 0 obj\n<< /Length " + i2s(len(zb)) + " /Filter /FlateDecode >>\nstream\n"
+                seg_ascii(pre)
+                seg_page(pi)
+                seg_ascii("endstream\nendobj\n")
+                off = off + str_len(pre) + len(zb) + 17
             } else {
-                piece = obj_text(oid, body)
+                var piece = obj_text(oid, body)
+                seg_ascii(piece)
+                off = off + str_len(piece)
             }
-            seg_ascii(piece)
-            off = off + str_len(piece)
         }
         oid = oid + 1
     }
@@ -308,8 +339,15 @@ func write_segs(path: string) -> bool {
     while i < len(g_seg_kind) {
         if g_seg_kind[i] == 0 {
             push_str(out, g_seg_str[i])
+        } else if g_seg_kind[i] == 2 {
+            var z = zp_bytes(g_seg_slot[i])
+            var k: i64 = 0
+            while k < len(z) {
+                table_push(out, z[k])
+                k = k + 1
+            }
         } else {
-            var f = font_bytes(g_seg_slot[i])
+            var f = subset_bytes(g_seg_slot[i])
             var k: i64 = 0
             while k < len(f) {
                 table_push(out, f[k])

@@ -791,16 +791,41 @@ pub func gid_to_cp_map(s: i64) -> table<i64> {
     if ng == 0 {
         return out
     }
+    // 同一 GID 常被多个码点映射（康熙部首 U+2E80–2FDF、兼容表意字 U+F900–FAFF
+    // 与常规汉字共存）。抽文质量取决于挑哪一个是「正规」码点：
+    //   3 分：常规码点；1 分：康熙部首/CJK 部首补充；0 分：兼容表意字。
+    // 取分数最高者（同分取码点升序首个），避免「第⼀章」这类部首字形。
+    var gcp = table_new_i64()
+    var gsc = table_new_i64()
+    var z: i64 = 0
+    while z < ng {
+        table_push(gcp, -1)
+        table_push(gsc, -1)
+        z = z + 1
+    }
     // 码点扫描上界：BMP 基本平面（CJK 与常用符号都在此范围）
     var cp: i64 = 32
     while cp < 0x10000 {
         var g = gid_of(s, cp)
         if g > 0 && g < ng && used[g] == 1 {
-            // 只记录**最小**码点（同一 GID 可能被多个码点映射，取首个即可）
-            table_push(out, g)
-            table_push(out, cp)
+            var sc = 3
+            if (cp >= 0xF900 && cp <= 0xFAFF) || (cp >= 0x2E80 && cp <= 0x2FDF) {
+                sc = 1
+            }
+            if sc > gsc[g] {
+                gsc[g] = sc
+                gcp[g] = cp
+            }
         }
         cp = cp + 1
+    }
+    var gid: i64 = 1
+    while gid < ng {
+        if gcp[gid] > 0 {
+            table_push(out, gid)
+            table_push(out, gcp[gid])
+        }
+        gid = gid + 1
     }
     return out
 }
@@ -839,6 +864,251 @@ pub func shape_notdef(sh: table<i64>) -> i64 {
 // 单字符整形（工具函数；回退同 shape）
 pub func shape_one(s: i64, fb: i64, cp: i64) -> table<i64> {
     return shape(s, fb, str_from_code(cp))
+}
+
+// ---------- 子集嵌入（只保留已用字形）----------
+// 为什么做：整包内嵌中文字体时 PDF 体积≈字体体积（Noto Sans SC 17.77MB，其中
+// glyf 9.68MB、gvar 6.75MB 是可变字体增量）。子集只保留「已用字形」的轮廓，
+// 丢弃 cmap/gvar/布局表；GID 保持不变（未用字形 loca 长度为 0），因此内容流
+// 与 ToUnicode 都无需重映射，渲染语义不变。可变字体按默认实例轮廓嵌入。
+
+func ss_pad4(n: i64) -> i64 {
+    return (n + 3) / 4 * 4
+}
+
+// 大端 u32 累加和（表校验和；末尾不足 4 字节按 0 补齐）
+func ss_sum32(t: table<i64>, off: i64, n: i64) -> i64 {
+    var acc: i64 = 0
+    var i = off
+    var end = off + n
+    while i < end {
+        var v: i64 = 0
+        var k: i64 = 0
+        while k < 4 {
+            v = v * 256
+            if i + k < end {
+                v = v + t[i + k]
+            }
+            k = k + 1
+        }
+        acc = (acc + v) & 4294967295
+        i = i + 4
+    }
+    return acc
+}
+
+func ss_u16(out: ref table<i64>, v: i64) {
+    table_push(out, (v / 256) & 255)
+    table_push(out, v & 255)
+}
+
+func ss_u32(out: ref table<i64>, v: i64) {
+    table_push(out, (v / 16777216) & 255)
+    table_push(out, (v / 65536) & 255)
+    table_push(out, (v / 256) & 255)
+    table_push(out, v & 255)
+}
+
+func ss_tag(out: ref table<i64>, a: i64, b: i64, c: i64, d: i64) {
+    table_push(out, a)
+    table_push(out, b)
+    table_push(out, c)
+    table_push(out, d)
+}
+
+func t_name() -> i64 {
+    return tag4(110, 97, 109, 101)
+}
+
+func t_post() -> i64 {
+    return tag4(112, 111, 115, 116)
+}
+
+// 表目录里的长度字段（find_table 只给偏移）
+func table_len(s: i64, tag: i64) -> i64 {
+    var n = rb16(s, 4)
+    var i: i64 = 0
+    while i < n {
+        var rec = 12 + i * 16
+        var t = rb8(s, rec) * 16777216 + rb8(s, rec + 1) * 65536 + rb8(s, rec + 2) * 256 + rb8(s, rec + 3)
+        if t == tag {
+            return rb32(s, rec + 12)
+        }
+        i = i + 1
+    }
+    return -1
+}
+
+func ss_copy(s: i64, base: i64, n: i64) -> table<i64> {
+    var out = table_new_i64()
+    var b = bget(s)
+    var i: i64 = 0
+    while i < n {
+        table_push(out, b[base + i])
+        i = i + 1
+    }
+    return out
+}
+
+func ss_rec(out: ref table<i64>, a: i64, b: i64, c: i64, d: i64, data: table<i64>, off: i64) -> i64 {
+    ss_tag(out, a, b, c, d)
+    ss_u32(out, ss_sum32(data, 0, len(data)))
+    ss_u32(out, off)
+    ss_u32(out, len(data))
+    return ss_pad4(off + len(data))
+}
+
+func ss_emit(out: ref table<i64>, data: table<i64>) {
+    var i: i64 = 0
+    while i < len(data) {
+        table_push(out, data[i])
+        i = i + 1
+    }
+    while len(out) % 4 != 0 {
+        table_push(out, 0)
+    }
+}
+
+// 子集字体字节；失败返回空表（调用方退回整包内嵌）
+pub func subset_bytes(s: i64) -> table<i64> {
+    var out = table_new_i64()
+    if s < 0 || s >= g_slots {
+        return out
+    }
+    var ng = g_nglyph[s]
+    if ng <= 0 || ng > 60000 {
+        return out
+    }
+    var head = find_table(s, t_head())
+    var hhea = find_table(s, t_hhea())
+    var maxp = find_table(s, t_maxp())
+    var hmtx = find_table(s, t_hmtx())
+    var glyf = find_table(s, t_glyf())
+    var name = find_table(s, t_name())
+    var post = find_table(s, t_post())
+    if glyf < 0 || head < 0 || hhea < 0 || maxp < 0 || hmtx < 0 {
+        return out
+    }
+    var nhm = g_nhm[s]
+    if nhm <= 0 || nhm > ng {
+        return out
+    }
+    var b = bget(s)
+    var used = used_of(s)
+    // 1) 新 glyf + 长格式 loca
+    var d_glyf = table_new_i64()
+    var d_loca = table_new_i64()
+    var gid: i64 = 0
+    while gid < ng {
+        var a: i64 = 0
+        var z: i64 = 0
+        if g_locafmt[s] == 0 {
+            a = rb16(s, g_locao[s] + gid * 2) * 2
+            z = rb16(s, g_locao[s] + gid * 2 + 2) * 2
+        } else {
+            a = rb32(s, g_locao[s] + gid * 4)
+            z = rb32(s, g_locao[s] + gid * 4 + 4)
+        }
+        if gid < len(used) && used[gid] == 1 && z > a && a >= 0 && z <= g_flen[s] {
+            var k = a
+            while k < z {
+                table_push(d_glyf, b[glyf + k])
+                k = k + 1
+            }
+        }
+        ss_u32(d_loca, len(d_glyf))
+        gid = gid + 1
+    }
+    // 2) 其余表（head 里清零校验和、loca 改长格式）
+    var d_head = ss_copy(s, head, 54)
+    if len(d_head) < 54 {
+        return out
+    }
+    d_head[8] = 0
+    d_head[9] = 0
+    d_head[10] = 0
+    d_head[11] = 0
+    d_head[50] = 0
+    d_head[51] = 1
+    var d_hhea = ss_copy(s, hhea, 36)
+    var d_maxp = ss_copy(s, maxp, 32)
+    if len(d_hhea) < 36 || len(d_maxp) < 32 {
+        return out
+    }
+    var hlen = nhm * 4 + (ng - nhm) * 2
+    var d_hmtx = ss_copy(s, hmtx, hlen)
+    var d_name = table_new_i64()
+    var nl = table_len(s, t_name())
+    if name >= 0 && nl > 0 {
+        d_name = ss_copy(s, name, nl)
+    }
+    var d_post = table_new_i64()
+    var pl = table_len(s, t_post())
+    if post >= 0 && pl > 0 && pl <= 40 {
+        d_post = ss_copy(s, post, pl)
+    }
+    // 3) 组装 sfnt（表按 tag 字典序：glyf head hhea hmtx loca maxp name post）
+    var n: i64 = 6
+    var has_name: i64 = 0
+    if len(d_name) > 0 {
+        has_name = 1
+        n = n + 1
+    }
+    var has_post: i64 = 0
+    if len(d_post) > 0 {
+        has_post = 1
+        n = n + 1
+    }
+    var sr: i64 = 16
+    var es: i64 = 0
+    while sr * 2 <= n * 16 {
+        sr = sr * 2
+        es = es + 1
+    }
+    ss_u32(out, 65536)
+    ss_u16(out, n)
+    ss_u16(out, sr)
+    ss_u16(out, es)
+    ss_u16(out, n * 16 - sr)
+    var off = 12 + n * 16
+    var o2 = ss_rec(out, 103, 108, 121, 102, d_glyf, off)
+    var head_at = o2
+    var o3 = ss_rec(out, 104, 101, 97, 100, d_head, o2)
+    var o4 = ss_rec(out, 104, 104, 101, 97, d_hhea, o3)
+    var o5 = ss_rec(out, 104, 109, 116, 120, d_hmtx, o4)
+    var o6 = ss_rec(out, 108, 111, 99, 97, d_loca, o5)
+    var o7 = ss_rec(out, 109, 97, 120, 112, d_maxp, o6)
+    var o8 = o7
+    if has_name == 1 {
+        o8 = ss_rec(out, 110, 97, 109, 101, d_name, o7)
+    }
+    if has_post == 1 {
+        ss_rec(out, 112, 111, 115, 116, d_post, o8)
+    }
+    ss_emit(out, d_glyf)
+    ss_emit(out, d_head)
+    ss_emit(out, d_hhea)
+    ss_emit(out, d_hmtx)
+    ss_emit(out, d_loca)
+    ss_emit(out, d_maxp)
+    if has_name == 1 {
+        ss_emit(out, d_name)
+    }
+    if has_post == 1 {
+        ss_emit(out, d_post)
+    }
+    // 4) 回填 head.checkSumAdjustment = 0xB1B0AFBA - filesum
+    var total = ss_sum32(out, 0, len(out))
+    var adj = (2981146554 - total) & 4294967295
+    out[head_at + 8] = (adj / 16777216) & 255
+    out[head_at + 9] = (adj / 65536) & 255
+    out[head_at + 10] = (adj / 256) & 255
+    out[head_at + 11] = adj & 255
+    return out
+}
+
+pub func subset_len(s: i64) -> i64 {
+    return len(subset_bytes(s))
 }
 
 }
