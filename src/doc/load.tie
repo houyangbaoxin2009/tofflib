@@ -70,7 +70,7 @@ func push_str_array(arr: i64, out: ref table<string>, what: string) -> string {
 }
 
 // 追加一个块的 token；返回错误串（空=成功）。bi 仅用于报错定位。
-pub func load_block(blk: i64, bi: i64, out: ref table<string>) -> string {
+func load_block(blk: i64, bi: i64, out: ref table<string>) -> string {
     var where: string = "blocks[" + to_string(bi) + "]: "
     if td.type_of(blk) != 5 {
         return where + "块必须是数组"
@@ -208,7 +208,7 @@ pub func load_block(blk: i64, bi: i64, out: ref table<string>) -> string {
 }
 
 // td 根节点 → 块流；返回错误串（空=成功）。out 须由调用方 table_new_string() 创建。
-pub func load_td(root: i64, out: ref table<string>) -> string {
+func load_td(root: i64, out: ref table<string>) -> string {
     if td.type_of(root) != 6 {
         return "文档根节点必须是表（[ ... ]）"
     }
@@ -247,12 +247,12 @@ pub func load_file(path: string, out: ref table<string>) -> string {
     return load_td(root, out)
 }
 // td 解析入口（文档源为 td 数据；实现见 td.tie，对外只经 doc 命名空间）。
-pub func parse(s: string) -> i64 {
+func parse(s: string) -> i64 {
     return td.parse(s)
 }
 
 // td 解析错误消息。
-pub func err_msg() -> string {
+func err_msg() -> string {
     return td.err_msg()
 }
 }

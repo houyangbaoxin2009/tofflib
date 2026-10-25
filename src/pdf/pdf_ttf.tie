@@ -458,7 +458,7 @@ func cache_init(s: i64) {
 }
 
 // 码点 → GID（0 = 缺字）
-pub func gid_of(s: i64, cp: i64) -> i64 {
+func gid_of(s: i64, cp: i64) -> i64 {
     if cp < 0 {
         return 0
     }
@@ -493,7 +493,7 @@ pub func gid_of(s: i64, cp: i64) -> i64 {
 
 // ---------- 量宽 ----------
 // 字形 advance width（换算到 1000/em，PDF 的 /W 单位）
-pub func gid_w1000(s: i64, gid: i64) -> i64 {
+func gid_w1000(s: i64, gid: i64) -> i64 {
     if g_nhm[s] <= 0 {
         return 500
     }
@@ -519,18 +519,18 @@ pub func cp_w1000(s: i64, cp: i64) -> i64 {
 
 
 // ---------- FontDescriptor 指标（1000/em）----------
-pub func asc1000(s: i64) -> i64 { return g_asc[s] * 1000 / g_upem[s] }
-pub func desc1000(s: i64) -> i64 { return g_desc[s] * 1000 / g_upem[s] }
-pub func bxmin1000(s: i64) -> i64 { return g_bxmin[s] * 1000 / g_upem[s] }
-pub func bymin1000(s: i64) -> i64 { return g_bymin[s] * 1000 / g_upem[s] }
-pub func bxmax1000(s: i64) -> i64 { return g_bxmax[s] * 1000 / g_upem[s] }
-pub func bymax1000(s: i64) -> i64 { return g_bymax[s] * 1000 / g_upem[s] }
+func asc1000(s: i64) -> i64 { return g_asc[s] * 1000 / g_upem[s] }
+func desc1000(s: i64) -> i64 { return g_desc[s] * 1000 / g_upem[s] }
+func bxmin1000(s: i64) -> i64 { return g_bxmin[s] * 1000 / g_upem[s] }
+func bymin1000(s: i64) -> i64 { return g_bymin[s] * 1000 / g_upem[s] }
+func bxmax1000(s: i64) -> i64 { return g_bxmax[s] * 1000 / g_upem[s] }
+func bymax1000(s: i64) -> i64 { return g_bymax[s] * 1000 / g_upem[s] }
 
 // ---------- 字体字节（供嵌入）----------
 
 
 // ---------- 字形轮廓（自检用）----------
-pub func outline_len(s: i64, gid: i64) -> i64 {
+func outline_len(s: i64, gid: i64) -> i64 {
     if g_locao[s] < 0 {
         return -1
     }
@@ -601,7 +601,7 @@ func flush_seg(out: ref table<i64>, slot: i64, buf: table<i64>) {
 }
 
 // 整形后的宽度（1/100 pt）。段可能跨槽，故按每段的槽取宽度。
-pub func shape_w1000(sh: table<i64>) -> i64 {
+func shape_w1000(sh: table<i64>) -> i64 {
     var w: i64 = 0
     var i: i64 = 0
     while i + 1 < len(sh) {
@@ -663,7 +663,7 @@ pub func width_selfcheck(s: i64) -> i64 {
 // 整形段数（自检与调试用）
 // ---------- 已用字形记录 ----------
 // 确保槽 s 的标记表可用
-pub func used_init(s: i64) {
+func used_init(s: i64) {
     var n = g_nglyph[s]
     if n <= 0 {
         return
@@ -681,7 +681,7 @@ pub func used_init(s: i64) {
 }
 
 // 标记槽 s 上某个 GID 被用到
-pub func note_gid(s: i64, g: i64) {
+func note_gid(s: i64, g: i64) {
     if s < 0 || s >= 4 {
         return
     }
@@ -713,7 +713,7 @@ pub func note_gid(s: i64, g: i64) {
     }
 }
 
-pub func used_of(s: i64) -> table<i64> {
+func used_of(s: i64) -> table<i64> {
     if s < 0 || s >= 4 {
         return table_new_i64()
     }
@@ -740,7 +740,7 @@ pub func used_count(s: i64) -> i64 {
 // 遍历也应在此完成——上层只需拿统计结果。此前由上层直接读 `g_used[s]`
 // 再自行遍历，既泄露了内部表示，也在跨文件访问嵌套表元素时触发了崩溃
 //（详见 spec/README 的已知问题）。
-pub func used_outline_stats(s: i64) -> (checked: i64, blank: i64) {
+func used_outline_stats(s: i64) -> (checked: i64, blank: i64) {
     var used = used_of(s)
     var n = len(used)
     var checked: i64 = 0
@@ -765,7 +765,7 @@ pub func used_outline_stats(s: i64) -> (checked: i64, blank: i64) {
 // 只扫已用字形对应的码点，避免为整表三万余字形建映射。
 //
 // 返回：扁平表 [gid, cp, gid, cp, ...]（按 gid 升序不一定有序，调用方排序）
-pub func gid_to_cp_map(s: i64) -> table<i64> {
+func gid_to_cp_map(s: i64) -> table<i64> {
     var out = table_new_i64()
     var used = used_of(s)
     var ng = len(used)
@@ -947,13 +947,13 @@ func sb_put(s: i64, t: table<i64>) {
     g_sb2 = t
 }
 
-pub func subset_reset() {
+func subset_reset() {
     g_sb0 = table_new_i64()
     g_sb1 = table_new_i64()
     g_sb2 = table_new_i64()
 }
 
-pub func subset_bytes(s: i64) -> table<i64> {
+func subset_bytes(s: i64) -> table<i64> {
     var cached = sb_get(s)
     if len(cached) > 0 {
         return cached
@@ -1095,7 +1095,7 @@ pub func subset_bytes(s: i64) -> table<i64> {
     return out
 }
 
-pub func subset_len(s: i64) -> i64 {
+func subset_len(s: i64) -> i64 {
     return len(subset_bytes(s))
 }
 

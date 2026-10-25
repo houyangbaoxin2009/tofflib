@@ -69,7 +69,7 @@ func seg_font(slot: i64) {
 
 // ---------- 字体资源名 ----------
 // 槽 s 的字体在页面资源里的名字：/F1、/F2、……
-pub func font_res(s: i64) -> string {
+func font_res(s: i64) -> string {
     return "/F" + i2s(s + 1)
 }
 

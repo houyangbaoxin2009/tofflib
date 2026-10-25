@@ -33,7 +33,7 @@ type tie<class>
 namespace doc {
 
 // 起始 token 数（"doc", title）
-pub func empty() -> table<string> {
+func empty() -> table<string> {
     return table_new_string()
 }
 
@@ -46,7 +46,7 @@ pub func new_doc(title: string) -> table<string> {
 }
 
 // 标题：level 1..9 由调用方保证（h1..h9 分别有便捷函数）。
-pub func h(b: ref table<string>, level: i64, s: string) {
+func h(b: ref table<string>, level: i64, s: string) {
     var kind: string = "h" + to_string(level)
     table_push(b, kind)
     table_push(b, s)
@@ -281,7 +281,7 @@ pub func validate(b: table<string>) -> string {
 }
 
 // 便捷：校验通过返回 true。
-pub func ok(b: table<string>) -> bool {
+func ok(b: table<string>) -> bool {
     return str_len(validate(b)) == 0
 }
 }

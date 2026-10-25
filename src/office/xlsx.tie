@@ -76,7 +76,7 @@ pub func formula_cell(c: i64, r: i64, f: string) -> string {
 }
 
 // 把二维单元格片段表组装为 sheetData（rows 元素各含已组装的 <c …/> 片段）。
-pub func sheet_rows(cells_rows: table<table<string>>) -> string {
+func sheet_rows(cells_rows: table<table<string>>) -> string {
     var sb = string_builder()
     sb_append(sb, "<sheetData>")
     var r: i64 = 0

@@ -36,7 +36,7 @@ pub var g_h: i64 = 842;          // A4 高（pt）
 
 namespace pdf {
 
-pub func i2s(v: i64) -> string {
+func i2s(v: i64) -> string {
     if v == 0 {
         return "0"
     }
@@ -80,12 +80,12 @@ func hexd(v: i64) -> string {
 }
 
 // 字节 → 两位十六进制
-pub func hex2(b: i64) -> string {
+func hex2(b: i64) -> string {
     return hexd((b / 16) & 15) + hexd(b & 15)
 }
 
 // 字节表 → 十六进制串（内容流里的文本用；每元素 1 字节 = 2 位十六进制）
-pub func hex_bytes(bs: table<i64>) -> string {
+func hex_bytes(bs: table<i64>) -> string {
     var sb = string_builder()
     var i: i64 = 0
     while i < len(bs) {
@@ -113,7 +113,7 @@ func add_obj(body: string) -> i64 {
 }
 
 // 转义（对象体不用，但路径/元数据里偶尔需要，保留完整实现防误用）
-pub func esc(s: string) -> string {
+func esc(s: string) -> string {
     var sb = string_builder()
     var n = str_len(s)
     var i: i64 = 0
@@ -166,7 +166,7 @@ pub func raw(page: i64, cmd: string) {
 // 为什么：`g_pages[p] = g_pages[p] + cmd` 逐次拼接会按页大小做平方级拷贝
 //（spec 77 页 ≈ 10 万段、单页 9~70KB ⇒ 约 1GB 级临时拷贝，运行期常驻堆随之上涨）。
 // 这里每页用一次 string_builder，拼接开销降为线性；冻结后再 raw 仍走 +（少见）。
-pub func page_freeze() {
+func page_freeze() {
     if len(g_pcmd) == 0 {
         return
     }
@@ -245,7 +245,7 @@ pub func text_shaped_c(page: i64, x: i64, y: i64, size_pt_x100: i64, sh: table<i
 }
 
 // 便捷入口：纯单字体文本（不整形；仅用于自检/调试）
-pub func text_at(page: i64, x: i64, y: i64, size: i64, gids: table<i64>) -> i64 {
+func text_at(page: i64, x: i64, y: i64, size: i64, gids: table<i64>) -> i64 {
     return text_shaped(page, x, y, size * 100, gidgroups(0, gids))
 }
 
