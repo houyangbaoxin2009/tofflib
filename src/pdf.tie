@@ -136,12 +136,6 @@ pub func begin_doc(w: i64, h: i64) {
 }
 
 // 取指定页的内容流文本（自检/调试用）
-pub func page_raw(i: i64) -> string {
-    if i < 0 || i >= len(g_pages) {
-        return ""
-    }
-    return g_pages[i]
-}
 
 // 新增一页，返回页序号（0 起）。内容流由调用方用 text_at 追加。
 pub func add_page() -> i64 {

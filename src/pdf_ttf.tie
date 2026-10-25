@@ -186,12 +186,6 @@ pub func font_init() {
 }
 
 // 槽 s 是否已有字体
-pub func font_ready(s: i64) -> bool {
-    if s < 0 || s >= g_slots {
-        return false
-    }
-    return g_nglyph[s] > 0
-}
 
 pub func font_count() -> i64 { return g_slots }
 
@@ -523,8 +517,6 @@ pub func cp_w1000(s: i64, cp: i64) -> i64 {
     return gid_w1000(s, g)
 }
 
-pub func num_glyphs(s: i64) -> i64 { return g_nglyph[s] }
-pub func upem(s: i64) -> i64 { return g_upem[s] }
 
 // ---------- FontDescriptor 指标（1000/em）----------
 pub func asc1000(s: i64) -> i64 { return g_asc[s] * 1000 / g_upem[s] }
@@ -535,19 +527,7 @@ pub func bxmax1000(s: i64) -> i64 { return g_bxmax[s] * 1000 / g_upem[s] }
 pub func bymax1000(s: i64) -> i64 { return g_bymax[s] * 1000 / g_upem[s] }
 
 // ---------- 字体字节（供嵌入）----------
-pub func font_bytes(s: i64) -> table<i64> {
-    if s < 0 || s >= g_slots {
-        return table_new_i64()
-    }
-    return bget(s)
-}
 
-pub func font_bytes_len(s: i64) -> i64 {
-    if s < 0 || s >= g_slots {
-        return 0
-    }
-    return g_flen[s]
-}
 
 // ---------- 字形轮廓（自检用）----------
 pub func outline_len(s: i64, gid: i64) -> i64 {
@@ -831,41 +811,10 @@ pub func gid_to_cp_map(s: i64) -> table<i64> {
     return out
 }
 
-pub func shape_segs(sh: table<i64>) -> i64 {
-    var c: i64 = 0
-    var i: i64 = 0
-    while i + 1 < len(sh) {
-        var cnt = sh[i + 1]
-        c = c + 1
-        i = i + 2 + cnt
-    }
-    return c
-}
 
 // 统计整形后的缺字数（自检用）
-pub func shape_notdef(sh: table<i64>) -> i64 {
-    var c: i64 = 0
-    var i: i64 = 0
-    while i + 1 < len(sh) {
-        var slot = sh[i]
-        var cnt = sh[i + 1]
-        var k: i64 = 0
-        while k < cnt {
-            var g = sh[i + 2 + k]
-            if g == 0 || g >= g_nglyph[slot] {
-                c = c + 1
-            }
-            k = k + 1
-        }
-        i = i + 2 + cnt
-    }
-    return c
-}
 
 // 单字符整形（工具函数；回退同 shape）
-pub func shape_one(s: i64, fb: i64, cp: i64) -> table<i64> {
-    return shape(s, fb, str_from_code(cp))
-}
 
 // ---------- 子集嵌入（只保留已用字形）----------
 // 为什么做：整包内嵌中文字体时 PDF 体积≈字体体积（Noto Sans SC 17.77MB，其中
