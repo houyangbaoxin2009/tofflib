@@ -113,16 +113,18 @@ func hl_rgb(hl: i64) -> (r: i64, g: i64, b: i64) {
 }
 
 // ---------- 生命周期 ----------
-// 初始化（加载字体）。只需调用一次；后续每次重排版只调用 reset_doc。
-pub func init() {
+// ---------- 生命周期 ----------
+// 自定义字体初始化：body 为正文 TrueType（含 glyf/loca），mono 为等宽字体。
+// 加载失败打印原因（不中断——排版阶段缺字体会以空字形暴露）。
+pub func init_fonts(body: string, mono: string) {
     pdf.font_init()
-    var rc0 = pdf.font_load(SLOT_BODY, F_BODY)
+    var rc0 = pdf.font_load(SLOT_BODY, body)
     if rc0 != 0 {
-        println("[pdfdoc] 错误：" + pdf.load_err_text(rc0, F_BODY))
+        println("[pdfdoc] 错误：" + pdf.load_err_text(rc0, body))
     }
-    var rc1 = pdf.font_load(SLOT_MONO, F_MONO)
+    var rc1 = pdf.font_load(SLOT_MONO, mono)
     if rc1 != 0 {
-        println("[pdfdoc] 错误：" + pdf.load_err_text(rc1, F_MONO))
+        println("[pdfdoc] 错误：" + pdf.load_err_text(rc1, mono))
     }
     if str_len(g_dots) == 0 {
         var sb = string_builder()
@@ -134,6 +136,23 @@ pub func init() {
         g_dots = sb_build(sb)
     }
 }
+
+// 居中一行正文（封面副标题、签名等）
+pub func center(txt: string) {
+    var w = tw(txt, SZ_BODY, SLOT_BODY, -1)
+    var x: i64 = (DP_W - w / 100) / 2
+    if x < DP_ML {
+        x = DP_ML
+    }
+    put(x, dp_y, SZ_BODY, SLOT_BODY, txt)
+    dp_y = dp_y - LH_BODY
+}
+
+// 初始化（加载字体）。只需一次；之后每次重排版只调用 reset_doc。
+pub func init() {
+    init_fonts(F_BODY, F_MONO)
+}
+
 
 // 重开文档（清空页与内容，保留字体与目录数据）——两遍排版用
 pub func reset_doc() {
@@ -362,6 +381,9 @@ pub func note(s: string) {
 }
 
 // ---------- 表格 ----------
+// 表格可用栏宽（页宽 − 左右边距）
+pub func avail_width() -> i64 { return DP_W - DP_ML - DP_MR; }
+
 const TBL_PAD: i64 = 4;
 
 pub func tbl(hdr: table<string>, rows: table<table<string>>, widths: table<i64>) {

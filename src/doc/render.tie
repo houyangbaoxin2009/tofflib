@@ -9,7 +9,7 @@ import "../office/docx.tie" as dx
 import "../xml/ooxml.tie" as ox
 import "../office/xlsx.tie" as xs
 import "../office/pptx.tie" as px
-import "../pdf/pdf.tie" as pd
+import "./pdfdoc.tie" as pdoc
 import "./model.tie" as doc
 
 namespace render {
@@ -320,316 +320,182 @@ pub func pptx(path: string, t: table<string>) -> bool {
 }
 
 // ---------------------------------------------------------------- pdf
-//
-// A4 595×842pt，边距左右 72 / 上 68 / 下 62，正文栏宽 451。
-// 坐标系为 PDF 原生：原点左下，y 向上；st[0]=当前页、st[1]=基线 y、
-// st[2]=正文字体槽、st[3]=等宽字体槽。
+// PDF 后端只做「块流 → 排版层调用」的映射；分页、页眉页脚、表格换行、
+// 代码块高亮、目录两遍收集全部由 doc/pdfdoc.tie 承担（同一份 896 行的
+// 排版实现既服务语言规范，也服务 tdoc 文档，避免第二套分页逻辑漂移）。
 
-const P_W: i64 = 595;
-const P_H: i64 = 842;
-const P_ML: i64 = 72;
-const P_MR: i64 = 72;
-const P_MT: i64 = 68;
-const P_MB: i64 = 62;
-const P_COLW: i64 = 451;
+// 块流里的 doc 标题是否已被 cover 块承载
+var g_pdf_cover: i64 = 0;
+// 当前页是否已写过正文（cover 前是否需要先翻页）
+var g_pdf_wrote: i64 = 0;
 
-func pdf_tw(txt: string, size: i64, slot: i64, fb: i64) -> i64 {
-    return pd.shape_width(pd.shape(slot, fb, txt), size)
-}
-
-func pdf_chunks(s: string) -> table<string> {
-    var out = table_new_string()
-    var cur = ""
-    var n = str_len(s)
-    var i: i64 = 0
-    while i < n {
-        var c = str_char(s, i)
-        var cp = char_code(c)
-        if cp > 127 {
-            if str_len(cur) > 0 {
-                table_push(out, cur)
-                cur = ""
-            }
-            table_push(out, c)
-        } else if cp == 32 {
-            if str_len(cur) > 0 {
-                table_push(out, cur)
-                cur = ""
-            }
-            table_push(out, " ")
-        } else {
-            cur = cur + c
+// 单块 → 下一次下标。collect=1 为目录收集干跑（此时 toc 块不落页）。
+func pdf_one(t: table<string>, i: i64, collect: i64) -> i64 {
+    var k: string = t[i]
+    if k == "doc" {
+        if g_pdf_cover == 0 {
+            pdoc.h1(t[i + 1])
+            g_pdf_wrote = 1
         }
-        i = i + 1
+        return i + 2
     }
-    if str_len(cur) > 0 {
-        table_push(out, cur)
+    if k == "h1" {
+        pdoc.h1(t[i + 1])
+        g_pdf_wrote = 1
+        return i + 2
     }
-    return out
-}
-
-func pdf_wrap(txt: string, size: i64, max_w: i64, slot: i64, fb: i64) -> table<string> {
-    var lim = max_w * 100
-    var lines = table_new_string()
-    var cs = pdf_chunks(txt)
-    var cur = ""
-    var cw: i64 = 0
-    var i: i64 = 0
-    while i < len(cs) {
-        var g = cs[i]
-        var w = pdf_tw(g, size, slot, fb)
-        if cw + w > lim && str_len(cur) > 0 {
-            if char_code(str_char(cur, str_len(cur) - 1)) == 32 {
-                cur = str_sub_bytes(cur, 0, str_len(cur) - 1)
+    if k == "h2" {
+        pdoc.h2(t[i + 1])
+        g_pdf_wrote = 1
+        return i + 2
+    }
+    if k == "h3" || k == "h4" || k == "h5" || k == "h6" || k == "h7" || k == "h8" || k == "h9" {
+        pdoc.h3(t[i + 1])
+        g_pdf_wrote = 1
+        return i + 2
+    }
+    if k == "p" || k == "b" {
+        pdoc.p(t[i + 1])
+        g_pdf_wrote = 1
+        return i + 2
+    }
+    if k == "center" {
+        pdoc.center(t[i + 1])
+        g_pdf_wrote = 1
+        return i + 2
+    }
+    if k == "note" {
+        pdoc.note(t[i + 1])
+        g_pdf_wrote = 1
+        return i + 2
+    }
+    if k == "ul" || k == "ol" {
+        var n: i64 = to_i(t[i + 1])
+        var items = table_new_string()
+        var j: i64 = 0
+        while j < n {
+            var s2: string = t[i + 2 + j]
+            if k == "ol" {
+                s2 = to_string(j + 1) + ". " + s2
             }
-            table_push(lines, cur)
-            cur = ""
-            cw = 0
-            if g == " " {
-                i = i + 1
-                continue
+            table_push(items, s2)
+            j = j + 1
+        }
+        pdoc.bullet(items)
+        g_pdf_wrote = 1
+        return i + 2 + n
+    }
+    if k == "tbl" {
+        var cols: i64 = to_i(t[i + 1])
+        var rows_n: i64 = to_i(t[i + 2])
+        var hdr = table_new_string()
+        var c: i64 = 0
+        while c < cols {
+            table_push(hdr, t[i + 3 + c])
+            c = c + 1
+        }
+        var rows: table<table<string>> = []
+        var r: i64 = 0
+        while r < rows_n {
+            var row = table_new_string()
+            var cc: i64 = 0
+            while cc < cols {
+                table_push(row, t[i + 3 + cols + r * cols + cc])
+                cc = cc + 1
             }
+            table_push(rows, row)
+            r = r + 1
         }
-        cur = cur + g
-        cw = cw + w
-        i = i + 1
+        var widths = table_new_i64()
+        var avail: i64 = pdoc.avail_width()
+        var wcol: i64 = avail / cols
+        var wi: i64 = 0
+        while wi < cols {
+            table_push(widths, wcol)
+            wi = wi + 1
+        }
+        pdoc.tbl(hdr, rows, widths)
+        g_pdf_wrote = 1
+        return i + 3 + cols + cols * rows_n
     }
-    if str_len(cur) > 0 {
-        table_push(lines, cur)
+    if k == "code" {
+        pdoc.codeblock(t[i + 2])
+        g_pdf_wrote = 1
+        return i + 4
     }
-    if len(lines) == 0 {
-        table_push(lines, "")
+    if k == "link" {
+        pdoc.p(t[i + 1] + "（" + t[i + 2] + "）")
+        g_pdf_wrote = 1
+        return i + 3
     }
-    return lines
-}
-
-func pdf_emit(st: ref table<i64>, x: i64, size: i64, slot: i64, txt: string) -> void {
-    pd.text_shaped(st[0], x, st[1], size * 100, pd.shape(slot, st[2], txt))
-}
-
-func pdf_footer(st: ref table<i64>) -> void {
-    var t = to_string(st[0] + 1)
-    var w = pdf_tw(t, 8, st[2], -1)
-    pd.text_shaped(st[0], (P_W - w / 100) / 2, 34, 800, pd.shape(st[2], -1, t))
-}
-
-func pdf_page_new(st: ref table<i64>) -> void {
-    st[0] = pd.add_page()
-    st[1] = P_H - P_MT
-    pdf_footer(st)
-}
-
-func pdf_need(st: ref table<i64>, h: i64) -> void {
-    if st[1] - h < P_MB {
-        pdf_page_new(st)
+    if k == "page" {
+        pdoc.pagebreak()
+        g_pdf_wrote = 0
+        return i + 1
     }
+    if k == "sec" {
+        pdoc.pagebreak()
+        pdoc.h2(t[i + 1])
+        g_pdf_wrote = 1
+        return i + 2
+    }
+    if k == "cover" {
+        if g_pdf_wrote == 1 {
+            pdoc.pagebreak()
+        }
+        pdoc.cover(t[i + 1], t[i + 2], "")
+        pdoc.pagebreak()
+        g_pdf_wrote = 0
+        return i + 3
+    }
+    if k == "toc" {
+        if collect == 0 {
+            pdoc.toc_page()
+            pdoc.pagebreak()
+            g_pdf_wrote = 0
+        }
+        return i + 2
+    }
+    // 未知块：校验层已拦下；此处防御性跳过
+    return i + 1
 }
 
-func pdf_para(st: ref table<i64>, txt: string, size: i64, lh: i64, ind: i64, slot: i64, gap: i64) -> void {
-    var lines = pdf_wrap(txt, size, P_COLW - ind, slot, st[2])
+func pdf_pass(t: table<string>, collect: i64) {
     var i: i64 = 0
-    while i < len(lines) {
-        if st[1] - lh < P_MB {
-            pdf_page_new(st)
-        }
-        pdf_emit(st, P_ML + ind, size, slot, lines[i])
-        st[1] = st[1] - lh
-        i = i + 1
+    while i < len(t) {
+        i = pdf_one(t, i, collect)
     }
-    st[1] = st[1] - gap
 }
 
+// 渲染 PDF：块流 → pdfdoc（两遍排版：先收集目录页码，再正式出页）。
 pub func pdf(path: string, t: table<string>, body_font: string, mono_font: string) -> bool {
-    var verr: string = doc.validate(t)
-    if str_len(verr) > 0 {
+    if str_len(doc.validate(t)) > 0 {
         return false
     }
-    pd.font_init()
-    if pd.font_load(0, body_font) != 0 {
-        return false
-    }
-    if pd.font_load(1, mono_font) != 0 {
-        return false
-    }
-    pd.begin_doc(P_W, P_H)
-    var st = table_new_i64()
-    table_push(st, 0)
-    table_push(st, 0)
-    table_push(st, 0)
-    table_push(st, 1)
-    pdf_page_new(st)
-
-    // 文档标题
-    st[1] = st[1] - 6
-    pd.hline(st[0], P_ML, st[1] + 12, P_W - P_MR, 90)
-    st[1] = st[1] - 6
-    pdf_emit(st, P_ML, 18, 0, t[1])
-    st[1] = st[1] - 24
-
-    var n: i64 = len(t)
-    var i: i64 = 2
-    while i < n {
-        var k: string = t[i]
-        if is_heading(k) {
-            var lv: i64 = str_byte(k, 1) - 48
-            var hs: i64 = 10
-            var hl: i64 = 16
-            if lv == 1 {
-                hs = 18
-                hl = 28
-            } else if lv == 2 {
-                hs = 13
-                hl = 21
-            } else if lv == 3 {
-                hs = 11
-                hl = 18
-            }
-            pdf_need(st, hl + 12)
-            st[1] = st[1] - 10
-            if lv == 1 {
-                pd.hline(st[0], P_ML, st[1] + 12, P_W - P_MR, 90)
-                st[1] = st[1] - 6
-            }
-            pdf_emit(st, P_ML, hs, 0, t[i + 1])
-            st[1] = st[1] - hl
-            i = i + 2
-        } else if k == "p" {
-            pdf_para(st, t[i + 1], 10, 16, 0, 0, 5)
-            i = i + 2
-        } else if k == "b" || k == "note" {
-            pdf_para(st, t[i + 1], 9, 14, 0, 0, 4)
-            i = i + 2
-        } else if k == "center" {
-            var txt_c: string = t[i + 1]
-            var wc = pdf_tw(txt_c, 11, 0, -1)
-            pdf_need(st, 18)
-            st[1] = st[1] - 6
-            var xc: i64 = (P_W - wc / 100) / 2
-            if xc < P_ML {
-                xc = P_ML
-            }
-            pdf_emit(st, xc, 11, 0, txt_c)
-            st[1] = st[1] - 18
-            i = i + 2
-        } else if k == "ul" || k == "ol" {
-            var cnt: i64 = to_i(t[i + 1])
-            var j: i64 = 0
-            while j < cnt {
-                var prefix: string = "·  "
-                if k == "ol" {
-                    prefix = to_string(j + 1) + ".  "
-                }
-                pdf_para(st, prefix + t[i + 2 + j], 10, 16, 12, 0, 2)
-                j = j + 1
-            }
-            st[1] = st[1] - 3
-            i = i + 2 + cnt
-        } else if k == "tbl" {
-            var cols: i64 = to_i(t[i + 1])
-            var rows: i64 = to_i(t[i + 2])
-            var cw: i64 = P_COLW / cols
-            var rr: i64 = 0
-            while rr <= rows {
-                // 每行按列宽逐格绘制（单元格内自动换行，取该行最大行数）
-                var cell_lines = table_new_string()
-                var maxl: i64 = 0
-                var c: i64 = 0
-                while c < cols {
-                    var cell: string = t[i + 3 + rr * cols + c]
-                    var cls = pdf_wrap(cell, 9, cw - 8, 0, -1)
-                    table_push(cell_lines, to_string(len(cls)))
-                    var q: i64 = 0
-                    while q < len(cls) {
-                        table_push(cell_lines, cls[q])
-                        q = q + 1
-                    }
-                    if len(cls) > maxl {
-                        maxl = len(cls)
-                    }
-                    c = c + 1
-                }
-                pdf_need(st, maxl * 14 + 6)
-                var ytop: i64 = st[1]
-                var off: i64 = 0
-                c = 0
-                var cur_line: i64 = 0
-                while c < cols {
-                    var nl: i64 = to_i(cell_lines[cur_line])
-                    var q2: i64 = 0
-                    while q2 < nl {
-                        var xx: i64 = P_ML + c * cw
-                        var yy: i64 = ytop - q2 * 14
-                        pd.text_shaped(st[0], xx, yy, 900, pd.shape(0, -1, cell_lines[cur_line + 1 + q2]))
-                        q2 = q2 + 1
-                    }
-                    cur_line = cur_line + 1 + nl
-                    c = c + 1
-                }
-                if rr == 0 {
-                    pd.hline(st[0], P_ML, ytop - maxl * 14 - 2, P_W - P_MR, 60)
-                }
-                st[1] = st[1] - maxl * 14 - 6
-                rr = rr + 1
-            }
-            st[1] = st[1] - 6
-            i = i + 3 + cols * (rows + 1)
-        } else if k == "code" {
-            var src: string = t[i + 2]
-            var p: i64 = 0
-            var nn: i64 = str_len(src)
-            var start: i64 = 0
-            while p <= nn {
-                if p == nn || str_byte(src, p) == 10 {
-                    var line: string = str_sub_bytes(src, start, p - start)
-                    pdf_need(st, 13)
-                    pdf_emit(st, P_ML + 12, 9, 1, line)
-                    st[1] = st[1] - 13
-                    start = p + 1
-                }
-                p = p + 1
-            }
-            st[1] = st[1] - 6
-            i = i + 3
-        } else if k == "page" {
-            pdf_page_new(st)
-            i = i + 1
-        } else if k == "sec" {
-            pdf_page_new(st)
-            pdf_emit(st, P_ML, 13, 0, t[i + 1])
-            st[1] = st[1] - 24
-            i = i + 2
-        } else if k == "link" {
-            pdf_para(st, t[i + 1] + "（" + t[i + 2] + "）", 9, 14, 0, 0, 4)
-            i = i + 3
-        } else if k == "cover" {
-            pdf_need(st, 120)
-            st[1] = st[1] - 60
-            var wct = pdf_tw(t[i + 1], 24, 0, -1)
-            var xct: i64 = (P_W - wct / 100) / 2
-            if xct < P_ML {
-                xct = P_ML
-            }
-            pdf_emit(st, xct, 24, 0, t[i + 1])
-            st[1] = st[1] - 40
-            var wsc = pdf_tw(t[i + 2], 12, 0, -1)
-            var xsc: i64 = (P_W - wsc / 100) / 2
-            if xsc < P_ML {
-                xsc = P_ML
-            }
-            pdf_emit(st, xsc, 12, 0, t[i + 2])
-            st[1] = st[1] - 60
-            pdf_page_new(st)
-            i = i + 3
-        } else if k == "toc" {
-            pdf_page_new(st)
-            pdf_emit(st, P_ML, 13, 0, "目录")
-            st[1] = st[1] - 24
-            i = i + 2
-        } else {
-            i = i + 1
+    g_pdf_cover = 0
+    g_pdf_wrote = 0
+    var ci: i64 = 0
+    while ci < len(t) {
+        if t[ci] == "cover" {
+            g_pdf_cover = 1
         }
+        ci = ci + 1
     }
-    return pd.save(path)
+    pdoc.init_fonts(body_font, mono_font)
+    pdoc.toc_clear()
+    // 收集遍：只推进分页并记录标题页码
+    pdoc.reset_doc()
+    pdoc.toc_on()
+    pdoc.dry_on()
+    pdf_pass(t, 1)
+    pdoc.dry_off()
+    var tpages = pdoc.toc_pages()
+    pdoc.toc_set_off(tpages)
+    // 正式遍
+    pdoc.reset_doc()
+    pdoc.toc_off()
+    g_pdf_wrote = 0
+    pdf_pass(t, 0)
+    return pdoc.end(path)
 }
-
 }
