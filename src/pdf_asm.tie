@@ -230,7 +230,8 @@ func zp_src(pi: i64) -> table<i64> {
 }
 
 func zp_bytes(pi: i64) -> table<i64> {
-    return zl.compress(zp_src(pi))
+    // 内容流是 PDF 构建的热点：用有界回溯的快速 deflate（体积略增、耗时随窗口线性下降）。
+    return zl.compress_fast(zp_src(pi))
 }
 
 // 压缩结果按页缓存：save 的偏移遍历与落盘遍历各走一遍对象表，若无缓存每页要压两次。
