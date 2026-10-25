@@ -195,7 +195,7 @@ pub func load_err_text(rc: i64, path: string) -> string {
         return "字体不是 TrueType 轮廓（无 glyf/loca 表，通常是 CFF/OTF 字体）：" + path +
             "  —— 本模块按 CIDFontType2 嵌入，仅接受 TrueType 轮廓字体"
     }
-    return "字体加载失败（rc=" + i2s(rc) + "）：" + path
+    return "字体加载失败（rc=" + to_string(rc) + "）：" + path
 }
 
 // ---------- 大端读取（按槽）----------
