@@ -110,7 +110,7 @@ func map_set(n: i64, key: string, val: i64) -> i64 {
 }
 
 // 截取 s 的 [start, end) 子串（码点级）；越界自动收敛；start>=end 返回空串。
-pub func slice(s: string, start: i64, end: i64) -> string {
+func slice(s: string, start: i64, end: i64) -> string {
     var n: i64 = str_len(s)
     var lo: i64 = start
     if lo < 0 {
@@ -610,7 +610,7 @@ func strip_header(src: string) -> string {
 }
 
 // 去除字符串首尾空白（空格/制表/换行/回车）。
-pub func trim(s: string) -> string {
+func trim(s: string) -> string {
     var n: i64 = str_len(s)
     var start: i64 = 0
     while start < n {
@@ -738,7 +738,7 @@ func parse_file_append(path: string) -> i64 {
 // 追加解析（不重置存储）：在既有节点存储之上继续解析，返回根节点 id（>=0）；
 // 失败 -1。游标/错误消息归零，但不清空列式表——先前的节点 id 保持有效，
 // 供 load_merge 分层合并使用（避免 build_defaults 的根被后续解析清空）。
-pub func parse_append(s: string) -> i64 {
+func parse_append(s: string) -> i64 {
     c_err_msg = ""
     g_cpos = 0
     var root = parse_value(s)
@@ -762,7 +762,7 @@ pub func parse(s: string) -> i64 {
 }
 
 // 解析 td 文件（file_read + 剥离头部 + parse）；失败返回 -1（c_err_msg 含信息）。
-pub func parse_file(path: string) -> i64 {
+func parse_file(path: string) -> i64 {
     var content = file_read(path)
     if str_len(content) == 0 {
         c_err_msg = "td 文件为空或读取失败: " + path
@@ -814,7 +814,7 @@ pub func int_val(n: i64) -> i64 {
 }
 
 // float 节点的值（其他类型返回 0.0）。供 td→zd 平铺等消费方取浮点值。
-pub func float_val(n: i64) -> f64 {
+func float_val(n: i64) -> f64 {
     if n < 0 || n >= len(c_types) {
         return 0.0
     }
@@ -873,7 +873,7 @@ pub func map_get(n: i64, key: string) -> i64 {
 }
 
 // 表键个数（非表返回 0）。
-pub func map_len(n: i64) -> i64 {
+func map_len(n: i64) -> i64 {
     if type_of(n) != 6 {
         return 0
     }
@@ -881,7 +881,7 @@ pub func map_len(n: i64) -> i64 {
 }
 
 // 表第 i 个键名（越界返回空串）。
-pub func map_key(n: i64, i: i64) -> string {
+func map_key(n: i64, i: i64) -> string {
     if type_of(n) != 6 {
         return ""
     }
@@ -892,7 +892,7 @@ pub func map_key(n: i64, i: i64) -> string {
 }
 
 // 表第 i 个值节点（越界返回 -1）。
-pub func map_val(n: i64, i: i64) -> i64 {
+func map_val(n: i64, i: i64) -> i64 {
     if type_of(n) != 6 {
         return -1
     }
@@ -904,7 +904,7 @@ pub func map_val(n: i64, i: i64) -> i64 {
 
 // 点分路径查找：path 形如 "tiec.backend"（空段忽略）。
 // 逐段 map_get 下钻；任何一段不是表/不存在 → 返回 -1。
-pub func path_get(root: i64, path: string) -> i64 {
+func path_get(root: i64, path: string) -> i64 {
     if type_of(root) != 6 {
         return -1
     }
@@ -950,7 +950,7 @@ pub func get_str(root: i64, path: string) -> string {
 }
 
 // 便捷访问：路径整数值（不存在/非整数 → 0）。
-pub func get_int(root: i64, path: string) -> i64 {
+func get_int(root: i64, path: string) -> i64 {
     var n = path_get(root, path)
     if n < 0 {
         return 0
@@ -959,7 +959,7 @@ pub func get_int(root: i64, path: string) -> i64 {
 }
 
 // 便捷访问：路径布尔值（不存在/非布尔 → false）。
-pub func get_bool(root: i64, path: string) -> bool {
+func get_bool(root: i64, path: string) -> bool {
     var n = path_get(root, path)
     if n < 0 {
         return false
@@ -970,7 +970,7 @@ pub func get_bool(root: i64, path: string) -> bool {
 // 便捷访问：路径数组/字符串 → 逗号分隔序列（跨模块传参载体，规避表参数限制）。
 // 数组：逐元素拼接（元素取 str_val，非字符串元素跳过）；字符串：原样返回。
 // 不存在 → 空串。
-pub func get_list(root: i64, path: string) -> string {
+func get_list(root: i64, path: string) -> string {
     var n = path_get(root, path)
     if n < 0 {
         return ""
