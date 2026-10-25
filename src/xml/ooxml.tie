@@ -157,6 +157,8 @@ pub func docx_parts_hbf(body_xml: string, header_xml: string, footer_xml: string
     table_push(datas, styles_xml())
     table_push(names, "word/numbering.xml")
     table_push(datas, numbering_xml())
+    table_push(names, "word/settings.xml")
+    table_push(datas, settings_xml())
     table_push(names, "word/_rels/document.xml.rels")
     table_push(datas, doc_rels(has_h, has_f))
     if has_h {
@@ -253,6 +255,8 @@ func content_types(has_header: bool, has_footer: bool) -> string {
     sb_append(sb, "<Override PartName=\"/word/document.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml\"/>")
     sb_append(sb, "<Override PartName=\"/word/styles.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml\"/>")
     sb_append(sb, "<Override PartName=\"/word/numbering.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml\"/>")
+    sb_append(sb, "<Override PartName=\"/word/settings.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.wordprocessingml.settings+xml\"/>
+")
     if has_header {
         sb_append(sb, "<Override PartName=\"/word/header1.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml\"/>")
     }
@@ -274,12 +278,23 @@ func root_rels() -> string {
 }
 
 // word/_rels/document.xml.rels：主文档 → 样式/编号/页脚/页眉。
+// 让 Word 打开文档时刷新域（TOC/PAGEREF 等），否则目录只显示占位文字。
+func settings_xml() -> string {
+    var sb = string_builder()
+    sb_append(sb, "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>")
+    sb_append(sb, "<w:settings xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\">")
+    sb_append(sb, "<w:updateFields w:val=\"true\"/>")
+    sb_append(sb, "</w:settings>")
+    return sb_build(sb)
+}
+
 func doc_rels(has_header: bool, has_footer: bool) -> string {
     var sb = string_builder()
     sb_append(sb, "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>")
     sb_append(sb, "<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">")
     sb_append(sb, "<Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles\" Target=\"styles.xml\"/>")
     sb_append(sb, "<Relationship Id=\"rId2\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/numbering\" Target=\"numbering.xml\"/>")
+    sb_append(sb, "<Relationship Id=\"rId5\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/settings\" Target=\"settings.xml\"/>")
     if has_footer {
         sb_append(sb, "<Relationship Id=\"rId3\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/footer\" Target=\"footer1.xml\"/>")
     }

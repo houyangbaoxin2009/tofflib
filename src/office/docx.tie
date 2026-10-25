@@ -483,6 +483,42 @@ func para_align(children: table<string>, align: string) -> string {
 }
 
 // 表格边框定义（全部单线）：tbl() 默认 sz=4（0.5pt）/auto 色。
+// 代码块：逐行灰底等宽段落（无段前段后间距）。
+pub func codeblock_xml(src: string, fill: string) -> string {
+    var sb = string_builder()
+    var n: i64 = str_len(src)
+    var start: i64 = 0
+    var i: i64 = 0
+    while i <= n {
+        if i == n || str_byte(src, i) == 10 {
+            var line: string = str_sub_bytes(src, start, i - start)
+            sb_append(sb, "<w:p><w:pPr><w:shd w:val=\"clear\" w:color=\"auto\" w:fill=\"")
+            sb_append(sb, fill)
+            sb_append(sb, "\"/><w:spacing w:before=\"0\" w:after=\"0\"/></w:pPr>")
+            sb_append(sb, "<w:r><w:rPr><w:rFonts w:ascii=\"Consolas\" w:hAnsi=\"Consolas\" w:eastAsia=\"Consolas\"/><w:sz w:val=\"18\"/></w:rPr>")
+            sb_append(sb, "<w:t xml:space=\"preserve\">")
+            sb_append(sb, escape(line))
+            sb_append(sb, "</w:t></w:r></w:p>")
+            start = i + 1
+        }
+        i = i + 1
+    }
+    return sb_build(sb)
+}
+
+// 提示框：浅黄底 + 左侧色条 + 加粗「注：」。
+pub func callout_xml(msg: string) -> string {
+    var sb = string_builder()
+    sb_append(sb, "<w:p><w:pPr><w:shd w:val=\"clear\" w:color=\"auto\" w:fill=\"FFF8E1\"/>")
+    sb_append(sb, "<w:pBdr><w:left w:val=\"single\" w:sz=\"18\" w:space=\"6\" w:color=\"D9A400\"/></w:pBdr>")
+    sb_append(sb, "<w:spacing w:before=\"120\" w:after=\"120\"/><w:ind w:left=\"160\" w:right=\"160\"/></w:pPr>")
+    sb_append(sb, "<w:r><w:rPr><w:b/></w:rPr><w:t xml:space=\"preserve\">注：</w:t></w:r>")
+    sb_append(sb, "<w:r><w:t xml:space=\"preserve\">")
+    sb_append(sb, escape(msg))
+    sb_append(sb, "</w:t></w:r></w:p>")
+    return sb_build(sb)
+}
+
 pub func tbl_borders(sz: i64, color: string) -> string {
     var s: i64 = sz
     if s <= 0 {
