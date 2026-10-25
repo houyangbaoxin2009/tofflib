@@ -2,11 +2,13 @@ type tie<class>
 // ============================================================================
 // doc/render.tie —— tdoc 块流 → 各格式渲染后端（tofflib 内部模块）
 //
-// 当前：docx。渲染器只消费扁平块流（model.tie 协议），不依赖 table<table>；
+// 渲染器只消费扁平块流（model.tie 协议），不依赖 table<table>；
 // 校验失败返回 false（错误定位用 doc.validate）。
 // ============================================================================
 import "../docx.tie" as dx
 import "../ooxml.tie" as ox
+import "../xlsx.tie" as xs
+import "../pptx.tie" as px
 import "./model.tie" as doc
 
 namespace render {
@@ -131,4 +133,189 @@ func dx_run_tbl(s2: string) -> table<string> {
     table_push(rr, dx.run(s2))
     return rr
 }
+
+// ---------------------------------------------------------------- xlsx
+
+func row_begin(sb: i64, r: i64) -> void {
+    sb_append(sb, "<row r=\"")
+    sb_append(sb, to_string(r))
+    sb_append(sb, "\">")
+}
+
+func put_row(sb: i64, r: i64, txt: string, bold: bool) -> void {
+    row_begin(sb, r)
+    sb_append(sb, xs.text_cell(1, r, txt, bold))
+    sb_append(sb, "</row>")
+}
+
+// 渲染 xlsx：标题行 + 每块按行展开；表格保留列结构（表头加粗）。
+pub func xlsx(path: string, t: table<string>) -> bool {
+    var verr: string = doc.validate(t)
+    if str_len(verr) > 0 {
+        return false
+    }
+    var sb = string_builder()
+    sb_append(sb, "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>")
+    sb_append(sb, "<worksheet xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\" ")
+    sb_append(sb, "xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\">")
+    sb_append(sb, "<sheetViews><sheetView workbookViewId=\"0\"/></sheetViews>")
+    sb_append(sb, "<sheetData>")
+    var r: i64 = 1
+    put_row(sb, r, t[1], true)
+    r = r + 1
+    var n: i64 = len(t)
+    var i: i64 = 2
+    while i < n {
+        var k: string = t[i]
+        if is_heading(k) {
+            put_row(sb, r, t[i + 1], true)
+            r = r + 1
+            i = i + 2
+        } else if k == "ul" || k == "ol" {
+            var cnt: i64 = to_i(t[i + 1])
+            var j: i64 = 0
+            while j < cnt {
+                put_row(sb, r, t[i + 2 + j], false)
+                r = r + 1
+                j = j + 1
+            }
+            i = i + 2 + cnt
+        } else if k == "tbl" {
+            var cols: i64 = to_i(t[i + 1])
+            var rows: i64 = to_i(t[i + 2])
+            var rr: i64 = 0
+            while rr <= rows {
+                row_begin(sb, r)
+                var c: i64 = 0
+                while c < cols {
+                    var cell_txt: string = t[i + 3 + rr * cols + c]
+                    sb_append(sb, xs.text_cell(c + 1, r, cell_txt, rr == 0))
+                    c = c + 1
+                }
+                sb_append(sb, "</row>")
+                r = r + 1
+                rr = rr + 1
+            }
+            i = i + 3 + cols * (rows + 1)
+        } else if k == "code" {
+            var src: string = t[i + 2]
+            var p: i64 = 0
+            var nn: i64 = str_len(src)
+            var start: i64 = 0
+            while p <= nn {
+                if p == nn || str_byte(src, p) == 10 {
+                    put_row(sb, r, str_sub_bytes(src, start, p - start), false)
+                    r = r + 1
+                    start = p + 1
+                }
+                p = p + 1
+            }
+            i = i + 3
+        } else if k == "link" {
+            put_row(sb, r, t[i + 1] + "  " + t[i + 2], false)
+            r = r + 1
+            i = i + 3
+        } else if k == "page" || k == "sec" || k == "cover" || k == "toc" {
+            if k == "cover" || k == "toc" || k == "sec" {
+                i = i + 2
+            } else {
+                i = i + 1
+            }
+        } else {
+            put_row(sb, r, t[i + 1], k == "b")
+            r = r + 1
+            i = i + 2
+        }
+    }
+    sb_append(sb, "</sheetData></worksheet>")
+    var docs = table_new_string()
+    table_push(docs, sb_build(sb))
+    var names = table_new_string()
+    table_push(names, "Sheet1")
+    return xs.write_xlsx(path, docs, names)
+}
+
+// ---------------------------------------------------------------- pptx
+
+// 渲染 pptx：标题页 + 每级标题起一页，段落/列表/表格/代码转为项目符号。
+pub func pptx(path: string, t: table<string>) -> bool {
+    var verr: string = doc.validate(t)
+    if str_len(verr) > 0 {
+        return false
+    }
+    var slides = table_new_string()
+    var bullets = table_new_string()
+    var cur: string = t[1]
+    var pushed: bool = false
+    var n: i64 = len(t)
+    var i: i64 = 2
+    while i < n {
+        var k: string = t[i]
+        if is_heading(k) {
+            if len(bullets) > 0 || !pushed {
+                table_push(slides, px.slide_title_bullets(cur, bullets))
+                pushed = true
+            }
+            bullets = table_new_string()
+            cur = t[i + 1]
+            i = i + 2
+        } else if k == "ul" || k == "ol" {
+            var cnt: i64 = to_i(t[i + 1])
+            var j: i64 = 0
+            while j < cnt {
+                table_push(bullets, t[i + 2 + j])
+                j = j + 1
+            }
+            i = i + 2 + cnt
+        } else if k == "tbl" {
+            var cols: i64 = to_i(t[i + 1])
+            var rows: i64 = to_i(t[i + 2])
+            var rr: i64 = 0
+            while rr <= rows {
+                var line: string = ""
+                var c: i64 = 0
+                while c < cols {
+                    if c > 0 {
+                        line = line + " | "
+                    }
+                    line = line + t[i + 3 + rr * cols + c]
+                    c = c + 1
+                }
+                table_push(bullets, line)
+                rr = rr + 1
+            }
+            i = i + 3 + cols * (rows + 1)
+        } else if k == "code" {
+            var src: string = t[i + 2]
+            var p: i64 = 0
+            var nn: i64 = str_len(src)
+            var start: i64 = 0
+            while p <= nn {
+                if p == nn || str_byte(src, p) == 10 {
+                    table_push(bullets, str_sub_bytes(src, start, p - start))
+                    start = p + 1
+                }
+                p = p + 1
+            }
+            i = i + 3
+        } else if k == "link" {
+            table_push(bullets, t[i + 1] + "  " + t[i + 2])
+            i = i + 3
+        } else if k == "page" || k == "sec" || k == "cover" || k == "toc" {
+            if k == "cover" || k == "toc" || k == "sec" {
+                i = i + 2
+            } else {
+                i = i + 1
+            }
+        } else {
+            table_push(bullets, t[i + 1])
+            i = i + 2
+        }
+    }
+    if len(bullets) > 0 || !pushed {
+        table_push(slides, px.slide_title_bullets(cur, bullets))
+    }
+    return px.write_pptx(path, slides)
+}
+
 }
