@@ -54,6 +54,18 @@ pub func hr(t: ref table<string>) {
     m.hr(t)
 }
 
+pub func right(t: ref table<string>, s: string) {
+    m.right(t, s)
+}
+
+pub func just(t: ref table<string>, s: string) {
+    m.just(t, s)
+}
+
+pub func para(t: ref table<string>, runs: table<string>) {
+    m.para(t, runs)
+}
+
 pub func caption(t: ref table<string>, s: string) {
     m.caption(t, s)
 }

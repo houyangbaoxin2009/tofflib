@@ -44,6 +44,54 @@ func table_append_sb(sb: i64, s2: string) -> void {
 }
 
 // 渲染 docx；t 为 model.tie 块流。成功写盘返回 true。
+// run 编码："b|加粗" / "i|斜体" / "m|等宽" / "link|文本|URL"；无前缀=普通文本。
+func run_parts(r: string) -> table<string> {
+    var out = table_new_string()
+    var n = str_len(r)
+    var cur = ""
+    var i: i64 = 0
+    while i < n {
+        var c = str_char(r, i)
+        if c == "|" {
+            table_push(out, cur)
+            cur = ""
+        } else {
+            cur = cur + c
+        }
+        i = i + 1
+    }
+    table_push(out, cur)
+    return out
+}
+
+func is_run_tag(t: string) -> bool {
+    return t == "b" || t == "i" || t == "m" || t == "link"
+}
+
+func run_text(r: string) -> string {
+    var ps = run_parts(r)
+    if len(ps) >= 2 && is_run_tag(ps[0]) {
+        return ps[1]
+    }
+    return r
+}
+
+func docx_run(r: string) -> string {
+    var ps = run_parts(r)
+    if len(ps) == 2 {
+        if ps[0] == "b" {
+            return dx.run_font(ps[1], "", 0, true)
+        }
+        if ps[0] == "m" {
+            return dx.run_font(ps[1], "Consolas", 0, false)
+        }
+    }
+    if len(ps) == 3 && ps[0] == "link" {
+        return dx.link(ps[1], ps[2], "")
+    }
+    return dx.run(r)
+}
+
 pub func docx(path: string, t: table<string>) -> bool {
     var verr: string = doc.validate(t)
     if str_len(verr) > 0 {
@@ -93,6 +141,23 @@ pub func docx(path: string, t: table<string>) -> bool {
         } else if k == "cap" {
             sb_append(sb, dx.caption(t[i + 1], "表"))
             i = i + 2
+        } else if k == "right" || k == "just" {
+            var kids = table_new_string()
+            table_push(kids, docx_run(t[i + 1]))
+            var al: string = "right"
+            if k == "just" {
+                al = "both"
+            }
+            sb_append(sb, dx.para_ex(kids, al, 0, 0, 0))
+            i = i + 2
+        } else if k == "para" {
+            var kids2 = table_new_string()
+            i = i + 1
+            while i < len(t) && !doc.is_block_kind(t[i]) {
+                table_push(kids2, docx_run(t[i]))
+                i = i + 1
+            }
+            sb_append(sb, dx.para_ex(kids2, "left", 0, 0, 0))
         } else if k == "ul" || k == "ol" {
             var cnt: i64 = to_i(t[i + 1])
             var items = table_new_string()
@@ -285,6 +350,19 @@ pub func xlsx(path: string, t: table<string>) -> bool {
             put_row(sb, r, "表：" + t[i + 1], false)
             r = r + 1
             i = i + 2
+        } else if k == "right" || k == "just" {
+            put_row(sb, r, t[i + 1], false)
+            r = r + 1
+            i = i + 2
+        } else if k == "para" {
+            var xtxt: string = ""
+            i = i + 1
+            while i < len(t) && !doc.is_block_kind(t[i]) {
+                xtxt = xtxt + run_text(t[i])
+                i = i + 1
+            }
+            put_row(sb, r, xtxt, false)
+            r = r + 1
         } else if k == "page" || k == "sec" || k == "cover" || k == "toc" {
             // RCA：cover 是「kind + 标题 + 副标题」三 token，早期误当两 token 处理，
             // 导致其后所有块错位（xlsx/pptx 曾把后续 token 当正文行输出）。
@@ -401,6 +479,17 @@ pub func pptx(path: string, t: table<string>) -> bool {
         } else if k == "cap" {
             table_push(bullets, "表：" + t[i + 1])
             i = i + 2
+        } else if k == "right" || k == "just" {
+            table_push(bullets, t[i + 1])
+            i = i + 2
+        } else if k == "para" {
+            var qtxt: string = ""
+            i = i + 1
+            while i < len(t) && !doc.is_block_kind(t[i]) {
+                qtxt = qtxt + run_text(t[i])
+                i = i + 1
+            }
+            table_push(bullets, qtxt)
         } else if k == "page" || k == "sec" || k == "cover" || k == "toc" {
             // RCA：cover 是「kind + 标题 + 副标题」三 token，早期误当两 token 处理，
             // 导致其后所有块错位（xlsx/pptx 曾把后续 token 当正文行输出）。
@@ -491,6 +580,26 @@ func pdf_one(t: table<string>, i: i64, collect: i64) -> i64 {
         pdoc.caption(t[i + 1])
         g_pdf_wrote = 1
         return i + 2
+    }
+    if k == "right" || k == "just" {
+        if k == "right" {
+            pdoc.p_right(t[i + 1])
+        } else {
+            pdoc.p_just(t[i + 1])
+        }
+        g_pdf_wrote = 1
+        return i + 2
+    }
+    if k == "para" {
+        var ptxt: string = ""
+        var pj: i64 = i + 1
+        while pj < len(t) && !doc.is_block_kind(t[pj]) {
+            ptxt = ptxt + run_text(t[pj])
+            pj = pj + 1
+        }
+        pdoc.p(ptxt)
+        g_pdf_wrote = 1
+        return pj
     }
     if k == "ul" || k == "ol" {
         var n: i64 = to_i(t[i + 1])

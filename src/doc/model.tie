@@ -35,6 +35,22 @@ type tie<class>
 
 namespace doc {
 
+// 判断字符串是否为块名（富文本 run 的边界判定也用它）。
+pub func is_block_kind(k: string) -> bool {
+    if k == "doc" { return true }
+    if k == "h1" || k == "h2" || k == "h3" { return true }
+    if k == "h4" || k == "h5" || k == "h6" { return true }
+    if k == "h7" || k == "h8" || k == "h9" { return true }
+    if k == "p" || k == "b" || k == "center" || k == "note" { return true }
+    if k == "ul" || k == "ol" { return true }
+    if k == "tbl" || k == "tblw" { return true }
+    if k == "code" || k == "link" || k == "page" || k == "sec" { return true }
+    if k == "cover" || k == "toc" || k == "quote" || k == "hr" { return true }
+    if k == "cap" || k == "right" || k == "just" || k == "para" { return true }
+    return false
+}
+
+
 // 起始 token 数（"doc", title）
 func empty() -> table<string> {
     return table_new_string()
@@ -94,6 +110,28 @@ pub func hr(b: ref table<string>) {
 pub func caption(b: ref table<string>, s: string) {
     table_push(b, "cap")
     table_push(b, s)
+}
+
+// 右对齐段落 / 两端对齐段落（仅一段文本；更复杂的混排见 para）
+pub func right(b: ref table<string>, s: string) {
+    table_push(b, "right")
+    table_push(b, s)
+}
+
+pub func just(b: ref table<string>, s: string) {
+    table_push(b, "just")
+    table_push(b, s)
+}
+
+// 富文本段落：runs 里每个 run 形如 "b|加粗" / "i|斜体" / "m|等宽" / "link|文本|URL"，
+// 无前缀的 run 是普通文本。run 文本不得恰好等于块名（块流是扁平的，靠块名判边界）。
+pub func para(b: ref table<string>, runs: table<string>) {
+    table_push(b, "para")
+    var i: i64 = 0
+    while i < len(runs) {
+        table_push(b, runs[i])
+        i = i + 1
+    }
 }
 
 pub func ul(b: ref table<string>, items: table<string>) {
@@ -317,6 +355,20 @@ pub func validate(b: table<string>) -> string {
                 return to_string(i) + ": " + k + " 缺文本"
             }
             i = i + 2
+        } else if k == "right" || k == "just" {
+            if i + 1 >= n {
+                return to_string(i) + ": " + k + " 缺文本"
+            }
+            i = i + 2
+        } else if k == "para" {
+            var vj: i64 = i + 1
+            while vj < n && !is_block_kind(b[vj]) {
+                vj = vj + 1
+            }
+            if vj == i + 1 {
+                return to_string(i) + ": para 至少需要一个 run"
+            }
+            i = vj
         } else if k == "hr" {
             i = i + 1
         } else if k == "page" {

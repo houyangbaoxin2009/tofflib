@@ -274,6 +274,32 @@ func chunks(s: string) -> table<string> {
     return out
 }
 
+func split_words(s: string) -> table<string> {
+    var out = table_new_string()
+    var n = str_len(s)
+    var cur = ""
+    var i: i64 = 0
+    while i < n {
+        var c = str_char(s, i)
+        if c == " " {
+            if str_len(cur) > 0 {
+                table_push(out, cur)
+                cur = ""
+            }
+        } else {
+            cur = cur + c
+        }
+        i = i + 1
+    }
+    if str_len(cur) > 0 {
+        table_push(out, cur)
+    }
+    if len(out) == 0 {
+        table_push(out, "")
+    }
+    return out
+}
+
 func w_of(txt: string, size: i64, slot: i64) -> i64 {
     return tw(txt, size, slot, SLOT_BODY)
 }
@@ -343,6 +369,55 @@ pub func h3(s: string) {
 
 pub func p(s: string) {
     para(s, SZ_BODY, LH_BODY, 0, SLOT_BODY)
+}
+
+// 右对齐：整段右缘对齐栏宽右界；超宽时回退为普通换行。
+pub func p_right(s: string) {
+    var w = w_of(s, SZ_BODY, SLOT_BODY) / 100
+    if w > DP_COLW {
+        para(s, SZ_BODY, LH_BODY, 0, SLOT_BODY)
+        return
+    }
+    need(LH_BODY + 2)
+    put(DP_ML + DP_COLW - w, dp_y, SZ_BODY, SLOT_BODY, s)
+    dp_y = dp_y - LH_BODY - 5
+}
+
+// 两端对齐：非末行按词间均分多余宽度，末行左对齐。
+pub func p_just(s: string) {
+    var lines = wrap(s, SZ_BODY, DP_COLW, SLOT_BODY)
+    var i: i64 = 0
+    while i < len(lines) {
+        if dp_y - LH_BODY < DP_BOTTOM {
+            new_page()
+        }
+        if i == len(lines) - 1 {
+            put(DP_ML, dp_y, SZ_BODY, SLOT_BODY, lines[i])
+        } else {
+            var ws = split_words(lines[i])
+            var total: i64 = 0
+            var g: i64 = 0
+            while g < len(ws) {
+                total = total + w_of(ws[g], SZ_BODY, SLOT_BODY)
+                g = g + 1
+            }
+            var gaps = len(ws) - 1
+            var slack: i64 = 0
+            if gaps > 0 {
+                slack = (DP_COLW * 100 - total) / gaps
+            }
+            var x = DP_ML * 100
+            var k: i64 = 0
+            while k < len(ws) {
+                put(x / 100, dp_y, SZ_BODY, SLOT_BODY, ws[k])
+                x = x + w_of(ws[k], SZ_BODY, SLOT_BODY) + slack
+                k = k + 1
+            }
+        }
+        dp_y = dp_y - LH_BODY
+        i = i + 1
+    }
+    dp_y = dp_y - 5
 }
 
 pub func quote_block(s: string) {

@@ -66,6 +66,18 @@ export TIE_TRM_LITE_LIB=F:/Projects/tie-repo/trm-lite/target/trm_lite.a
         ["page"],
     ],
 ]
+
+文档还支持整段对齐与行内混排：
+
+```tie
+["right", "右对齐：日期 / 页码"],
+["just", "两端对齐段落，末行自然结束。"],
+["para", "混排：", "b|加粗", " + ", "m|等宽", " + ", "link|项目主页|https://github.com/tie-lang/tie"],
+```
+
+`para` 的 run 前缀：`b|` 加粗、`i|` 斜体、`m|` 等宽、`link|文本|URL` 链接；无前缀为普通文本。run 文本不得恰好等于块名（扁平块流靠块名判边界）。
+
+各后端保真度：docx 全量（`w:jc` 对齐、`w:b` 加粗、等宽字体、`fldSimple` 链接）；pdf 支持右对齐/两端对齐，行内 run 按纯文本拼接；xlsx/pptx 按整段文本落位（单元格与项目符号自身不含行内样式）。
 ```
 
 代码侧只有三行：
@@ -178,7 +190,10 @@ ODF 后端落地后再装 LibreOffice 验证 ODF。
 | `tchead`     | `tchead(txt: string, span: i64, shade: string, align: string) -> string`     | 加粗单元格（表头常用）                   |
 | `tc_w`       | `tc_w(txt: string, w_twips: i64) -> string`                                  | 定宽单元格（tcW，精确列宽）              |
 | `toc`        | `toc(levels_from, levels_to: i64, placeholder: string) -> string`           | 自动目录（fldSimple TOC 域，收录 Heading 层级） |
-| `caption`    | `caption(txt, seq_label: string) -> string`                                 | 题注（文本 + SEQ 自动编号域）           |
+| `caption`    | `caption(txt, seq_label: string) -> string`                                 | 题注（文本 + SEQ 自动编号域）           |
+| `right`     | `right(t: ref table<string>, s: string)` | 右对齐段落 |
+| `just`      | `just(t: ref table<string>, s: string)` | 两端对齐段落（末行左对齐） |
+| `para`      | `para(t: ref table<string>, runs: table<string>)` | 行内混排段落 |
 | `xref`       | `xref(bookmark_name, placeholder: string) -> string`                        | 交叉引用域（REF，指向书签）             |
 | `bookmark_start` | `bookmark_start(name: string, id: i64) -> string`                        | 书签开始（锚点供 xref 引用）            |
 | `bookmark_end`   | `bookmark_end(id: i64) -> string`                                        | 书签结束                        |
