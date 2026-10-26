@@ -11,6 +11,7 @@ import "../office/xlsx.tie" as xs
 import "../office/pptx.tie" as px
 import "./pdfdoc.tie" as pdoc
 import "./model.tie" as doc
+import "../img/imgmeta.tie" as imgmeta
 
 namespace render {
 
@@ -167,6 +168,8 @@ pub func docx(path: string, t: table<string>) -> bool {
     var ftr_set: i64 = 0
     var fn_no: i64 = 0
     var notes = table_new_string()
+    var media_exts = table_new_string()
+    var media_datas = table_new_string()
     if has_cover == 0 {
         sb_append(sb, dx.heading(t[1], 1))
     }
@@ -298,6 +301,37 @@ pub func docx(path: string, t: table<string>) -> bool {
         } else if k == "link" {
             sb_append(sb, dx.link(t[i + 1], t[i + 2], ""))
             i = i + 3
+        } else if k == "img" {
+            // 真嵌入：JPEG/PNG（GIF/BMP 也接受）写入 word/media/imageN.<ext>，
+            // 正文用居中 drawing（wp:inline + a:blip r:embed=rId99+i）。
+            var ipath: string = t[i + 1]
+            var iwpt: i64 = to_i(t[i + 2])
+            var icap: string = t[i + 3]
+            var ik = imgmeta.kind(ipath)
+            var (ipw, iph) = imgmeta.dims(ipath)
+            if ik < 1 || ipw <= 0 || iph <= 0 {
+                sb_append(sb, dx.paragraph("[图片: " + imgmeta.base_name(ipath) + "]"))
+            } else {
+                if iwpt <= 0 {
+                    iwpt = ipw
+                }
+                if iwpt > 451 {
+                    iwpt = 451
+                }
+                var ihpt: i64 = iph * iwpt / ipw
+                if ihpt > 620 {
+                    ihpt = 620
+                    iwpt = ipw * ihpt / iph
+                }
+                var mi2: i64 = len(media_exts)
+                sb_append(sb, dx.pic_para(99 + mi2, iwpt * 12700, ihpt * 12700, mi2 + 1))
+                if str_len(icap) > 0 {
+                    sb_append(sb, dx.pic_caption(icap))
+                }
+                table_push(media_exts, imgmeta.ext(ik))
+                table_push(media_datas, ox.bytes_to_str(byte_read(ipath)))
+            }
+            i = i + 4
         } else if k == "cover" {
             var cr = table_new_string()
             table_push(cr, dx.run_font(t[i + 1], "", 48, true))
@@ -329,7 +363,7 @@ pub func docx(path: string, t: table<string>) -> bool {
     if len(notes) > 0 {
         notes_xml = dx.footnotes_xml(notes)
     }
-    return ox.write_docx_hbfn(path, sb_build(sb), hdr_xml, ftr_xml, notes_xml)
+    return ox.write_docx_hbfn_media(path, sb_build(sb), hdr_xml, ftr_xml, notes_xml, media_exts, media_datas)
 }
 
 func dx_run_tbl(s2: string) -> table<string> {
@@ -440,6 +474,15 @@ pub func xlsx(path: string, t: table<string>) -> bool {
             put_row(sb, r, t[i + 1] + "  " + t[i + 2], false)
             r = r + 1
             i = i + 3
+        } else if k == "img" {
+            // xlsx 降级：真实图片需 drawing1.xml + media + rels；此处写占位行 + 图注。
+            put_row(sb, r, "[图片: " + imgmeta.base_name(t[i + 1]) + "]", false)
+            r = r + 1
+            if str_len(t[i + 3]) > 0 {
+                put_row(sb, r, t[i + 3], false)
+                r = r + 1
+            }
+            i = i + 4
         } else if k == "quote" {
             put_row(sb, r, "> " + t[i + 1], false)
             r = r + 1
@@ -529,6 +572,10 @@ pub func pptx(path: string, t: table<string>) -> bool {
     var slides = table_new_string()
     var bullets = table_new_string()
     var notes = table_new_string()
+    var pic_exts = table_new_string()
+    var pic_datas = table_new_string()
+    var pic_cx = table_new_i64()
+    var pic_cy = table_new_i64()
     var fn_no: i64 = 0
     var cur: string = t[1]
     var pushed: bool = false
@@ -629,6 +676,31 @@ pub func pptx(path: string, t: table<string>) -> bool {
                 i = i + 1
             }
             table_push(bullets, qtxt)
+        } else if k == "img" {
+            // pptx：真嵌入 ppt/media/imageN.<ext> + slide rels + p:pic；
+            // 图片统一追加到**最后一张**幻灯片（README 已写明此限制）。
+            var ipath2: string = t[i + 1]
+            var ik2 = imgmeta.kind(ipath2)
+            var (ipw2, iph2) = imgmeta.dims(ipath2)
+            if ik2 >= 1 && ipw2 > 0 && iph2 > 0 {
+                var wpt2: i64 = to_i(t[i + 2])
+                if wpt2 <= 0 {
+                    wpt2 = ipw2
+                }
+                if wpt2 > 400 {
+                    wpt2 = 400
+                }
+                var hpt2: i64 = iph2 * wpt2 / ipw2
+                if hpt2 > 400 {
+                    hpt2 = 400
+                    wpt2 = ipw2 * hpt2 / iph2
+                }
+                table_push(pic_exts, imgmeta.ext(ik2))
+                table_push(pic_datas, ox.bytes_to_str(byte_read(ipath2)))
+                table_push(pic_cx, wpt2 * 12700)
+                table_push(pic_cy, hpt2 * 12700)
+            }
+            i = i + 4
         } else if k == "header" || k == "footer" {
             // pptx 无页眉/页脚部件：降级忽略（README 已注明）。
             i = i + 2
@@ -664,7 +736,16 @@ pub func pptx(path: string, t: table<string>) -> bool {
         }
         table_push(slides, px.slide_title_bullets("注释", nb))
     }
-    return px.write_pptx(path, slides)
+    // 图片追加到**最终末页**（注释页之后），与 pptx_parts_media 给末页写 rels 的顺序一致。
+    var pj: i64 = 0
+    while pj < len(pic_exts) {
+        var last: i64 = len(slides) - 1
+        if last >= 0 {
+            slides[last] = px.slide_append_pic(slides[last], pj, pic_cx[pj], pic_cy[pj])
+        }
+        pj = pj + 1
+    }
+    return px.write_pptx_media(path, slides, pic_exts, pic_datas)
 }
 
 // ---------------------------------------------------------------- pdf
@@ -738,6 +819,11 @@ func pdf_one(t: table<string>, i: i64, collect: i64) -> i64 {
         pdoc.caption(t[i + 1])
         g_pdf_wrote = 1
         return i + 2
+    }
+    if k == "img" {
+        pdoc.img(t[i + 1], to_i(t[i + 2]), t[i + 3])
+        g_pdf_wrote = 1
+        return i + 4
     }
     if k == "right" || k == "just" {
         if k == "right" {

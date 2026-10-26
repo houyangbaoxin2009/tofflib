@@ -34,6 +34,7 @@ tofflib 的使命是把 **tie 用作办公脚本**：
 | `src/doc/load.tie`  | `doc`   | td 文档源 → 块流装载（表格/列表/代码/封面/目录）                  | `load.a`  |
 | `src/doc/render.tie`| `doc`   | 块流 → docx / xlsx / pptx / pdf 四后端（PDF 只做块流映射，排版委托 pdfdoc） | `render.a`|
 | `src/doc/pdfdoc.tie`| `pdfdoc`| 报告排版层：自动换行/分页、标题层级、代码块高亮、目录与页码（PDF 后端复用） | `pdfdoc.a`|
+| `src/img/imgmeta.tie`| `imgmeta`| 图片元信息：魔数识别（JPEG/PNG）、像素宽高、扩展名与基名 | `imgmeta.a`|
 | `src/tofflib.tie`   | `tofflib` | 对外门面：文档构建 + 装载 + 四后端渲染                          | `tofflib.a`|
 
 ## 快速开始（门面 + tdoc 源）
@@ -100,7 +101,22 @@ export TIE_TRM_LITE_LIB=F:/Projects/tie-repo/trm-lite/target/trm_lite.a
 | 脚注 | 真脚注：`footnotes.xml` + `w:footnoteReference` + `FootnoteReference`/`FootnoteText` 样式 | 脚注锚点在段落末尾追加 `[n]`，文末“注释”区小号字列出 | 文末注释行（单元格文本） | 末页“注释”项目符号页 |
 
 降级说明：pptx 后端**忽略** header/footer（不生成任何部件）；xlsx/pptx 的脚注均退化为文末注释文本（xlsx 单元格行、pptx 末页项目符号），pdf 的脚注不做真正的页底注文，而是段落末 `[n]` + 文末注释区；docx 为真页眉/页脚与真脚注。
+
+### 图片（tdoc 块）
+
+```tie
+["img", "examples/assets/tie-logo.jpg", 160, "图：tie 项目标识"],
 ```
+
+块契约：`img` 4 token（文件路径、宽 pt、题注）；宽传 0 表示按图片像素宽 1:1 排布，题注空串表示无题注。文件按魔数识别 JPEG/PNG，`examples/assets/` 内附一张 JPEG 供示例使用。
+
+门面入口：`img(t, path, width_pt, caption)`。
+
+| 能力 | docx | pdf | xlsx | pptx |
+| --- | --- | --- | --- | --- |
+| 图片 | 真嵌入：`word/media/` + `a:blip` 关系 + 居中段落，JPEG/PNG 均可 | 真嵌入：JPEG 直通（XObject），等比换算尺寸后居中绘制 | 占位：该行写 `[图片: 文件名]` + 题注文本 | 末页图片页：`ppt/media/` + `p:pic` |
+
+降级说明：xlsx 暂不生成 drawing 部件，图片以占位文本落格；pdf 当前只接受 JPEG（PNG 可识别但暂不转码）。
 
 代码侧只有三行：
 
@@ -214,7 +230,7 @@ ODF 后端落地后再装 LibreOffice 验证 ODF。
 | `tchead`     | `tchead(txt: string, span: i64, shade: string, align: string) -> string`     | 加粗单元格（表头常用）                   |
 | `tc_w`       | `tc_w(txt: string, w_twips: i64) -> string`                                  | 定宽单元格（tcW，精确列宽）              |
 | `toc`        | `toc(levels_from, levels_to: i64, placeholder: string) -> string`           | 自动目录（fldSimple TOC 域，收录 Heading 层级） |
-| `caption`    | `caption(txt, seq_label: string) -> string`                                 | 题注（文本 + SEQ 自动编号域）           |
+| `caption`    | `caption(txt, seq_label: string) -> string`                                 | 题注（文本 + SEQ 自动编号域）           |
 | `right`     | `right(t: ref table<string>, s: string)` | 右对齐段落 |
 | `just`      | `just(t: ref table<string>, s: string)` | 两端对齐段落（末行左对齐） |
 | `para`      | `para(t: ref table<string>, runs: table<string>)` | 行内混排段落 |

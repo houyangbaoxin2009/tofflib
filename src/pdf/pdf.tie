@@ -28,6 +28,14 @@ pub var g_objs: table<string>;   // 对象体（下标 0 起 = 对象 1）
 pub var g_pages: table<string>;  // 每页内容流（page_freeze 后有效）
 pub var g_pcmd: table<string>;   // 待拼内容流片段（按页顺序累积）
 pub var g_pstart: table<i64>;    // 每页片段在 g_pcmd 中的起始下标
+// 图片（XObject）状态：字节平铺 + 每张图偏移/长度/像素尺寸；每页图片下标累积。
+pub var g_img_data: table<i64>;   // 全部图片字节平铺
+pub var g_img_off: table<i64>;    // 每张图在 g_img_data 中的起始下标
+pub var g_img_len: table<i64>;    // 每张图字节数
+pub var g_img_pw: table<i64>;     // 像素宽
+pub var g_img_ph: table<i64>;     // 像素高
+pub var g_pgimg: table<i64>;      // 每页图片全局下标累积序列
+pub var g_pgimg_start: table<i64>; // 每页在 g_pgimg 中的起始下标
 pub var g_w: i64 = 595;          // A4 宽（pt）
 pub var g_h: i64 = 842;          // A4 高（pt）
 
@@ -137,6 +145,13 @@ pub func begin_doc(w: i64, h: i64) {
     g_pages = table_new_string()
     g_pcmd = table_new_string()
     g_pstart = table_new_i64()
+    g_img_data = table_new_i64()
+    g_img_off = table_new_i64()
+    g_img_len = table_new_i64()
+    g_img_pw = table_new_i64()
+    g_img_ph = table_new_i64()
+    g_pgimg = table_new_i64()
+    g_pgimg_start = table_new_i64()
 }
 
 // 取指定页的内容流文本（自检/调试用）
@@ -275,6 +290,37 @@ pub func hline(page: i64, x1: i64, y: i64, x2: i64, w: i64) {
 pub func fill_rect(page: i64, x: i64, y: i64, w: i64, h: i64, r: i64, g: i64, b: i64) {
     raw(page, f2s(r * 100 / 255) + " " + f2s(g * 100 / 255) + " " + f2s(b * 100 / 255) + " rg " +
         i2s(x) + " " + i2s(y) + " " + i2s(w) + " " + i2s(h) + " re f\n")
+}
+
+// 插入一张图片（JPEG，作为 /DCTDecode 图像 XObject）。
+// 坐标单位 pt：x,y 为左下角（PDF 坐标系，原点在左下）；w/h 为显示尺寸。
+// pw/ph 为解码后像素宽高（写入 XObject 的 /Width //Height）。
+// 返回图片下标（从 0 起；失败 -1）。干跑模式不登记，直接返回 0。
+pub func image(page: i64, x: i64, y: i64, w: i64, h: i64, path: string, pw: i64, ph: i64) -> i64 {
+    if g_dry == 1 {
+        return 0
+    }
+    var d = byte_read(path)
+    if len(d) == 0 {
+        return -1
+    }
+    var gi = len(g_img_len)
+    table_push(g_img_off, len(g_img_data))
+    table_push(g_img_len, len(d))
+    table_push(g_img_pw, pw)
+    table_push(g_img_ph, ph)
+    var i: i64 = 0
+    while i < len(d) {
+        table_push(g_img_data, d[i])
+        i = i + 1
+    }
+    // 每页起始下标：按页序单调登记（图片总是画在当前页，调用页序不倒退）。
+    while len(g_pgimg_start) <= page {
+        table_push(g_pgimg_start, len(g_pgimg))
+    }
+    table_push(g_pgimg, gi)
+    raw(page, "q " + i2s(w) + " 0 0 " + i2s(h) + " " + i2s(x) + " " + i2s(y) + " cm /Im" + i2s(gi + 1) + " Do Q\n")
+    return gi
 }
 
 }

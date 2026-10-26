@@ -22,6 +22,7 @@ type tie<class>
 //   ["cover", title, subtitle] / ["toc", depth]
 //   ["quote", text] / ["hr"] / ["cap", text]
 //   ["header", text] / ["footer", text] / ["note_ref", text]
+//   ["img", path] / ["img", path, width_pt] / ["img", path, width_pt, caption]
 //   ["para", run...]（run 可为普通文本或 b| i| m| link| fn| 前缀）
 //
 // 入口：load_td(root, out) / load_file(path, out)；返回错误消息（空串=成功），
@@ -120,6 +121,38 @@ func load_block(blk: i64, bi: i64, out: ref table<string>) -> string {
         }
         table_push(out, kind)
         table_push(out, arg_str(blk, 1))
+        return ""
+    }
+    if kind == "img" {
+        var cnt: i64 = td.arr_len(blk)
+        if cnt < 2 || cnt > 4 {
+            return where + "img 需要 2~4 个元素（path[, width_pt[, caption]]）"
+        }
+        if td.type_of(arg_node(blk, 1)) != 4 {
+            return where + "img 路径必须是字符串"
+        }
+        var path: string = arg_str(blk, 1)
+        if str_len(path) == 0 {
+            return where + "img 路径不能为空"
+        }
+        var wpt: i64 = 0
+        var cap: string = ""
+        if cnt >= 3 {
+            if td.type_of(arg_node(blk, 2)) != 2 {
+                return where + "img 宽度必须是整数（pt，0 = 按像素自动）"
+            }
+            wpt = td.int_val(arg_node(blk, 2))
+        }
+        if cnt == 4 {
+            if td.type_of(arg_node(blk, 3)) != 4 {
+                return where + "img caption 必须是字符串"
+            }
+            cap = arg_str(blk, 3)
+        }
+        table_push(out, "img")
+        table_push(out, path)
+        table_push(out, to_string(wpt))
+        table_push(out, cap)
         return ""
     }
     if kind == "para" {

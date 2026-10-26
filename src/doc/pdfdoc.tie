@@ -17,6 +17,7 @@ type tie<logic>
 //   字号 正文10 / 代码9 / 表格9 / h3-11 / h2-13 / h1-18；行距 16/13/14
 
 import "../pdf/pdf.tie"
+import "../img/imgmeta.tie" as imgmeta
 
 // ---------- 版面常量 ----------
 const DP_W: i64 = 595;
@@ -457,6 +458,53 @@ pub func quote_block(s: string) {
 
 pub func caption(s: string) {
     para(s, 8, 11, 0, SLOT_BODY)
+}
+
+// 图片块：居中、等比缩放；width_pt=0 表按像素自然宽度（1px=1pt，封顶栏宽）。
+// 仅支持 JPEG（PDF 端用 /DCTDecode 图像 XObject）；其他格式退化为占位文字。
+pub func img(path: string, width_pt: i64, caption: string) {
+    var k = imgmeta.kind(path)
+    var (pw, ph) = imgmeta.dims(path)
+    if k != 1 || pw <= 0 || ph <= 0 {
+        para("[图片: " + imgmeta.base_name(path) + "]", SZ_BODY, LH_BODY, 0, SLOT_BODY)
+        return
+    }
+    var w: i64 = width_pt
+    if w <= 0 {
+        w = pw
+    }
+    if w > DP_COLW {
+        w = DP_COLW
+    }
+    var h: i64 = ph * w / pw
+    var maxh: i64 = DP_H - DP_MT - DP_BOTTOM - 24
+    if h > maxh {
+        h = maxh
+        w = pw * h / ph
+    }
+    // 整图 + 图注尽量同页
+    if dp_y - h < DP_BOTTOM + 20 {
+        new_page()
+    }
+    var x: i64 = DP_ML + (DP_COLW - w) / 2
+    var yb: i64 = dp_y - h
+    if dp_dry == 0 {
+        var gi = pdf.image(dp_page, x, yb, w, h, path, pw, ph)
+        if gi < 0 {
+            para("[图片: " + imgmeta.base_name(path) + "]", SZ_BODY, LH_BODY, 0, SLOT_BODY)
+            return
+        }
+    }
+    dp_y = dp_y - h - 6
+    if str_len(caption) > 0 {
+        var cw = tw(caption, SZ_PAGE, SLOT_BODY, SLOT_BODY)
+        if cw <= DP_COLW {
+            put(DP_ML + (DP_COLW - cw) / 2, dp_y, SZ_PAGE, SLOT_BODY, caption)
+            dp_y = dp_y - 12
+        } else {
+            para(caption, SZ_PAGE, 12, 0, SLOT_BODY)
+        }
+    }
 }
 
 pub func hr() {

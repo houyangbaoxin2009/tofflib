@@ -28,6 +28,8 @@ type tie<class>
 //   ["quote", text]                      引用块（左侧竖线 + 灰字）
 //   ["hr"]                               分隔线
 //   ["cap", text]                        题注（表格/图下方的小字说明）
+//   ["img", path, width_pt, caption]     图片（width_pt=0 表示按像素自动宽度；
+//                                        caption 可为空串；path 为文件路径）
 //
 // 约定：所有构建函数只追加 token，不做 IO；校验集中在 validate()，
 // 错误信息带 token 下标，便于文档作者定位。
@@ -48,6 +50,7 @@ pub func is_block_kind(k: string) -> bool {
     if k == "cover" || k == "toc" || k == "quote" || k == "hr" { return true }
     if k == "cap" || k == "right" || k == "just" || k == "para" { return true }
     if k == "header" || k == "footer" || k == "note_ref" { return true }
+    if k == "img" { return true }
     return false
 }
 
@@ -242,6 +245,15 @@ pub func note_ref(b: ref table<string>, s: string) {
     table_push(b, s)
 }
 
+// 图片块：path 为图片文件路径（JPEG/PNG），width_pt 为版面宽度（pt，0 = 自动），
+// caption 为图下方说明（空串表示没有）。各后端真实能力见 README 保真度表。
+pub func img(b: ref table<string>, path: string, width_pt: i64, caption: string) {
+    table_push(b, "img")
+    table_push(b, path)
+    table_push(b, to_string(width_pt))
+    table_push(b, caption)
+}
+
 // ---------- 校验 ----------
 
 func is_h(k: string) -> bool {
@@ -330,6 +342,18 @@ pub func validate(b: table<string>) -> string {
                 seen_footer = true
             }
             i = i + 2
+        } else if k == "img" {
+            if i + 3 >= n {
+                return to_string(i) + ": img 缺参数（需 path/width/caption）"
+            }
+            if str_len(b[i + 1]) == 0 {
+                return to_string(i) + ": img 路径不能为空"
+            }
+            var wpt: i64 = as_count(b[i + 2])
+            if wpt < 0 {
+                return to_string(i) + ": img 宽度非法（须为非负整数 pt）"
+            }
+            i = i + 4
         } else if k == "note_ref" {
             if i + 1 >= n {
                 return to_string(i) + ": note_ref 缺文本"

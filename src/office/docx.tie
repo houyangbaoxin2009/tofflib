@@ -231,6 +231,35 @@ pub func toc(levels_from: i64, levels_to: i64, placeholder: string) -> string {
     return sb_build(sb)
 }
 
+// 图片段（居中）：r_id 为媒体关系 id（ooxml 侧固定 rId99+i），
+// cx_emu/cy_emu 为 EMU 尺寸（1pt = 12700 EMU），pic_id 为文档内唯一整数 id。
+pub func pic_para(r_id: i64, cx_emu: i64, cy_emu: i64, pic_id: i64) -> string {
+    var cx = i2s(cx_emu)
+    var cy = i2s(cy_emu)
+    var pid = i2s(pic_id)
+    var rid = i2s(r_id)
+    var sb = string_builder()
+    sb_append(sb, "<w:p><w:pPr><w:spacing w:before=\"120\" w:after=\"60\"/><w:jc w:val=\"center\"/></w:pPr><w:r><w:drawing>")
+    sb_append(sb, "<wp:inline xmlns:wp=\"http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing\" distT=\"0\" distB=\"0\" distL=\"0\" distR=\"0\">")
+    sb_append(sb, "<wp:extent cx=\"" + cx + "\" cy=\"" + cy + "\"/><wp:effectExtent l=\"0\" t=\"0\" r=\"0\" b=\"0\"/>")
+    sb_append(sb, "<wp:docPr id=\"" + pid + "\" name=\"Picture " + pid + "\"/>")
+    sb_append(sb, "<wp:cNvGraphicFramePr><a:graphicFrameLocks xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\" noChangeAspect=\"1\"/></wp:cNvGraphicFramePr>")
+    sb_append(sb, "<a:graphic xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\"><a:graphicData uri=\"http://schemas.openxmlformats.org/drawingml/2006/picture\">")
+    sb_append(sb, "<pic:pic xmlns:pic=\"http://schemas.openxmlformats.org/drawingml/2006/picture\">")
+    sb_append(sb, "<pic:nvPicPr><pic:cNvPr id=\"" + pid + "\" name=\"Picture " + pid + "\"/><pic:cNvPicPr><a:picLocks noChangeAspect=\"1\"/></pic:cNvPicPr></pic:nvPicPr>")
+    sb_append(sb, "<pic:blipFill><a:blip r:embed=\"rId" + rid + "\"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill>")
+    sb_append(sb, "<pic:spPr><a:xfrm><a:off x=\"0\" y=\"0\"/><a:ext cx=\"" + cx + "\" cy=\"" + cy + "\"/></a:xfrm><a:prstGeom prst=\"rect\"><a:avLst/></a:prstGeom></pic:spPr>")
+    sb_append(sb, "</pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r></w:p>")
+    return sb_build(sb)
+}
+
+// 图注（居中、斜体、小号灰字），紧跟在图片段之后。
+pub func pic_caption(txt: string) -> string {
+    return "<w:p><w:pPr><w:spacing w:before=\"0\" w:after=\"120\"/><w:jc w:val=\"center\"/></w:pPr>" +
+        "<w:r><w:rPr><w:i/><w:color w:val=\"666666\"/><w:sz w:val=\"18\"/></w:rPr>" +
+        "<w:t xml:space=\"preserve\">" + escape(txt) + "</w:t></w:r></w:p>"
+}
+
 // 题注：文本 + SEQ 自动编号域（seq_label 如 "图"/"表"/"式"，跨文档连续编号）。
 pub func caption(txt: string, seq_label: string) -> string {
     var sb = string_builder()

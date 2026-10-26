@@ -223,6 +223,55 @@ pub func write_docx_hbfn(path: string, body_xml: string, header_xml: string, foo
     return byte_write(path, str_to_bytes(zip_store(names, datas)))
 }
 
+// 含图片嵌入的 docx 装配：media_exts[i]/media_datas[i] 对应 word/media/image(i+1).<ext>，
+// 关系 id 固定 rId99+i（与 docx.pic_para 的 r:embed 对应）。
+pub func docx_parts_hbfn_media(body_xml: string, header_xml: string, footer_xml: string, footnotes_xml: string, media_exts: table<string>, media_datas: table<string>) -> (names: table<string>, datas: table<string>) {
+    var names = table_new_string()
+    var datas = table_new_string()
+    var has_h: bool = str_len(header_xml) > 0
+    var has_f: bool = str_len(footer_xml) > 0
+    var has_n: bool = str_len(footnotes_xml) > 0
+    table_push(names, "[Content_Types].xml")
+    table_push(datas, content_types_media(has_h, has_f, has_n, media_exts))
+    table_push(names, "_rels/.rels")
+    table_push(datas, root_rels())
+    table_push(names, "word/document.xml")
+    table_push(datas, dx.root_open() + body_xml + document_sect(has_h, has_f) + dx.root_close())
+    table_push(names, "word/styles.xml")
+    table_push(datas, styles_xml())
+    table_push(names, "word/numbering.xml")
+    table_push(datas, numbering_xml())
+    table_push(names, "word/settings.xml")
+    table_push(datas, settings_xml())
+    table_push(names, "word/_rels/document.xml.rels")
+    table_push(datas, doc_rels_media(has_h, has_f, has_n, media_exts))
+    if has_h {
+        table_push(names, "word/header1.xml")
+        table_push(datas, header_xml)
+    }
+    if has_f {
+        table_push(names, "word/footer1.xml")
+        table_push(datas, footer_xml)
+    }
+    if has_n {
+        table_push(names, "word/footnotes.xml")
+        table_push(datas, footnotes_xml)
+    }
+    var mi: i64 = 0
+    while mi < len(media_exts) {
+        table_push(names, "word/media/image" + i2s(mi + 1) + "." + media_exts[mi])
+        table_push(datas, media_datas[mi])
+        mi = mi + 1
+    }
+    return (names, datas)
+}
+
+// 一步生成含图片嵌入的 .docx。
+pub func write_docx_hbfn_media(path: string, body_xml: string, header_xml: string, footer_xml: string, footnotes_xml: string, media_exts: table<string>, media_datas: table<string>) -> bool {
+    var (names, datas) = docx_parts_hbfn_media(body_xml, header_xml, footer_xml, footnotes_xml, media_exts, media_datas)
+    return byte_write(path, str_to_bytes(zip_store(names, datas)))
+}
+
 // 一步生成 .docx（含页眉/页脚）：正文 XML + 页眉/页脚部件内容 → path 文件。
 // 写盘走底座原语 byte_write（字节表，二进制安全）——file_write 按 C 字符串
 // 在首个 NUL 字节处截断，不能用于含 0x00 的 zip 二进制。
@@ -253,6 +302,19 @@ func str_to_bytes(s: string) -> table<i64> {
         i = i + 1
     }
     return t
+}
+
+// 字节表 → 原始字节串（sb_append_byte 逐字节追加；string 按字节存储，
+// len() 即字节数，可无损承载 JPEG/PNG 等二进制内容——供 docx/pptx 媒体部件入包）。
+pub func bytes_to_str(b: table<i64>) -> string {
+    var sb = string_builder()
+    var n: i64 = len(b)
+    var i: i64 = 0
+    while i < n {
+        sb_append_byte(sb, b[i])
+        i = i + 1
+    }
+    return sb_build(sb)
 }
 
 // ---- 内部私有辅助 ----
@@ -288,7 +350,37 @@ func strip_prefix(s: string, prefix_len: i64) -> string {
 }
 
 // [Content_Types].xml：声明全部部件类型（页眉/页脚按需）。
+// 图片扩展名 → MIME 类型（docx 的 <Default ContentType>）。
+func img_mime(ext: string) -> string {
+    if ext == "jpeg" {
+        return "image/jpeg"
+    }
+    if ext == "png" {
+        return "image/png"
+    }
+    return "application/octet-stream"
+}
+
+// 扩展名是否已在 media_exts[0..upto) 中出现（用于去重 <Default>）。
+func ext_seen_before(media_exts: table<string>, upto: i64, e: string) -> bool {
+    var i: i64 = 0
+    while i < upto {
+        if media_exts[i] == e {
+            return true
+        }
+        i = i + 1
+    }
+    return false
+}
+
+// [Content_Types].xml：声明全部部件类型（页眉/页脚按需）。
 func content_types(has_header: bool, has_footer: bool, has_notes: bool) -> string {
+    var no_media = table_new_string()
+    return content_types_media(has_header, has_footer, has_notes, no_media)
+}
+
+// 带图片部件的 [Content_Types].xml：为每个图片扩展名声明一条 <Default>。
+func content_types_media(has_header: bool, has_footer: bool, has_notes: bool, media_exts: table<string>) -> string {
     var sb = string_builder()
     sb_append(sb, "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>")
     sb_append(sb, "<Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\">")
@@ -307,6 +399,14 @@ func content_types(has_header: bool, has_footer: bool, has_notes: bool) -> strin
     }
     if has_notes {
         sb_append(sb, "<Override PartName=\"/word/footnotes.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.wordprocessingml.footnotes+xml\"/>")
+    }
+    var me: i64 = 0
+    while me < len(media_exts) {
+        var e = media_exts[me]
+        if !ext_seen_before(media_exts, me, e) {
+            sb_append(sb, "<Default Extension=\"" + e + "\" ContentType=\"" + img_mime(e) + "\"/>")
+        }
+        me = me + 1
     }
     sb_append(sb, "</Types>")
     return sb_build(sb)
@@ -334,6 +434,12 @@ func settings_xml() -> string {
 }
 
 func doc_rels(has_header: bool, has_footer: bool, has_notes: bool) -> string {
+    var no_media = table_new_string()
+    return doc_rels_media(has_header, has_footer, has_notes, no_media)
+}
+
+// 带图片关系的主文档 rels：图片关系固定 rId99+i（与 docx.pic_para 的 r:embed 对齐）。
+func doc_rels_media(has_header: bool, has_footer: bool, has_notes: bool, media_exts: table<string>) -> string {
     var sb = string_builder()
     sb_append(sb, "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>")
     sb_append(sb, "<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">")
@@ -348,6 +454,11 @@ func doc_rels(has_header: bool, has_footer: bool, has_notes: bool) -> string {
     }
     if has_notes {
         sb_append(sb, "<Relationship Id=\"rId6\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/footnotes\" Target=\"footnotes.xml\"/>")
+    }
+    var mi: i64 = 0
+    while mi < len(media_exts) {
+        sb_append(sb, "<Relationship Id=\"rId" + i2s(99 + mi) + "\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/image\" Target=\"media/image" + i2s(mi + 1) + "." + media_exts[mi] + "\"/>")
+        mi = mi + 1
     }
     sb_append(sb, "</Relationships>")
     return sb_build(sb)

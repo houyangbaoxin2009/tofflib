@@ -80,6 +80,12 @@ pub func note_ref(t: ref table<string>, s: string) {
     m.note_ref(t, s)
 }
 
+// 图片：path 为 JPEG/PNG 文件路径（相对运行目录），width_pt=0 按像素自动宽度，
+// caption 为空串表示无图注。四后端的真实能力见 README 保真度表。
+pub func img(t: ref table<string>, path: string, width_pt: i64, caption: string) {
+    m.img(t, path, width_pt, caption)
+}
+
 pub func caption(t: ref table<string>, s: string) {
     m.caption(t, s)
 }

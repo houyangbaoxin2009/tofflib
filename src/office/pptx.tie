@@ -74,11 +74,19 @@ pub func slide_title_bullets(title: string, bullets: table<string>) -> string {
 // 固定部件经 PowerPoint 真机验证：presProps/viewProps/tableStyles 必需；
 // 布局采用 Office「标题和内容」模板（title + content 占位）。
 pub func pptx_parts(slides_xml: table<string>) -> (names: table<string>, datas: table<string>) {
+    var no_media = table_new_string()
+    var no_data = table_new_string()
+    return pptx_parts_media(slides_xml, no_media, no_data)
+}
+
+// 含图片的装配：media_exts/media_datas 对应 ppt/media/imageN.<ext>；
+// 图片统一追加在**最后一张**幻灯片上（p:pic 已由 slide_append_pic 写入幻灯片 XML）。
+pub func pptx_parts_media(slides_xml: table<string>, media_exts: table<string>, media_datas: table<string>) -> (names: table<string>, datas: table<string>) {
     var names = table_new_string()
     var datas = table_new_string()
     var n = len(slides_xml)
     table_push(names, "[Content_Types].xml")
-    table_push(datas, content_types(n))
+    table_push(datas, content_types_media(n, media_exts))
     table_push(names, "_rels/.rels")
     table_push(datas, root_rels())
     table_push(names, "ppt/presentation.xml")
@@ -106,8 +114,18 @@ pub func pptx_parts(slides_xml: table<string>) -> (names: table<string>, datas: 
         table_push(names, "ppt/slides/slide" + i2s(i + 1) + ".xml")
         table_push(datas, slides_xml[i])
         table_push(names, "ppt/slides/_rels/slide" + i2s(i + 1) + ".xml.rels")
-        table_push(datas, slide_rels())
+        if i == n - 1 {
+            table_push(datas, slide_rels_media(media_exts))
+        } else {
+            table_push(datas, slide_rels())
+        }
         i = i + 1
+    }
+    var mi: i64 = 0
+    while mi < len(media_exts) {
+        table_push(names, "ppt/media/image" + i2s(mi + 1) + "." + media_exts[mi])
+        table_push(datas, media_datas[mi])
+        mi = mi + 1
     }
     return (names, datas)
 }
@@ -118,10 +136,56 @@ pub func write_pptx(path: string, slides_xml: table<string>) -> bool {
     return ox.write_zip(path, names, datas)
 }
 
+// 含图片的一步生成（图片在最后一张幻灯片）。
+pub func write_pptx_media(path: string, slides_xml: table<string>, media_exts: table<string>, media_datas: table<string>) -> bool {
+    var (names, datas) = pptx_parts_media(slides_xml, media_exts, media_datas)
+    return ox.write_zip(path, names, datas)
+}
+
+// 在幻灯片末尾（</p:spTree> 之前）追加一张图片（p:pic）。
+// pic_no：本图在 media_exts 中的下标（关系 id 固定 rId99+pic_no）。
+pub func slide_append_pic(slide_xml: string, pic_no: i64, cx_emu: i64, cy_emu: i64) -> string {
+    var sid = i2s(100 + pic_no)
+    var cx = i2s(cx_emu)
+    var cy = i2s(cy_emu)
+    var offx = i2s((12192000 - cx_emu) / 2)
+    var rid = i2s(99 + pic_no)
+    var pic = "<p:pic><p:nvPicPr><p:cNvPr id=\"" + sid + "\" name=\"Picture " + sid + "\"/>"
+    pic = pic + "<p:cNvPicPr><a:picLocks noChangeAspect=\"1\"/></p:cNvPicPr><p:nvPr/></p:nvPicPr>"
+    pic = pic + "<p:blipFill><a:blip r:embed=\"rId" + rid + "\"/><a:stretch><a:fillRect/></a:stretch></p:blipFill>"
+    pic = pic + "<p:spPr><a:xfrm><a:off x=\"" + offx + "\" y=\"1400000\"/><a:ext cx=\"" + cx + "\" cy=\"" + cy + "\"/></a:xfrm>"
+    pic = pic + "<a:prstGeom prst=\"rect\"><a:avLst/></a:prstGeom></p:spPr></p:pic>"
+    return splice_before_last(slide_xml, "</p:spTree>", pic)
+}
+
+// 在 s 中最后一次出现 marker 的位置前插入 ins（把 p:pic 放进 spTree 末尾）。
+func splice_before_last(s: string, marker: string, ins: string) -> string {
+    var n = str_len(s)
+    var m = str_len(marker)
+    var pos: i64 = -1
+    var i: i64 = 0
+    while i + m <= n {
+        if str_sub_bytes(s, i, i + m) == marker {
+            pos = i
+        }
+        i = i + 1
+    }
+    if pos < 0 {
+        return s + ins
+    }
+    return str_sub_bytes(s, 0, pos) + ins + str_sub_bytes(s, pos, n)
+}
+
 // ---- 内部私有辅助：固定部件模板 ----
 
 // [Content_Types].xml：幻灯片数量决定 Override 数。
 func content_types(n: i64) -> string {
+    var no_media = table_new_string()
+    return content_types_media(n, no_media)
+}
+
+// 含图片 Default Extension 的版本（同一扩展名只写一次）。
+func content_types_media(n: i64, media_exts: table<string>) -> string {
     var sb = string_builder()
     sb_append(sb, "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>")
     sb_append(sb, "<Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\">")
@@ -141,8 +205,29 @@ func content_types(n: i64) -> string {
         sb_append(sb, ".xml\" ContentType=\"application/vnd.openxmlformats-officedocument.presentationml.slide+xml\"/>")
         i = i + 1
     }
+    var me: i64 = 0
+    while me < len(media_exts) {
+        var e = media_exts[me]
+        var seen = false
+        var q: i64 = 0
+        while q < me {
+            if media_exts[q] == e {
+                seen = true
+            }
+            q = q + 1
+        }
+        if !seen {
+            sb_append(sb, img_default(e))
+        }
+        me = me + 1
+    }
     sb_append(sb, "</Types>")
     return sb_build(sb)
+}
+
+// [Content_Types].xml 里图片扩展名的 Default 项。
+func img_default(ext: string) -> string {
+    return "<Default Extension=\"" + ext + "\" ContentType=\"image/" + ext + "\"/>"
 }
 
 // _rels/.rels → presentation.xml。
@@ -204,10 +289,23 @@ func presentation_rels(n: i64) -> string {
 
 // 幻灯片 → 布局关系（每张同一布局）。
 func slide_rels() -> string {
-    return "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>" +
-        "<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">" +
-        "<Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout\" Target=\"../slideLayouts/slideLayout1.xml\"/>" +
-        "</Relationships>"
+    var no_media = table_new_string()
+    return slide_rels_media(no_media)
+}
+
+// 幻灯片 rels（含图片关系 rId99+i → ../media/imageN.<ext>）。
+func slide_rels_media(media_exts: table<string>) -> string {
+    var sb = string_builder()
+    sb_append(sb, "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>")
+    sb_append(sb, "<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">")
+    sb_append(sb, "<Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout\" Target=\"../slideLayouts/slideLayout1.xml\"/>")
+    var mi: i64 = 0
+    while mi < len(media_exts) {
+        sb_append(sb, "<Relationship Id=\"rId" + i2s(99 + mi) + "\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/image\" Target=\"../media/image" + i2s(mi + 1) + "." + media_exts[mi] + "\"/>")
+        mi = mi + 1
+    }
+    sb_append(sb, "</Relationships>")
+    return sb_build(sb)
 }
 
 // presProps.xml（PowerPoint 必需）。
