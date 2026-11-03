@@ -51,7 +51,7 @@ func xml_esc(t: string) -> string {
 
 func dtext(pg: i64, x: i64, y: i64, size: i64, txt: string) {
     if g_svg == 1 {
-        table_push(g_svgparts, "<text x=\"" + pdf.f2s(x) + "\" y=\"" + pdf.f2s(y * 100) + "\" font-size=\"" + pdf.f2s(size * 100) + "\" font-family=\"serif\">" + xml_esc(txt) + "</text>\n")
+        table_push(g_svgparts, "<text x=\"" + pdf.f2s(x) + "\" y=\"" + pdf.f2s(y * 100) + "\" font-size=\"" + pdf.f2s(size * 100) + "\" font-family=\"TMathPreview\">" + xml_esc(txt) + "</text>\n")
         return
     }
     pdf.text_shaped(pg, x / 100, y, size * 100, pdf.shape(SLOT, SLOT, txt))
@@ -60,7 +60,7 @@ func dtext(pg: i64, x: i64, y: i64, size: i64, txt: string) {
 // 数学变量用合成斜体；数字、运算符、函数名保持直立。
 func dtext_i(pg: i64, x: i64, y: i64, size: i64, txt: string) {
     if g_svg == 1 {
-        table_push(g_svgparts, "<text x=\"" + pdf.f2s(x) + "\" y=\"" + pdf.f2s(y * 100) + "\" font-size=\"" + pdf.f2s(size * 100) + "\" font-family=\"serif\" font-style=\"italic\">" + xml_esc(txt) + "</text>\n")
+        table_push(g_svgparts, "<text x=\"" + pdf.f2s(x) + "\" y=\"" + pdf.f2s(y * 100) + "\" font-size=\"" + pdf.f2s(size * 100) + "\" font-family=\"TMathPreview\" font-style=\"italic\">" + xml_esc(txt) + "</text>\n")
         return
     }
     pdf.text_shaped_slant(pg, x / 100, y, size * 100, pdf.shape(SLOT, SLOT, txt))
@@ -156,13 +156,23 @@ pub func measure(id: i64, size: i64) -> (w: i64, asc: i64, desc: i64) {
     }
     if k == "sqrt" {
         var (iw, ia, id2) = measure(tmath.kid_a(id), size)
-        return (iw + tw("√", size + 2) + 100, ia + 2, id2)
+        var d0 = size / 4
+        if id2 > d0 {
+            d0 = id2
+        }
+        return (iw + size * 95 / 100 + 100, ia + 3, d0)
     }
+
     if k == "root" {
         var (iw2, ia2, id3) = measure(tmath.kid_b(id), size)
         var (dw2, da2, dd2) = measure(tmath.kid_a(id), 6)
-        return (iw2 + tw("√", size + 2) + 100 + dw2 / 2, ia2 + 3, id3)
+        var d0b = size / 4
+        if id3 > d0b {
+            d0b = id3
+        }
+        return (dw2 + iw2 + size * 95 / 100 + 100, ia2 + 9, d0b)
     }
+
     if k == "abs" || k == "norm" {
         var (iw3, ia3, id4) = measure(tmath.kid_a(id), size)
         var bar = "|"
@@ -389,23 +399,39 @@ pub func draw(pg: i64, id: i64, x: i64, y: i64, size: i64) {
         return
     }
     if k == "sqrt" {
-        dtext(pg, x, y, size + 2, "√")
-        var sym = tw("√", size + 2)
         var (iw, ia, id2) = measure(tmath.kid_a(id), size)
-        draw(pg, tmath.kid_a(id), x + sym, y, size)
-        dline(pg, x + sym - 20, y + ysf(ia + 1), x + sym + iw, 45)
+        var d0 = size / 4
+        if id2 > d0 {
+            d0 = id2
+        }
+        var w1 = size * 30
+        var w2 = size * 45
+        var hgt = ia + 3
+        dline(pg, x, y, x + w1, 60)
+        dline(pg, x + w1, y - ysf(d0), x + w1 + w2, 60)
+        dline(pg, x + w1 + w2, y + ysf(hgt), x + w1 + w2 + iw + 100, 45)
+        draw(pg, tmath.kid_a(id), x + w1 + w2 + 100, y, size)
         return
     }
+
     if k == "root" {
-        var sym2 = tw("√", size + 2)
-        var (dw2, da2, dd2) = measure(tmath.kid_a(id), 6)
-        dtext(pg, x + 30, y + ysf(size + 2), 6, tmath.plain(tmath.kid_a(id)))
-        dtext(pg, x, y, size + 2, "√")
         var (iw2, ia2, id3) = measure(tmath.kid_b(id), size)
-        draw(pg, tmath.kid_b(id), x + sym2, y, size)
-        dline(pg, x + sym2 - 20, y + ysf(ia2 + 1), x + sym2 + iw2, 45)
+        var (dw2, da2, dd2) = measure(tmath.kid_a(id), 6)
+        var d0b = size / 4
+        if id3 > d0b {
+            d0b = id3
+        }
+        var w1 = size * 30
+        var w2 = size * 45
+        var hgt = ia2 + 3
+        dtext(pg, x, y + ysf(hgt + 6), 6, tmath.plain(tmath.kid_a(id)))
+        dline(pg, x + dw2, y, x + dw2 + w1, 60)
+        dline(pg, x + dw2 + w1, y - ysf(d0b), x + dw2 + w1 + w2, 60)
+        dline(pg, x + dw2 + w1 + w2, y + ysf(hgt), x + dw2 + w1 + w2 + iw2 + 100, 45)
+        draw(pg, tmath.kid_b(id), x + dw2 + w1 + w2 + 100, y, size)
         return
     }
+
     if k == "abs" || k == "norm" {
         var bar = "|"
         if k == "norm" {
@@ -689,7 +715,6 @@ pub func svg(src: string, size: i64) -> string {
         return ""
     }
     var (w, asc, desc) = measure(id, size)
-    println("DBG svg w=" + to_string(w) + " asc=" + to_string(asc) + " desc=" + to_string(desc))
     var margin: i64 = 600
     var W = w + margin * 2
     var H = (asc + desc) * 100 + margin * 2
