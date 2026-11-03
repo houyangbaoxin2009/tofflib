@@ -217,7 +217,7 @@ pub func measure(id: i64, size: i64) -> (w: i64, asc: i64, desc: i64) {
             }
             r = r + 1
         }
-        var w2: i64 = 400
+        var w2: i64 = 1200
         var c2: i64 = 0
         while c2 < cols {
             w2 = w2 + colw[c2] + 500
@@ -332,7 +332,7 @@ pub func draw(pg: i64, id: i64, x: i64, y: i64, size: i64) {
         var sym = tw("√", size + 2)
         var (iw, ia, id2) = measure(tmath.kid_a(id), size)
         draw(pg, tmath.kid_a(id), x + sym, y, size)
-        pdf.hline(pg, (x + sym - 20) / 100, y + ia + 1, (x + sym + iw) / 100, 45)
+        pdf.hline(pg, (x + sym * 3 / 4) / 100, y + ia + 1, (x + sym + iw) / 100, 45)
         return
     }
     if k == "root" {
@@ -342,7 +342,7 @@ pub func draw(pg: i64, id: i64, x: i64, y: i64, size: i64) {
         dtext(pg, x, y, size + 2, "√")
         var (iw2, ia2, id3) = measure(tmath.kid_b(id), size)
         draw(pg, tmath.kid_b(id), x + sym2, y, size)
-        pdf.hline(pg, (x + sym2 - 20) / 100, y + ia2 + 1, (x + sym2 + iw2) / 100, 45)
+        pdf.hline(pg, (x + sym2 * 3 / 4) / 100, y + ia2 + 1, (x + sym2 + iw2) / 100, 45)
         return
     }
     if k == "abs" || k == "norm" {
@@ -424,7 +424,7 @@ pub func draw(pg: i64, id: i64, x: i64, y: i64, size: i64) {
             draw(pg, tmath.kid_b(id), cxo - uw / 2, y + size * 95 / 100 + ud, size * 65 / 100)
         }
         if tmath.kid_a(id) >= 0 {
-            draw(pg, tmath.kid_a(id), cxo - lw / 2, y - size * 75 / 100 - la, size * 65 / 100)
+            draw(pg, tmath.kid_a(id), cxo - lw / 2, y - size * 62 / 100 - la, size * 65 / 100)
         }
         dtext(pg, cxo - gw / 2, y, size + 4, g)
         draw(pg, tmath.kid_c(id), x + opw + 300, y, size)
@@ -461,10 +461,18 @@ pub func draw(pg: i64, id: i64, x: i64, y: i64, size: i64) {
             }
             r4 = r4 + 1
         }
+        // 矩阵括号：字号按总高放大，基线对齐底边
+        var bh = (ma + md) * 13 / 10
+        if bh < 10 {
+            bh = 10
+        }
+        var by = y - md - 1
+        dtext(pg, x, by, bh, "(")
+        dtext(pg, x + mw - tw(")", bh), by, bh, ")")
         var top = y + ma
         r4 = 0
         while r4 < rows {
-            var cx3 = x + 200
+            var cx3 = x + 600
             var c5: i64 = 0
             while c5 < cols {
                 var (cw3, ca3, cd3) = measure(tmath.mat_cell(id, r4, c5), size)
