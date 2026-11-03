@@ -987,6 +987,9 @@ func subset_bytes(s: i64) -> table<i64> {
     var d_loca = table_new_i64()
     var gid: i64 = 0
     while gid < ng {
+        // loca[gid] 是字形 gid 的**起始**偏移：先记偏移再追加轮廓；
+        // 循环结束再补末尾一项（loca 需要 ng + 1 项，末项 = glyf 总长）。
+        ss_u32(d_loca, len(d_glyf))
         var a: i64 = 0
         var z: i64 = 0
         if g_locafmt[s] == 0 {
@@ -1003,9 +1006,9 @@ func subset_bytes(s: i64) -> table<i64> {
                 k = k + 1
             }
         }
-        ss_u32(d_loca, len(d_glyf))
         gid = gid + 1
     }
+    ss_u32(d_loca, len(d_glyf))
     // 2) 其余表（head 里清零校验和、loca 改长格式）
     var d_head = ss_copy(s, head, 54)
     if len(d_head) < 54 {
