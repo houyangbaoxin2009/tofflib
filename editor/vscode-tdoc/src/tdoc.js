@@ -6,6 +6,35 @@
 
 /** 块定义：arity 为 token 个数（含块名），null 表示按内容校验。 */
 
+
+// tmath 符号表：短码 → 字形与全名（与 tmath.tie 的符号表同步）
+const TMATH_SYMBOLS = {
+    "a": ["α", "alpha"], "b": ["β", "beta"], "g": ["γ", "gamma"], "d": ["δ", "delta"],
+    "e": ["ε", "epsilon"], "z": ["ζ", "zeta"], "h": ["η", "eta"], "th": ["θ", "theta"],
+    "i": ["ι", "iota"], "k": ["κ", "kappa"], "l": ["λ", "lambda"], "m": ["μ", "mu"],
+    "n": ["ν", "nu"], "x": ["ξ", "xi"], "o": ["ο", "omicron"], "p": ["π", "pi"],
+    "r": ["ρ", "rho"], "s": ["σ", "sigma"], "t": ["τ", "tau"], "u": ["υ", "upsilon"],
+    "f": ["φ", "phi"], "ch": ["χ", "chi"], "ps": ["ψ", "psi"], "w": ["ω", "omega"],
+    "A": ["Α", "Alpha"], "B": ["Β", "Beta"], "G": ["Γ", "Gamma"], "D": ["Δ", "Delta"],
+    "E": ["Ε", "Epsilon"], "Z": ["Ζ", "Zeta"], "H": ["Η", "Eta"], "TH": ["Θ", "Theta"],
+    "I": ["Ι", "Iota"], "K": ["Κ", "Kappa"], "L": ["Λ", "Lambda"], "M": ["Μ", "Mu"],
+    "N": ["Ν", "Nu"], "X": ["Ξ", "Xi"], "O": ["Ο", "Omicron"], "P": ["Π", "Pi"],
+    "R": ["Ρ", "Rho"], "S": ["Σ", "sum"], "F": ["Φ", "Phi"], "PS": ["Ψ", "Psi"],
+    "W": ["Ω", "Omega"], "Q": ["Θ", "Theta"],
+    "sum": ["∑", "sum"], "prod": ["∏", "prod"], "int": ["∫", "int"], "oint": ["∮", "oint"],
+    "lim": ["lim", "lim"],
+    "le": ["≤", "le"], "ge": ["≥", "ge"], "ne": ["≠", "ne"], "approx": ["≈", "approx"],
+    "equiv": ["≡", "equiv"], "to": ["→", "to"], "in": ["∈", "in"], "notin": ["∉", "notin"],
+    "subset": ["⊂", "subset"], "supset": ["⊃", "supset"], "cup": ["∪", "cup"],
+    "cap": ["∩", "cap"], "perp": ["⊥", "perp"], "parallel": ["∥", "parallel"],
+    "therefore": ["∴", "therefore"], "because": ["∵", "because"],
+    "oo": ["∞", "infty"], "infty": ["∞", "infty"], "partial": ["∂", "partial"],
+    "nabla": ["∇", "nabla"], "forall": ["∀", "forall"], "exists": ["∃", "exists"],
+    "pm": ["±", "pm"], "mp": ["∓", "mp"], "times": ["×", "times"], "cdot": ["·", "cdot"],
+    "cdots": ["⋯", "cdots"], "ldots": ["…", "ldots"], "emptyset": ["∅", "emptyset"],
+    "angle": ["∠", "angle"], "degree": ["°", "degree"], "prime": ["′", "prime"]
+};
+
 // ---------- tmath 公式文本的轻量校验（编辑器侧，不做完整解析） ----------
 
 const TMATH_CODES = new Set([
@@ -473,7 +502,7 @@ function analyze(text) {
     const folds = [];
 
     if (!root) {
-        return { diagnostics, symbols, folds, blocks: 0 };
+        return { diagnostics, symbols, folds, blocks: 0, imgs: [] };
     }
     if (root.kind !== 'map') {
         diagnostics.push(diag('文档根必须是表：`["title": …, "blocks": [ … ]]`', root.start, root.end));
@@ -530,7 +559,7 @@ function analyze(text) {
             kids.forEach((k) => { if (k && (k.kind === 'array' || k.kind === 'map')) stack.push({ node: k }); });
         }
     }
-    return { diagnostics, symbols, folds, blocks: blocks.items.length };
+    return { diagnostics, symbols, folds, blocks: blocks.items.length, imgs: imgPaths(blocks.items) };
 }
 
 /**
@@ -883,4 +912,30 @@ function mdToTdoc(md, fallbackTitle) {
     return { title: title || fallbackTitle || '未命名文档', text: out.join('\n') + '\n' };
 }
 
-module.exports = { BLOCKS, KIND_LIST, tokenize, parse, analyze, reindent, stateAt, renumber, mdToTdoc };
+/** 光标处（或其前）的 @ 符号查询：返回 {code, glyph, name, start, end} 或 null。 */
+function mathCodeAt(src, offset) {
+    const end = Math.min(offset, src.length);
+    let start = end;
+    while (start > 0 && /[0-9a-zA-Z]/.test(src[start - 1])) start -= 1;
+    if (start === 0 || src[start - 1] !== "@") return null;
+    const code = src.slice(start, end);
+    const info = TMATH_SYMBOLS[code];
+    if (!info) return null;
+    return { code, glyph: info[0], name: info[1], start: start - 1, end };
+}
+
+/** img 块的路径列表（供存在性检查）。 */
+function imgPaths(blocks) {
+    const out = [];
+    blocks.forEach((blk) => {
+        if (!blk || blk.kind !== "array" || blk.items.length < 2) return;
+        const head = blk.items[0];
+        const p = blk.items[1];
+        if (!head || head.kind !== "string" || head.value !== "img") return;
+        if (!p || p.kind !== "string") return;
+        out.push({ path: p.value, start: p.start, end: p.end });
+    });
+    return out;
+}
+
+module.exports = { BLOCKS, KIND_LIST, tokenize, parse, analyze, reindent, stateAt, renumber, mdToTdoc, TMATH_SYMBOLS, mathCodeAt, imgPaths };

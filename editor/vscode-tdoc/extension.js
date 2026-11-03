@@ -93,6 +93,17 @@ function refresh(document) {
         item.source = 'tdoc';
         return item;
     });
+    const dir = path.dirname(document.uri.fsPath);
+    result.imgs.forEach((im) => {
+        if (/^https?:/.test(im.path)) return;
+        const abs = path.resolve(dir, im.path);
+        if (!fs.existsSync(abs)) {
+            const range = new vscode.Range(offsetToPosition(starts, im.start), offsetToPosition(starts, im.end));
+            const item = new vscode.Diagnostic(range, "图片文件不存在：" + im.path, vscode.DiagnosticSeverity.Warning);
+            item.source = "tdoc";
+            items.push(item);
+        }
+    });
     diagnostics.set(document.uri, items);
     updateStatus();
 }
@@ -185,6 +196,18 @@ function provideCompletion(document, position) {
         }), false);
     }
 
+    const atMatch = /@([0-9a-zA-Z]*)$/.exec(before);
+    if (atMatch) {
+        const items = Object.keys(core.TMATH_SYMBOLS).map((code) => {
+            const info = core.TMATH_SYMBOLS[code];
+            const item = new vscode.CompletionItem(code, vscode.CompletionItemKind.Constant);
+            item.detail = info[1];
+            item.label = { label: code, description: info[0] };
+            item.insertText = code;
+            return item;
+        });
+        return new vscode.CompletionList(items, false);
+    }
     const insideKind = /\[\s*"[a-z0-9_]*$/.test(before);
     const items = core.KIND_LIST.map((kind) => {
         const def = core.BLOCKS[kind];
@@ -203,6 +226,13 @@ function provideCompletion(document, position) {
 }
 
 function provideHover(document, position) {
+    const offset = document.offsetAt(position);
+    const at = core.mathCodeAt(document.getText(), offset);
+    if (at) {
+        const md = new vscode.MarkdownString();
+        md.appendMarkdown(`**${at.glyph}** — \`${at.code}\`\n\n\n短码：\`@${at.code}\`，全名：\`@${at.name}\` 等价`);
+        return new vscode.Hover(md, new vscode.Range(document.positionAt(at.start), document.positionAt(at.end)));
+    }
     const line = document.lineAt(position.line).text;
     const m = /\[\s*"([a-z0-9_]+)"/.exec(line);
     if (!m) return undefined;
@@ -636,7 +666,7 @@ function activate(context) {
     context.subscriptions.push(vscode.languages.registerFoldingRangeProvider(
         { language: 'tdoc' }, { provideFoldingRanges: buildFolds }));
     context.subscriptions.push(vscode.languages.registerCompletionItemProvider(
-        { language: 'tdoc' }, { provideCompletionItems: provideCompletion }, '[', '"', ','));
+        { language: 'tdoc' }, { provideCompletionItems: provideCompletion }, '[', '"', ',', '@'));
     context.subscriptions.push(vscode.languages.registerHoverProvider(
         { language: 'tdoc' }, { provideHover }));
     context.subscriptions.push(vscode.languages.registerDocumentFormattingEditProvider(

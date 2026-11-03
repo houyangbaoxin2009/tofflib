@@ -136,7 +136,7 @@ pub func measure(id: i64, size: i64) -> (w: i64, asc: i64, desc: i64) {
     }
     if k == "pow" {
         var (bw2, ba2, bd2) = measure(tmath.kid_a(id), size)
-        var ss = size * 7 / 10
+        var ss = size * 3 / 4
         if ss < 6 {
             ss = 6
         }
@@ -150,7 +150,7 @@ pub func measure(id: i64, size: i64) -> (w: i64, asc: i64, desc: i64) {
     }
     if k == "sub" {
         var (bw3, ba3, bd3) = measure(tmath.kid_a(id), size)
-        var ss2 = size * 7 / 10
+        var ss2 = size * 3 / 4
         if ss2 < 6 {
             ss2 = 6
         }
@@ -228,13 +228,13 @@ pub func measure(id: i64, size: i64) -> (w: i64, asc: i64, desc: i64) {
         var ua = 0
         var ud = 0
         if tmath.kid_a(id) >= 0 {
-            var (lw0, la0, ld0) = measure(tmath.kid_a(id), size * 7 / 10)
+            var (lw0, la0, ld0) = measure(tmath.kid_a(id), size * 3 / 4)
             lw = lw0
             la = la0
             ld = ld0
         }
         if tmath.kid_b(id) >= 0 {
-            var (uw0, ua0, ud0) = measure(tmath.kid_b(id), size * 7 / 10)
+            var (uw0, ua0, ud0) = measure(tmath.kid_b(id), size * 3 / 4)
             uw = uw0
             ua = ua0
             ud = ud0
@@ -330,7 +330,7 @@ pub func measure(id: i64, size: i64) -> (w: i64, asc: i64, desc: i64) {
             r3 = r3 + 1
         }
         var hh = rows3 * (rh + 2)
-        return (600 + w1 + 600 + w2 + 200, hh / 2, hh / 2)
+        return (800 + w1 + 800 + w2 + 200, hh / 2, hh / 2)
     }
     return (tw(tmath.plain(id), size), size * 72 / 100, size * 22 / 100)
 }
@@ -389,7 +389,7 @@ pub func draw(pg: i64, id: i64, x: i64, y: i64, size: i64) {
     if k == "pow" {
         var (bw, ba, bd) = measure(tmath.kid_a(id), size)
         draw(pg, tmath.kid_a(id), x, y, size)
-        var ss = size * 7 / 10
+        var ss = size * 3 / 4
         if ss < 6 {
             ss = 6
         }
@@ -399,7 +399,7 @@ pub func draw(pg: i64, id: i64, x: i64, y: i64, size: i64) {
     if k == "sub" {
         var (bw2, ba2, bd2) = measure(tmath.kid_a(id), size)
         draw(pg, tmath.kid_a(id), x, y, size)
-        var ss2 = size * 7 / 10
+        var ss2 = size * 3 / 4
         if ss2 < 6 {
             ss2 = 6
         }
@@ -496,13 +496,13 @@ pub func draw(pg: i64, id: i64, x: i64, y: i64, size: i64) {
         var ua = 0
         var ud = 0
         if tmath.kid_a(id) >= 0 {
-            var (lw0, la0, ld0) = measure(tmath.kid_a(id), size * 7 / 10)
+            var (lw0, la0, ld0) = measure(tmath.kid_a(id), size * 3 / 4)
             lw = lw0
             la = la0
             ld = ld0
         }
         if tmath.kid_b(id) >= 0 {
-            var (uw0, ua0, ud0) = measure(tmath.kid_b(id), size * 7 / 10)
+            var (uw0, ua0, ud0) = measure(tmath.kid_b(id), size * 3 / 4)
             uw = uw0
             ua = ua0
             ud = ud0
@@ -516,10 +516,10 @@ pub func draw(pg: i64, id: i64, x: i64, y: i64, size: i64) {
         }
         var cxo = x + opw / 2
         if tmath.kid_b(id) >= 0 {
-            draw(pg, tmath.kid_b(id), cxo - uw / 2, y + ysf(size * 95 / 100 + ud), size * 7 / 10)
+            draw(pg, tmath.kid_b(id), cxo - uw / 2, y + ysf(size * 95 / 100 + ud), size * 3 / 4)
         }
         if tmath.kid_a(id) >= 0 {
-            draw(pg, tmath.kid_a(id), cxo - lw / 2, y - ysf(size * 62 / 100 + la), size * 7 / 10)
+            draw(pg, tmath.kid_a(id), cxo - lw / 2, y - ysf(size * 62 / 100 + la), size * 3 / 4)
         }
         dtext(pg, cxo - gw / 2, y, size + 4, g)
         draw(pg, tmath.kid_c(id), x + opw + 300, y, size)
@@ -588,7 +588,7 @@ pub func draw(pg: i64, id: i64, x: i64, y: i64, size: i64) {
         if brace < 10 {
             brace = 10
         }
-        if brace > 30 {
+        if brace > 44 {
             brace = 30
         }
         dtext(pg, x, y + ysf(ha - brace * 3 / 4), brace, "{")
@@ -597,8 +597,8 @@ pub func draw(pg: i64, id: i64, x: i64, y: i64, size: i64) {
         while r5 < rows5 {
             var (w1, a1, d1) = measure(tmath.case_cell(id, r5, 0), size)
             var rowy = top2 - ysf(a1)
-            draw(pg, tmath.case_cell(id, r5, 0), x + 600, rowy, size)
-            draw(pg, tmath.case_cell(id, r5, 1), x + 600 + w1 + 600, rowy, size)
+            draw(pg, tmath.case_cell(id, r5, 0), x + 800, rowy, size)
+            draw(pg, tmath.case_cell(id, r5, 1), x + 800 + w1 + 800, rowy, size)
             top2 = top2 - ysf(a1 + d1 + 2)
             r5 = r5 + 1
         }
@@ -628,9 +628,13 @@ func mp_push(id: i64, opt: string, isop: i64) {
 
 func flatten_chain(cur: i64) {
     var k = tmath.kind_of(cur)
-    if k == "rel" || k == "add" || k == "subtract" {
+    if k == "rel" || k == "add" || k == "subtract" || k == "mul" {
         flatten_chain(tmath.kid_a(cur))
-        mp_push(-1, tmath.pay_of(cur), 1)
+        var opt = tmath.pay_of(cur)
+        if opt == "" {
+            opt = " · "
+        }
+        mp_push(-1, opt, 1)
         flatten_chain(tmath.kid_b(cur))
     } else {
         mp_push(cur, "", 0)
