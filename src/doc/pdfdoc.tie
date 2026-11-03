@@ -295,6 +295,13 @@ func chunks(s: string) -> table<string> {
                 cur = ""
             }
             table_push(out, " ")
+        } else if cp == 10 || cp == 13 {
+            // 换行单列一块：交给 wrap 当软换行处理（不并入单词，否则会画成缺字）
+            if str_len(cur) > 0 {
+                table_push(out, cur)
+                cur = ""
+            }
+            table_push(out, "\n")
         } else {
             cur = cur + c
         }
@@ -345,6 +352,12 @@ func wrap(s: string, size: i64, max_w: i64, slot: i64) -> table<string> {
     var i: i64 = 0
     while i < len(cs) {
         var g = cs[i]
+        // 源文本里的换行是「软换行」：不占宽度、不产出字形。文档源可以按
+        // 可读宽度折行，排版仍按栏宽重排（此前换行会被当作缺字画出 .notdef）。
+        if g == "\n" || g == "\r" {
+            i = i + 1
+            continue
+        }
         var w = w_of(g, size, slot)
         if cw + w > lim && str_len(cur) > 0 {
             if str_len(cur) > 0 && char_code(str_char(cur, str_len(cur) - 1)) == 32 {

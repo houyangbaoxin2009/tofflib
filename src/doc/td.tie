@@ -265,6 +265,26 @@ func parse_string(s: string) -> i64 {
                 sb_append_byte(out_h, 9)
                 g_cpos = g_cpos + 2
                 bpos = bpos + 2
+            } else if eb == 10 || eb == 13 {
+                // 续行：`\` + 换行 + 缩进 → 什么都不产出。让长段落可以按可读
+                // 宽度折行、并与所在数组对齐，而文本内容不受缩进影响。
+                // 注意：bpos 是字节偏移，边界必须用字节长度（len），不能用码点数 n。
+                g_cpos = g_cpos + 2
+                bpos = bpos + 2
+                var blen = len(s)
+                if eb == 13 && bpos < blen && str_byte(s, bpos) == 10 {
+                    g_cpos = g_cpos + 1
+                    bpos = bpos + 1
+                }
+                while bpos < blen {
+                    var nb = str_byte(s, bpos)
+                    if nb == 32 || nb == 9 {
+                        g_cpos = g_cpos + 1
+                        bpos = bpos + 1
+                    } else {
+                        break
+                    }
+                }
             } else {
                 c_err_msg = "td 未知转义 \\" + str_char(s, g_cpos + 1) + "（位置 " + to_string(g_cpos) + "）"
                 return -1
