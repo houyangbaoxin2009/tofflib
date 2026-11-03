@@ -22,6 +22,11 @@ func dtext(pg: i64, x: i64, y: i64, size: i64, txt: string) {
     pdf.text_shaped(pg, x / 100, y, size * 100, pdf.shape(SLOT, SLOT, txt))
 }
 
+// 数学变量用合成斜体；数字、运算符、函数名保持直立。
+func dtext_i(pg: i64, x: i64, y: i64, size: i64, txt: string) {
+    pdf.text_shaped_slant(pg, x / 100, y, size * 100, pdf.shape(SLOT, SLOT, txt))
+}
+
 func tw(txt: string, size: i64) -> i64 {
     return pdf.shape_width(pdf.shape(SLOT, SLOT, txt), size)
 }
@@ -158,13 +163,13 @@ pub func measure(id: i64, size: i64) -> (w: i64, asc: i64, desc: i64) {
         var ua = 0
         var ud = 0
         if tmath.kid_a(id) >= 0 {
-            var (lw0, la0, ld0) = measure(tmath.kid_a(id), size * 65 / 100)
+            var (lw0, la0, ld0) = measure(tmath.kid_a(id), size * 7 / 10)
             lw = lw0
             la = la0
             ld = ld0
         }
         if tmath.kid_b(id) >= 0 {
-            var (uw0, ua0, ud0) = measure(tmath.kid_b(id), size * 65 / 100)
+            var (uw0, ua0, ud0) = measure(tmath.kid_b(id), size * 7 / 10)
             uw = uw0
             ua = ua0
             ud = ud0
@@ -217,17 +222,22 @@ pub func measure(id: i64, size: i64) -> (w: i64, asc: i64, desc: i64) {
             }
             r = r + 1
         }
-        var w2: i64 = 1200
-        var c2: i64 = 0
-        while c2 < cols {
-            w2 = w2 + colw[c2] + 500
-            c2 = c2 + 1
-        }
         var h: i64 = 0
         var r2: i64 = 0
         while r2 < rows {
             h = h + rowh[r2] + 2
             r2 = r2 + 1
+        }
+        var bh0 = h * 13 / 10
+        if bh0 < 10 {
+            bh0 = 10
+        }
+        var bw0 = tw("(", bh0)
+        var w2: i64 = bw0 * 2 + 200
+        var c2: i64 = 0
+        while c2 < cols {
+            w2 = w2 + colw[c2] + 500
+            c2 = c2 + 1
         }
         return (w2, h / 2, h / 2)
     }
@@ -265,7 +275,11 @@ pub func measure(id: i64, size: i64) -> (w: i64, asc: i64, desc: i64) {
 pub func draw(pg: i64, id: i64, x: i64, y: i64, size: i64) {
     var k = tmath.kind_of(id)
     if k == "num" || k == "id" || k == "sym" || k == "text" {
-        dtext(pg, x, y, size, tmath.pay_of(id))
+        if k == "id" {
+            dtext_i(pg, x, y, size, tmath.pay_of(id))
+        } else {
+            dtext(pg, x, y, size, tmath.pay_of(id))
+        }
         return
     }
     if k == "add" || k == "subtract" || k == "rel" || k == "mul" || k == "slash" {
@@ -401,13 +415,13 @@ pub func draw(pg: i64, id: i64, x: i64, y: i64, size: i64) {
         var ua = 0
         var ud = 0
         if tmath.kid_a(id) >= 0 {
-            var (lw0, la0, ld0) = measure(tmath.kid_a(id), size * 65 / 100)
+            var (lw0, la0, ld0) = measure(tmath.kid_a(id), size * 7 / 10)
             lw = lw0
             la = la0
             ld = ld0
         }
         if tmath.kid_b(id) >= 0 {
-            var (uw0, ua0, ud0) = measure(tmath.kid_b(id), size * 65 / 100)
+            var (uw0, ua0, ud0) = measure(tmath.kid_b(id), size * 7 / 10)
             uw = uw0
             ua = ua0
             ud = ud0
@@ -421,10 +435,10 @@ pub func draw(pg: i64, id: i64, x: i64, y: i64, size: i64) {
         }
         var cxo = x + opw / 2
         if tmath.kid_b(id) >= 0 {
-            draw(pg, tmath.kid_b(id), cxo - uw / 2, y + size * 95 / 100 + ud, size * 65 / 100)
+            draw(pg, tmath.kid_b(id), cxo - uw / 2, y + size * 95 / 100 + ud, size * 7 / 10)
         }
         if tmath.kid_a(id) >= 0 {
-            draw(pg, tmath.kid_a(id), cxo - lw / 2, y - size * 62 / 100 - la, size * 65 / 100)
+            draw(pg, tmath.kid_a(id), cxo - lw / 2, y - size * 62 / 100 - la, size * 7 / 10)
         }
         dtext(pg, cxo - gw / 2, y, size + 4, g)
         draw(pg, tmath.kid_c(id), x + opw + 300, y, size)
@@ -467,12 +481,13 @@ pub func draw(pg: i64, id: i64, x: i64, y: i64, size: i64) {
             bh = 10
         }
         var by = y - md - 1
+        var bw1 = tw("(", bh)
         dtext(pg, x, by, bh, "(")
-        dtext(pg, x + mw - tw(")", bh), by, bh, ")")
+        dtext(pg, x + mw - bw1, by, bh, ")")
         var top = y + ma
         r4 = 0
         while r4 < rows {
-            var cx3 = x + 600
+            var cx3 = x + tw("(", (ma + md) * 13 / 10) + 100
             var c5: i64 = 0
             while c5 < cols {
                 var (cw3, ca3, cd3) = measure(tmath.mat_cell(id, r4, c5), size)

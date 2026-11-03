@@ -259,6 +259,40 @@ pub func text_shaped_c(page: i64, x: i64, y: i64, size_pt_x100: i64, sh: table<i
     return 0
 }
 
+// 合成斜体：文本矩阵带 0.25 的横向切变，用于数学变量（TrueType 单字重没有斜体面）。
+pub func text_shaped_slant(page: i64, x: i64, y: i64, size_pt_x100: i64, sh: table<i64>) -> i64 {
+    var i: i64 = 0
+    var first = true
+    var cmd = "0 0 0 rg BT\n"
+    while i + 1 < len(sh) {
+        var slot = sh[i]
+        var cnt = sh[i + 1]
+        var sb = string_builder()
+        var k: i64 = 0
+        while k < cnt {
+            var g = sh[i + 2 + k]
+            if g < 0 {
+                g = 0
+            }
+            note_gid(slot, g)
+            sb_append(sb, hex2((g / 256) & 255))
+            sb_append(sb, hex2(g & 255))
+            k = k + 1
+        }
+        if first {
+            cmd = cmd + "/F" + i2s(slot + 1) + " " + f2s(size_pt_x100) + " Tf 1 0 0.25 1 " +
+                i2s(x) + " " + i2s(y) + " Tm <" + sb_build(sb) + "> Tj"
+            first = false
+        } else {
+            cmd = cmd + " /F" + i2s(slot + 1) + " " + f2s(size_pt_x100) + " Tf <" + sb_build(sb) + "> Tj"
+        }
+        i = i + 2 + cnt
+    }
+    cmd = cmd + " ET\n"
+    raw(page, cmd)
+    return 0
+}
+
 // 便捷入口：纯单字体文本（不整形；仅用于自检/调试）
 func text_at(page: i64, x: i64, y: i64, size: i64, gids: table<i64>) -> i64 {
     return text_shaped(page, x, y, size * 100, gidgroups(0, gids))
