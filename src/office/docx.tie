@@ -115,7 +115,8 @@ pub func paragraph_runs(runs_table: table<string>) -> string {
 pub func root_open() -> string {
     return "<?xml version=\"1.0\" encoding=\"UTF-8\"?>" +
         "<w:document xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" " +
-        "xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\">" +
+        "xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\" " +
+        "xmlns:m=\"http://schemas.openxmlformats.org/officeDocument/2006/math\">" +
         "<w:body>"
 }
 

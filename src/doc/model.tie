@@ -51,6 +51,7 @@ pub func is_block_kind(k: string) -> bool {
     if k == "cap" || k == "right" || k == "just" || k == "para" { return true }
     if k == "header" || k == "footer" || k == "note_ref" { return true }
     if k == "img" { return true }
+    if k == "math" { return true }
     return false
 }
 
@@ -431,6 +432,11 @@ pub func validate(b: table<string>) -> string {
                 return to_string(i) + ": code 缺语言/文本"
             }
             i = i + 3
+        } else if k == "math" {
+            if i + 1 >= n {
+                return to_string(i) + ": math 缺公式文本"
+            }
+            i = i + 2
         } else if k == "link" {
             if i + 2 >= n {
                 return to_string(i) + ": link 缺文本/地址"

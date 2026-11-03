@@ -127,6 +127,21 @@ var err = tl.load_file("examples/hello.tdoc", d)   // 空串 = 成功
 tl.pdf("target/hello.pdf", d, "C:/Windows/Fonts/NotoSansSC-VF.ttf", "C:/Windows/Fonts/consola.ttf")
 ```
 
+### 公式（tmath）
+
+公式写成 `["math", "…"]`，语法是自研的 ASCII 友好格式（`@a` 短码、`/` 分式、`//` 行内斜线、
+大运算符只吃乘性项；全名与短码等价，规范化展开为全名）：
+
+```tie
+["math", "sum_(i=1)^n (a_i + b_i)/2 <= @S_(i=1)^n c_i"],
+["math", "int_a^b f(x) d(x)"],
+["math", "mat([a,b],[c,d])"],
+```
+
+实现见 `src/doc/tmath.tie`：词法 → Pratt 解析 → AST → 规范化 / LaTeX / 纯文本 / OMML 四种导出。
+docx 后端输出真 OMML（Word 可编辑公式）；PDF 暂以纯文本退化，原生排版在后续阶段接入。
+不做 LaTeX 导入（避免宏语义污染），只提供 LaTeX 导出用于投稿。
+
 ### 编辑器支持（tdoc）
 
 `editor/vscode-tdoc/` 是面向 tdoc 的 VS Code 扩展：块补全、26 个块片段、结构诊断

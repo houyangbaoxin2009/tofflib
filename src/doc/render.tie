@@ -11,6 +11,7 @@ import "../office/xlsx.tie" as xs
 import "../office/pptx.tie" as px
 import "./pdfdoc.tie" as pdoc
 import "./model.tie" as doc
+import "./tmath.tie" as tmath
 import "../img/imgmeta.tie" as imgmeta
 
 namespace render {
@@ -291,6 +292,16 @@ pub func docx(path: string, t: table<string>) -> bool {
         } else if k == "code" {
             sb_append(sb, dx.codeblock_xml(t[i + 2], "F3F3F3"))
             i = i + 3
+        } else if k == "math" {
+            var mf = tmath.to_omml(t[i + 1])
+            if str_len(mf) == 0 {
+                sb_append(sb, dx.paragraph("[公式解析失败：" + tmath.err() + "]"))
+            } else {
+                var mparts: table<string> = table_new_string()
+                table_push(mparts, "<m:oMath>" + mf + "</m:oMath>")
+                sb_append(sb, dx.para_ex(mparts, "", 60, 60, 0))
+            }
+            i = i + 2
         } else if k == "page" {
             sb_append(sb, dx.page_break())
             i = i + 1
@@ -787,6 +798,12 @@ func pdf_one(t: table<string>, i: i64, collect: i64) -> i64 {
     }
     if k == "p" {
         pdoc.p(t[i + 1])
+        g_pdf_wrote = 1
+        return i + 2
+    }
+    if k == "math" {
+        // PDF 暂以纯文本退化呈现（原生排版在后续阶段接入）
+        pdoc.p("  " + tmath.to_plain(t[i + 1]))
         g_pdf_wrote = 1
         return i + 2
     }

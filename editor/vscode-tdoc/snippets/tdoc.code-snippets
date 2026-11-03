@@ -1,61 +1,102 @@
 {
   "cover 封面": {
     "scope": "tdoc",
-    "prefix": ["cover", "tdcover"],
-    "body": ["[\"cover\", \"${1:标题}\", \"${2:副标题}\"],"],
+    "prefix": [
+      "cover",
+      "tdcover"
+    ],
+    "body": [
+      "[\"cover\", \"${1:标题}\", \"${2:副标题}\"],"
+    ],
     "description": "封面"
   },
   "toc 目录": {
     "scope": "tdoc",
-    "prefix": ["toc", "tdtoc"],
-    "body": ["[\"toc\", ${1:2}],"],
+    "prefix": [
+      "toc",
+      "tdtoc"
+    ],
+    "body": [
+      "[\"toc\", ${1:2}],"
+    ],
     "description": "目录（深度 1–3）"
   },
   "h1 一级标题": {
     "scope": "tdoc",
-    "prefix": ["h1"],
-    "body": ["[\"h1\", \"${1:第 1 章  ${2:标题}}\"],"],
+    "prefix": [
+      "h1"
+    ],
+    "body": [
+      "[\"h1\", \"${1:第 1 章  ${2:标题}}\"],"
+    ],
     "description": "一级标题（进入目录）"
   },
   "h2 二级标题": {
     "scope": "tdoc",
-    "prefix": ["h2"],
-    "body": ["[\"h2\", \"${1:1.1  ${2:小节}}\"],"],
+    "prefix": [
+      "h2"
+    ],
+    "body": [
+      "[\"h2\", \"${1:1.1  ${2:小节}}\"],"
+    ],
     "description": "二级标题（进入目录）"
   },
   "h3 三级标题": {
     "scope": "tdoc",
-    "prefix": ["h3"],
-    "body": ["[\"h3\", \"${1:小节}\"],"],
+    "prefix": [
+      "h3"
+    ],
+    "body": [
+      "[\"h3\", \"${1:小节}\"],"
+    ],
     "description": "三级标题"
   },
   "p 段落": {
     "scope": "tdoc",
-    "prefix": ["p", "tdp"],
-    "body": ["[\"p\", \"${1:正文}\"],"],
+    "prefix": [
+      "p",
+      "tdp"
+    ],
+    "body": [
+      "[\"p\", \"${1:正文}\"],"
+    ],
     "description": "正文段落"
   },
   "note 提示": {
     "scope": "tdoc",
-    "prefix": ["note"],
-    "body": ["[\"note\", \"${1:提示}\"],"],
+    "prefix": [
+      "note"
+    ],
+    "body": [
+      "[\"note\", \"${1:提示}\"],"
+    ],
     "description": "要点/提示段"
   },
   "ul 无序列表": {
     "scope": "tdoc",
-    "prefix": ["ul"],
-    "body": ["[\"ul\", [\"${1:条目一}\", \"${2:条目二}\"]],"],
+    "prefix": [
+      "ul"
+    ],
+    "body": [
+      "[\"ul\", [\"${1:条目一}\", \"${2:条目二}\"]],"
+    ],
     "description": "无序列表"
   },
   "ol 有序列表": {
     "scope": "tdoc",
-    "prefix": ["ol"],
-    "body": ["[\"ol\", [\"${1:第一条}\", \"${2:第二条}\"]],"],
+    "prefix": [
+      "ol"
+    ],
+    "body": [
+      "[\"ol\", [\"${1:第一条}\", \"${2:第二条}\"]],"
+    ],
     "description": "有序列表"
   },
   "tbl 表格": {
     "scope": "tdoc",
-    "prefix": ["tbl"],
+    "prefix": [
+      "tbl"
+    ],
     "body": [
       "[\"tbl\",",
       "    [\"${1:列一}\", \"${2:列二}\"],",
@@ -66,7 +107,9 @@
   },
   "tblw 带列宽表格": {
     "scope": "tdoc",
-    "prefix": ["tblw"],
+    "prefix": [
+      "tblw"
+    ],
     "body": [
       "[\"tblw\",",
       "    [\"${1:列一}\", \"${2:列二}\"],",
@@ -78,68 +121,124 @@
   },
   "code 代码块": {
     "scope": "tdoc",
-    "prefix": ["code"],
-    "body": ["[\"code\", \"${1:tie}\", \"", "${0:代码}", "\"],"],
+    "prefix": [
+      "code"
+    ],
+    "body": [
+      "[\"code\", \"${1:tie}\", \"",
+      "${0:代码}",
+      "\"],"
+    ],
     "description": "代码块（here-doc：开引号后换行，内容逐字保留）"
   },
   "quote 引用": {
     "scope": "tdoc",
-    "prefix": ["quote"],
-    "body": ["[\"quote\", \"${1:引用}\"],"],
+    "prefix": [
+      "quote"
+    ],
+    "body": [
+      "[\"quote\", \"${1:引用}\"],"
+    ],
     "description": "引用块"
   },
   "cap 题注": {
     "scope": "tdoc",
-    "prefix": ["cap"],
-    "body": ["[\"cap\", \"${1:题注}\"],"],
+    "prefix": [
+      "cap"
+    ],
+    "body": [
+      "[\"cap\", \"${1:题注}\"],"
+    ],
     "description": "题注"
   },
   "img 图片": {
     "scope": "tdoc",
-    "prefix": ["img"],
-    "body": ["[\"img\", \"${1:路径}\", ${2:0}, \"${3:题注}\"],"],
+    "prefix": [
+      "img"
+    ],
+    "body": [
+      "[\"img\", \"${1:路径}\", ${2:0}, \"${3:题注}\"],"
+    ],
     "description": "图片（宽 0 = 按像素）"
   },
   "para 混排": {
     "scope": "tdoc",
-    "prefix": ["para"],
-    "body": ["[\"para\", \"${1:正文}\", \"b|${2:加粗}\", \" + \", \"${3:正文}\"],"],
+    "prefix": [
+      "para"
+    ],
+    "body": [
+      "[\"para\", \"${1:正文}\", \"b|${2:加粗}\", \" + \", \"${3:正文}\"],"
+    ],
     "description": "行内混排（b| i| m| link| fn|）"
   },
   "link 链接": {
     "scope": "tdoc",
-    "prefix": ["link"],
-    "body": ["[\"link\", \"${1:文本}\", \"${2:https://}\"],"],
+    "prefix": [
+      "link"
+    ],
+    "body": [
+      "[\"link\", \"${1:文本}\", \"${2:https://}\"],"
+    ],
     "description": "超链接段"
   },
   "page 分页": {
     "scope": "tdoc",
-    "prefix": ["page"],
-    "body": ["[\"page\"],"],
+    "prefix": [
+      "page"
+    ],
+    "body": [
+      "[\"page\"],"
+    ],
     "description": "分页"
   },
   "sec 分节": {
     "scope": "tdoc",
-    "prefix": ["sec"],
-    "body": ["[\"sec\", \"${1:节标题}\"],"],
+    "prefix": [
+      "sec"
+    ],
+    "body": [
+      "[\"sec\", \"${1:节标题}\"],"
+    ],
     "description": "分节（新页 + 标题）"
   },
   "hr 分隔线": {
     "scope": "tdoc",
-    "prefix": ["hr"],
-    "body": ["[\"hr\"],"],
+    "prefix": [
+      "hr"
+    ],
+    "body": [
+      "[\"hr\"],"
+    ],
     "description": "分隔线"
   },
   "header 页眉": {
     "scope": "tdoc",
-    "prefix": ["header"],
-    "body": ["[\"header\", \"${1:页眉}\"],"],
+    "prefix": [
+      "header"
+    ],
+    "body": [
+      "[\"header\", \"${1:页眉}\"],"
+    ],
     "description": "页眉（至多一次）"
   },
   "footer 页脚": {
     "scope": "tdoc",
-    "prefix": ["footer"],
-    "body": ["[\"footer\", \"${1:第 {page} 页}\"],"],
+    "prefix": [
+      "footer"
+    ],
+    "body": [
+      "[\"footer\", \"${1:第 {page} 页}\"],"
+    ],
     "description": "页脚（至多一次）"
+  },
+  "math 公式": {
+    "scope": "tdoc",
+    "prefix": [
+      "math"
+    ],
+    "body": [
+      "[\"math\", \"${1:sum_(i=1)^n a_i}\"],"
+    ],
+    "description": "公式（tmath）"
   }
 }

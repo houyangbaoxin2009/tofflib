@@ -1,0 +1,1593 @@
+type tie<class>
+// ============================================================================
+// doc/tmath.tie —— tmath 公式格式（词法 / 语法 / AST / 规范化 / 导出）
+//
+// 设计要点（与规范对齐后的契约）：
+//   * ASCII 权威：所有结构可用普通键盘输入；Unicode 直写是兼容糖。
+//   * 符号：`@` + 短码是糖（@a → α），全名是规范（alpha）。未知多字母是一个标识符。
+//   * 无宏、无裸并置乘法（乘法写 * 或 ·）、函数必须带括号。
+//   * 分组只用圆括号；大运算符只吃乘性项（sum_(i=1)^n a_i + b = (Σa_i)+b）。
+//   * 分式：a/b 可视分式；a//b 行内斜线。
+//   * 语义 AST 是权威：canonical / latex / plain / omml 四种导出。
+//
+// 语法（Pratt 风格递归下降）：
+//   expr   := rel
+//   rel    := add ( (= < > <= >= != ->) add )*
+//   add    := mul ( (+ -) mul )*
+//   mul    := unary ( (* / //) unary )*
+//   unary  := (-) unary | power
+//   power  := atom ( '^' script | '_' script )*
+//   atom   := num | id | sym | text | '(' expr ')' | '|' expr '|'
+//           | bigop 上下标? mul            // ∑ ∏ ∫ ∮
+//           | func '(' args ')'            // sqrt/root/frac/mat/cases/set/vec…
+//
+// 错误：解析失败置 tm_err（含位置），调用方决定如何呈现；不抛异常。
+// ============================================================================
+
+import "../xml/omml.tie" as mm
+
+// ---------- 全局状态（顶层 var；namespace 体内禁 var） ----------
+var tm_sn: table<string>;   // 符号名（全名与短码）
+var tm_sv: table<string>;   // 符号字形（Unicode）
+var tm_sk: table<string>;   // 符号类别：sym / big / rel
+var tm_sl: table<string>;   // LaTeX 命令名
+var tm_ready: i64 = 0;
+var tm_short_from: i64 = 0;
+
+var tm_tk: table<string>;   // token 类别
+var tm_tv: table<string>;   // token 值
+var tm_tp: table<i64>;      // token 起始偏移（字节）
+var tm_pos: i64 = 0;
+var tm_err: string = "";
+var tm_err_pos: i64 = 0;
+
+var tm_kind: table<string>; // AST 节点类别
+var tm_pay: table<string>;  // 载荷（数字文本/标识符/运算符/文本）
+var tm_a: table<i64>;
+var tm_b: table<i64>;
+var tm_c: table<i64>;
+var tm_src: string = "";
+var tm_cells: table<i64>;
+var tm_ids: table<i64>;
+
+namespace tmath {
+
+// ==================== 符号表 ====================
+
+func sy(name: string, val: string, kind: string, latex: string) {
+    table_push(tm_sn, name)
+    table_push(tm_sv, val)
+    table_push(tm_sk, kind)
+    table_push(tm_sl, latex)
+}
+
+func ensure() {
+    if tm_ready == 1 {
+        return
+    }
+    tm_sn = table_new_string()
+    tm_sv = table_new_string()
+    tm_sk = table_new_string()
+    tm_sl = table_new_string()
+    // 希腊小写
+    sy("alpha", "α", "sym", "alpha")
+    sy("beta", "β", "sym", "beta")
+    sy("gamma", "γ", "sym", "gamma")
+    sy("delta", "δ", "sym", "delta")
+    sy("epsilon", "ε", "sym", "epsilon")
+    sy("zeta", "ζ", "sym", "zeta")
+    sy("eta", "η", "sym", "eta")
+    sy("theta", "θ", "sym", "theta")
+    sy("iota", "ι", "sym", "iota")
+    sy("kappa", "κ", "sym", "kappa")
+    sy("lambda", "λ", "sym", "lambda")
+    sy("mu", "μ", "sym", "mu")
+    sy("nu", "ν", "sym", "nu")
+    sy("xi", "ξ", "sym", "xi")
+    sy("omicron", "ο", "sym", "omicron")
+    sy("pi", "π", "sym", "pi")
+    sy("rho", "ρ", "sym", "rho")
+    sy("sigma", "σ", "sym", "sigma")
+    sy("tau", "τ", "sym", "tau")
+    sy("upsilon", "υ", "sym", "upsilon")
+    sy("phi", "φ", "sym", "phi")
+    sy("chi", "χ", "sym", "chi")
+    sy("psi", "ψ", "sym", "psi")
+    sy("omega", "ω", "sym", "omega")
+    // 希腊大写
+    sy("Alpha", "Α", "sym", "Alpha")
+    sy("Beta", "Β", "sym", "Beta")
+    sy("Gamma", "Γ", "sym", "Gamma")
+    sy("Delta", "Δ", "sym", "Delta")
+    sy("Epsilon", "Ε", "sym", "Epsilon")
+    sy("Zeta", "Ζ", "sym", "Zeta")
+    sy("Eta", "Η", "sym", "Eta")
+    sy("Theta", "Θ", "sym", "Theta")
+    sy("Iota", "Ι", "sym", "Iota")
+    sy("Kappa", "Κ", "sym", "Kappa")
+    sy("Lambda", "Λ", "sym", "Lambda")
+    sy("Mu", "Μ", "sym", "Mu")
+    sy("Nu", "Ν", "sym", "Nu")
+    sy("Xi", "Ξ", "sym", "Xi")
+    sy("Omicron", "Ο", "sym", "Omicron")
+    sy("Pi", "Π", "sym", "Pi")
+    sy("Rho", "Ρ", "sym", "Rho")
+    sy("Sigma", "Σ", "sym", "Sigma")
+    sy("Tau", "Τ", "sym", "Tau")
+    sy("Upsilon", "Υ", "sym", "Upsilon")
+    sy("Phi", "Φ", "sym", "Phi")
+    sy("Chi", "Χ", "sym", "Chi")
+    sy("Psi", "Ψ", "sym", "Psi")
+    sy("Omega", "Ω", "sym", "Omega")
+    // 大运算符
+    sy("sum", "∑", "big", "sum")
+    sy("prod", "∏", "big", "prod")
+    sy("int", "∫", "big", "int")
+    sy("oint", "∮", "big", "oint")
+    // 关系
+    sy("le", "≤", "rel", "le")
+    sy("ge", "≥", "rel", "ge")
+    sy("ne", "≠", "rel", "ne")
+    sy("approx", "≈", "rel", "approx")
+    sy("equiv", "≡", "rel", "equiv")
+    sy("to", "→", "rel", "to")
+    sy("in", "∈", "rel", "in")
+    sy("notin", "∉", "rel", "notin")
+    sy("subset", "⊂", "rel", "subset")
+    sy("supset", "⊃", "rel", "supset")
+    sy("cup", "∪", "rel", "cup")
+    sy("cap", "∩", "rel", "cap")
+    sy("perp", "⊥", "rel", "perp")
+    sy("parallel", "∥", "rel", "parallel")
+    sy("therefore", "∴", "rel", "therefore")
+    sy("because", "∵", "rel", "because")
+    // 其他符号
+    sy("oo", "∞", "sym", "infty")
+    sy("infty", "∞", "sym", "infty")
+    sy("partial", "∂", "sym", "partial")
+    sy("nabla", "∇", "sym", "nabla")
+    sy("forall", "∀", "sym", "forall")
+    sy("exists", "∃", "sym", "exists")
+    sy("pm", "±", "sym", "pm")
+    sy("mp", "∓", "sym", "mp")
+    sy("times", "×", "sym", "times")
+    sy("cdot", "·", "sym", "cdot")
+    sy("cdots", "⋯", "sym", "cdots")
+    sy("ldots", "…", "sym", "ldots")
+    sy("emptyset", "∅", "sym", "emptyset")
+    sy("angle", "∠", "sym", "angle")
+    sy("degree", "°", "sym", "degree")
+    sy("prime", "′", "sym", "prime")
+    // 短码（@ 后）——只参与 @ 查找，不参与裸名查找
+    tm_short_from = len(tm_sn)
+    sy("a", "α", "sym", "alpha")
+    sy("b", "β", "sym", "beta")
+    sy("g", "γ", "sym", "gamma")
+    sy("d", "δ", "sym", "delta")
+    sy("e", "ε", "sym", "epsilon")
+    sy("z", "ζ", "sym", "zeta")
+    sy("h", "η", "sym", "eta")
+    sy("th", "θ", "sym", "theta")
+    sy("i", "ι", "sym", "iota")
+    sy("k", "κ", "sym", "kappa")
+    sy("l", "λ", "sym", "lambda")
+    sy("m", "μ", "sym", "mu")
+    sy("n", "ν", "sym", "nu")
+    sy("x", "ξ", "sym", "xi")
+    sy("o", "ο", "sym", "omicron")
+    sy("p", "π", "sym", "pi")
+    sy("r", "ρ", "sym", "rho")
+    sy("s", "σ", "sym", "sigma")
+    sy("t", "τ", "sym", "tau")
+    sy("u", "υ", "sym", "upsilon")
+    sy("f", "φ", "sym", "phi")
+    sy("ch", "χ", "sym", "chi")
+    sy("ps", "ψ", "sym", "psi")
+    sy("w", "ω", "sym", "omega")
+    sy("A", "Α", "sym", "Alpha")
+    sy("B", "Β", "sym", "Beta")
+    sy("G", "Γ", "sym", "Gamma")
+    sy("D", "Δ", "sym", "Delta")
+    sy("TH", "Θ", "sym", "Theta")
+    sy("L", "Λ", "sym", "Lambda")
+    sy("X", "Ξ", "sym", "Xi")
+    sy("P", "Π", "sym", "Pi")
+    sy("S", "Σ", "big", "sum")
+    sy("F", "Φ", "sym", "Phi")
+    sy("PS", "Ψ", "sym", "Psi")
+    sy("W", "Ω", "sym", "Omega")
+    sy("oo", "∞", "sym", "infty")
+    ready_mark()
+}
+
+func ready_mark() {
+    tm_ready = 1
+}
+
+// 查符号：返回下标，未命中 -1。
+func sym_find(name: string) -> i64 {
+    ensure()
+    var i: i64 = 0
+    while i < tm_short_from {
+        if tm_sn[i] == name {
+            return i
+        }
+        i = i + 1
+    }
+    return -1
+}
+
+// 短码查找（@ 后）：只扫短码段。
+func sym_find_short(cd: string) -> i64 {
+    ensure()
+    var i: i64 = tm_short_from
+    while i < len(tm_sn) {
+        if tm_sn[i] == cd {
+            return i
+        }
+        i = i + 1
+    }
+    return -1
+}
+
+// 字形 → 符号名（规范化用）；未命中返回空串。
+func sym_name_of(val: string) -> string {
+    ensure()
+    var i: i64 = 0
+    while i < tm_short_from {
+        if tm_sv[i] == val {
+            return tm_sn[i]
+        }
+        i = i + 1
+    }
+    return ""
+}
+
+// ==================== 词法 ====================
+
+func is_digit(b: i64) -> bool {
+    return b >= 48 && b <= 57
+}
+
+func is_alpha(b: i64) -> bool {
+    if b >= 65 && b <= 90 {
+        return true
+    }
+    if b >= 97 && b <= 122 {
+        return true
+    }
+    return false
+}
+
+func tok(kind: string, val: string, pos: i64) {
+    table_push(tm_tk, kind)
+    table_push(tm_tv, val)
+    table_push(tm_tp, pos)
+}
+
+func lex(src: string) -> i64 {
+    tm_src = src
+    tm_tk = table_new_string()
+    tm_tv = table_new_string()
+    tm_tp = table_new_i64()
+    tm_err = ""
+    tm_err_pos = 0
+    var n = len(src)
+    var i: i64 = 0
+    while i < n {
+        var b = str_byte(src, i)
+        if b == 32 || b == 9 || b == 10 || b == 13 {
+            i = i + 1
+        } else if is_digit(b) {
+            var st = i
+            while i < n && (is_digit(str_byte(src, i)) || str_byte(src, i) == 46) {
+                i = i + 1
+            }
+            tok("num", tm_sub(src, st, i), st)
+        } else if b == 64 {
+            // @短码
+            var st2 = i
+            i = i + 1
+            while i < n && (is_alpha(str_byte(src, i)) || is_digit(str_byte(src, i))) {
+                i = i + 1
+            }
+            var scode = tm_sub(src, st2 + 1, i)
+            var idx = sym_find_short(scode)
+            if idx < 0 {
+                tm_err = "未知符号短码 @" + scode
+                tm_err_pos = st2
+                return -1
+            }
+            if tm_sk[idx] == "big" {
+                tok("big", tm_sl[idx], st2)
+            } else if tm_sk[idx] == "rel" {
+                tok("op", tm_sv[idx], st2)
+            } else {
+                tok("sym", tm_sv[idx], st2)
+            }
+        } else if is_alpha(b) {
+            var st3 = i
+            while i < n && (is_alpha(str_byte(src, i)) || is_digit(str_byte(src, i))) {
+                i = i + 1
+            }
+            var word = tm_sub(src, st3, i)
+            var idx2 = sym_find(word)
+            if idx2 >= 0 {
+                if tm_sk[idx2] == "big" {
+                    tok("big", tm_sl[idx2], st3)
+                } else if tm_sk[idx2] == "rel" {
+                    tok("op", tm_sv[idx2], st3)
+                } else {
+                    tok("sym", tm_sv[idx2], st3)
+                }
+            } else {
+                tok("id", word, st3)
+            }
+        } else if b == 34 {
+            // 文本 "..."
+            var st4 = i
+            i = i + 1
+            var start = i
+            var closed: i64 = 0
+            while i < n {
+                var c = str_byte(src, i)
+                if c == 92 && i + 1 < n {
+                    i = i + 2
+                } else if c == 34 {
+                    closed = 1
+                    break
+                } else {
+                    i = i + 1
+                }
+            }
+            if closed == 0 {
+                tm_err = "文本未闭合"
+                tm_err_pos = st4
+                return -1
+            }
+            tok("text", tm_sub(src, start, i), st4)
+            i = i + 1
+        } else if b == 40 {
+            tok("lpar", "(", i)
+            i = i + 1
+        } else if b == 41 {
+            tok("rpar", ")", i)
+            i = i + 1
+        } else if b == 91 {
+            tok("lbrack", "[", i)
+            i = i + 1
+        } else if b == 93 {
+            tok("rbrack", "]", i)
+            i = i + 1
+        } else if b == 44 {
+            tok("comma", ",", i)
+            i = i + 1
+        } else if b == 59 {
+            tok("semi", ";", i)
+            i = i + 1
+        } else if b == 124 {
+            tok("bar", "|", i)
+            i = i + 1
+        } else if b == 47 && i + 1 < n && str_byte(src, i + 1) == 47 {
+            tok("op", "//", i)
+            i = i + 2
+        } else if b == 60 {
+            if i + 1 < n && str_byte(src, i + 1) == 61 {
+                tok("op", "≤", i)
+                i = i + 2
+            } else {
+                tok("op", "<", i)
+                i = i + 1
+            }
+        } else if b == 62 {
+            if i + 1 < n && str_byte(src, i + 1) == 61 {
+                tok("op", "≥", i)
+                i = i + 2
+            } else {
+                tok("op", ">", i)
+                i = i + 1
+            }
+        } else if b == 33 && i + 1 < n && str_byte(src, i + 1) == 61 {
+            tok("op", "≠", i)
+            i = i + 2
+        } else if b == 45 && i + 1 < n && str_byte(src, i + 1) == 62 {
+            tok("op", "→", i)
+            i = i + 2
+        } else if b == 43 || b == 45 || b == 42 || b == 47 || b == 94 || b == 95 || b == 61 || b == 60 || b == 62 {
+            tok("op", tm_sub(src, i, i + 1), i)
+            i = i + 1
+        } else {
+            // Unicode 直写：按单个码点收为符号
+            var cp = str_char(src, i)
+            tok("sym", cp, i)
+            i = i + str_len(cp)
+        }
+    }
+    tok("end", "", n)
+    return 0
+}
+
+// ==================== AST ====================
+
+func nnew(kind: string, pay: string) -> i64 {
+    table_push(tm_kind, kind)
+    table_push(tm_pay, pay)
+    table_push(tm_a, -1)
+    table_push(tm_b, -1)
+    table_push(tm_c, -1)
+    return len(tm_kind) - 1
+}
+
+func n1(kind: string, a: i64) -> i64 {
+    var id = nnew(kind, "")
+    tm_a[id] = a
+    return id
+}
+
+func n2(kind: string, a: i64, b: i64) -> i64 {
+    var id = nnew(kind, "")
+    tm_a[id] = a
+    tm_b[id] = b
+    return id
+}
+
+func n3(kind: string, a: i64, b: i64, c: i64) -> i64 {
+    var id = nnew(kind, "")
+    tm_a[id] = a
+    tm_b[id] = b
+    tm_c[id] = c
+    return id
+}
+
+// ==================== 语法 ====================
+
+func tk(pos: i64) -> string {
+    if pos < 0 || pos >= len(tm_tk) {
+        return "end"
+    }
+    return tm_tk[pos]
+}
+
+func tv(pos: i64) -> string {
+    if pos < 0 || pos >= len(tm_tv) {
+        return ""
+    }
+    return tm_tv[pos]
+}
+
+func fail(msg: string) -> i64 {
+    if str_len(tm_err) == 0 {
+        tm_err = msg
+        tm_err_pos = tm_tp[tm_pos]
+    }
+    return -1
+}
+
+func is_rel_op(op: string) -> bool {
+    return op == "=" || op == "<" || op == ">" || op == "≤" || op == "≥" || op == "≠" || op == "→"
+}
+
+func parse_expr() -> i64 {
+    return parse_rel()
+}
+
+func parse_rel() -> i64 {
+    var left = parse_add()
+    if left < 0 {
+        return -1
+    }
+    while tk(tm_pos) == "op" && is_rel_op(tv(tm_pos)) {
+        var op = tv(tm_pos)
+        tm_pos = tm_pos + 1
+        var right = parse_add()
+        if right < 0 {
+            return -1
+        }
+        var id = n2("rel", left, right)
+        tm_pay[id] = op
+        left = id
+    }
+    return left
+}
+
+func parse_add() -> i64 {
+    var left = parse_mul()
+    if left < 0 {
+        return -1
+    }
+    while tk(tm_pos) == "op" && (tv(tm_pos) == "+" || tv(tm_pos) == "-") {
+        var op = tv(tm_pos)
+        tm_pos = tm_pos + 1
+        var right = parse_mul()
+        if right < 0 {
+            return -1
+        }
+        left = n2(choose(op == "+", "add", "subtract"), left, right)
+    }
+    return left
+}
+
+func choose(cond: bool, a: string, b: string) -> string {
+    if cond {
+        return a
+    }
+    return b
+}
+
+func parse_mul() -> i64 {
+    var left = parse_unary()
+    if left < 0 {
+        return -1
+    }
+    while tk(tm_pos) == "op" && (tv(tm_pos) == "*" || tv(tm_pos) == "/" || tv(tm_pos) == "//") {
+        var op = tv(tm_pos)
+        tm_pos = tm_pos + 1
+        var right = parse_unary()
+        if right < 0 {
+            return -1
+        }
+        if op == "*" {
+            left = n2("mul", left, right)
+        } else if op == "/" {
+            left = n2("div", left, right)
+        } else {
+            left = n2("slash", left, right)
+        }
+    }
+    return left
+}
+
+func parse_unary() -> i64 {
+    if tk(tm_pos) == "op" && tv(tm_pos) == "-" {
+        tm_pos = tm_pos + 1
+        var inner = parse_unary()
+        if inner < 0 {
+            return -1
+        }
+        return n1("neg", inner)
+    }
+    return parse_power()
+}
+
+func parse_power() -> i64 {
+    var base = parse_atom()
+    if base < 0 {
+        return -1
+    }
+    var guard: i64 = 0
+    while guard < 8 {
+        guard = guard + 1
+        if tk(tm_pos) == "op" && tv(tm_pos) == "^" {
+            tm_pos = tm_pos + 1
+            var e = parse_script()
+            if e < 0 {
+                return -1
+            }
+            base = n2("pow", base, e)
+        } else if tk(tm_pos) == "op" && tv(tm_pos) == "_" {
+            tm_pos = tm_pos + 1
+            var s = parse_script()
+            if s < 0 {
+                return -1
+            }
+            base = n2("sub", base, s)
+        } else {
+            return base
+        }
+    }
+    return base
+}
+
+func parse_script() -> i64 {
+    if tk(tm_pos) == "op" && tv(tm_pos) == "-" {
+        tm_pos = tm_pos + 1
+        var inner = parse_script()
+        if inner < 0 {
+            return -1
+        }
+        return n1("neg", inner)
+    }
+    return parse_atom_ex(1)
+}
+
+func parse_atom() -> i64 {
+    return parse_atom_ex(0)
+}
+
+func parse_atom_ex(nc: i64) -> i64 {
+    var k = tk(tm_pos)
+    if k == "num" {
+        var v = tv(tm_pos)
+        tm_pos = tm_pos + 1
+        return nnew("num", v)
+    }
+    if k == "sym" {
+        var v2 = tv(tm_pos)
+        tm_pos = tm_pos + 1
+        return nnew("sym", v2)
+    }
+    if k == "text" {
+        var v3 = tv(tm_pos)
+        tm_pos = tm_pos + 1
+        return nnew("text", v3)
+    }
+    if k == "id" {
+        var name = tv(tm_pos)
+        tm_pos = tm_pos + 1
+        if nc == 0 && tk(tm_pos) == "lpar" {
+            return parse_call(name)
+        }
+        return nnew("id", name)
+    }
+    if k == "big" {
+        var opname = tv(tm_pos)
+        tm_pos = tm_pos + 1
+        return parse_big(opname)
+    }
+    if k == "lpar" {
+        tm_pos = tm_pos + 1
+        var inner = parse_expr()
+        if inner < 0 {
+            return -1
+        }
+        if tk(tm_pos) != "rpar" {
+            return fail("缺少右括号")
+        }
+        tm_pos = tm_pos + 1
+        var d = n1("delim", inner)
+        tm_pay[d] = "()"
+        return d
+    }
+    if k == "bar" {
+        tm_pos = tm_pos + 1
+        var inner2 = parse_expr()
+        if inner2 < 0 {
+            return -1
+        }
+        if tk(tm_pos) != "bar" {
+            return fail("绝对值缺少收尾 |")
+        }
+        tm_pos = tm_pos + 1
+        return n1("abs", inner2)
+    }
+    if k == "end" {
+        return fail("公式意外结束")
+    }
+    return fail("此处不能出现 " + tv(tm_pos))
+}
+
+// 大运算符：上下标可选，主体只吃乘性项。
+func starts_atom() -> bool {
+    var k = tk(tm_pos)
+    return k == "num" || k == "id" || k == "sym" || k == "text" || k == "lpar" || k == "bar" || k == "big"
+}
+
+func parse_big(opname: string) -> i64 {
+    var subn: i64 = -1
+    var supn: i64 = -1
+    if tk(tm_pos) == "op" && tv(tm_pos) == "_" {
+        tm_pos = tm_pos + 1
+        subn = parse_script()
+        if subn < 0 {
+            return -1
+        }
+    }
+    if tk(tm_pos) == "op" && tv(tm_pos) == "^" {
+        tm_pos = tm_pos + 1
+        supn = parse_script()
+        if supn < 0 {
+            return -1
+        }
+    }
+    var body = parse_mul()
+    if body < 0 {
+        return -1
+    }
+    // 积分糖：允许并置因子（f(x) d(x)），只为识别 d(x) 服务
+    if opname == "int" {
+        var guard2: i64 = 0
+        while guard2 < 8 && starts_atom() {
+            guard2 = guard2 + 1
+            var rhs = parse_mul()
+            if rhs < 0 {
+                return -1
+            }
+            body = n2("mul", body, rhs)
+        }
+        body = desugar_diff(body)
+    }
+    var id = n3("big", subn, supn, body)
+    tm_pay[id] = opname
+    return id
+}
+
+// 把 mul(rest, func(d, x)) 改写成 mul(rest, diff(x))；单独 func(d,x) 也改写。
+func desugar_diff(body: i64) -> i64 {
+    if tm_kind[body] == "func" && tm_pay[body] == "d" && tm_a[body] >= 0 {
+        return n1("diff", tm_a[body])
+    }
+    if tm_kind[body] == "mul" {
+        var right = tm_b[body]
+        if right >= 0 && tm_kind[right] == "func" && tm_pay[right] == "d" && tm_a[right] >= 0 {
+            var d = n1("diff", tm_a[right])
+            return n2("mul", tm_a[body], d)
+        }
+    }
+    return body
+}
+
+func parse_call(name: string) -> i64 {
+    // 已消费 name 与 '(' 之前的位置：当前是 lpar
+    tm_pos = tm_pos + 1
+    if tk(tm_pos) == "rpar" {
+        tm_pos = tm_pos + 1
+        var f0 = nnew("func", name)
+        return f0
+    }
+    if name == "mat" {
+        return parse_mat()
+    }
+    if name == "cases" {
+        return parse_cases()
+    }
+    var args: table<i64> = table_new_i64()
+    var first = parse_expr()
+    if first < 0 {
+        return -1
+    }
+    table_push(args, first)
+    while tk(tm_pos) == "comma" {
+        tm_pos = tm_pos + 1
+        var nxt = parse_expr()
+        if nxt < 0 {
+            return -1
+        }
+        table_push(args, nxt)
+    }
+    if tk(tm_pos) != "rpar" {
+        return fail("缺少右括号")
+    }
+    tm_pos = tm_pos + 1
+    return build_call(name, args)
+}
+
+func build_call(name: string, args: table<i64>) -> i64 {
+    var n = len(args)
+    if name == "sqrt" && n == 1 {
+        return n1("sqrt", args[0])
+    }
+    if name == "root" && n == 2 {
+        return n2("root", args[0], args[1])
+    }
+    if name == "frac" && n == 2 {
+        return n2("div", args[0], args[1])
+    }
+    if name == "abs" && n == 1 {
+        return n1("abs", args[0])
+    }
+    if name == "norm" && n == 1 {
+        return n1("norm", args[0])
+    }
+    if name == "set" && n == 2 {
+        return n2("set", args[0], args[1])
+    }
+    if n == 1 && is_accent(name) {
+        var a = n1("acc", args[0])
+        tm_pay[a] = name
+        return a
+    }
+    var f = nnew("func", name)
+    if n >= 1 {
+        tm_a[f] = args[0]
+    }
+    if n >= 2 {
+        tm_b[f] = args[1]
+    }
+    return f
+}
+
+func is_accent(name: string) -> bool {
+    return name == "vec" || name == "hat" || name == "bar" || name == "tilde" || name == "dot" || name == "ddot"
+}
+
+// mat([a,b],[c,d])：行用方括号，行内逗号分列。
+func parse_mat() -> i64 {
+    var cells: table<string> = table_new_string()
+    var rowlens: table<i64> = table_new_i64()
+    var rows: i64 = 0
+    var cols: i64 = 0
+    while true {
+        if tk(tm_pos) != "lbrack" {
+            return fail("mat 的每一行要以 [ 开头")
+        }
+        tm_pos = tm_pos + 1
+        var cnt: i64 = 0
+        var v = parse_expr()
+        if v < 0 {
+            return -1
+        }
+        table_push(cells, to_string(v))
+        cnt = 1
+        while tk(tm_pos) == "comma" {
+            tm_pos = tm_pos + 1
+            var v2 = parse_expr()
+            if v2 < 0 {
+                return -1
+            }
+            table_push(cells, to_string(v2))
+            cnt = cnt + 1
+        }
+        if tk(tm_pos) != "rbrack" {
+            return fail("mat 的行缺少 ]")
+        }
+        tm_pos = tm_pos + 1
+        if rows == 0 {
+            cols = cnt
+        } else if cnt != cols {
+            return fail("mat 各行列数不一致")
+        }
+        table_push(rowlens, cnt)
+        rows = rows + 1
+        if tk(tm_pos) == "comma" {
+            tm_pos = tm_pos + 1
+        } else {
+            break
+        }
+    }
+    if tk(tm_pos) != "rpar" {
+        return fail("mat 缺少右括号")
+    }
+    tm_pos = tm_pos + 1
+    var m = nnew("mat", "")
+    tm_a[m] = rows
+    tm_b[m] = cols
+    tm_c[m] = pack_cells(cells)
+    return m
+}
+
+// 单元格节点 id 打包进单独的表（避免再开节点种类）。
+func pack_cells(cells: table<string>) -> i64 {
+    var start = len(tm_cells)
+    var i: i64 = 0
+    while i < len(cells) {
+        table_push(tm_cells, to_i64(cells[i]))
+        i = i + 1
+    }
+    return start
+}
+
+// cases(值, 条件; 值, 条件; …)
+func parse_cases() -> i64 {
+    var cells2: table<i64> = table_new_i64()
+    var rows2: i64 = 0
+    while true {
+        var v = parse_expr()
+        if v < 0 {
+            return -1
+        }
+        table_push(cells2, v)
+        if tk(tm_pos) != "comma" {
+            return fail("cases 的每行是「值, 条件」")
+        }
+        tm_pos = tm_pos + 1
+        var c = parse_expr()
+        if c < 0 {
+            return -1
+        }
+        table_push(cells2, c)
+        rows2 = rows2 + 1
+        if tk(tm_pos) == "semi" {
+            tm_pos = tm_pos + 1
+        } else {
+            break
+        }
+    }
+    if tk(tm_pos) != "rpar" {
+        return fail("cases 缺少右括号")
+    }
+    tm_pos = tm_pos + 1
+    var cid = nnew("cases", "")
+    tm_a[cid] = rows2
+    tm_b[cid] = 2
+    tm_c[cid] = pack_ids(cells2)
+    return cid
+}
+
+func pack_ids(ids: table<i64>) -> i64 {
+    var start = len(tm_ids)
+    var i: i64 = 0
+    while i < len(ids) {
+        table_push(tm_ids, ids[i])
+        i = i + 1
+    }
+    return start
+}
+
+// ==================== 入口 ====================
+
+// 解析公式；成功返回根节点 id，失败 -1（tm_err 有消息）。
+pub func parse(src: string) -> i64 {
+    ensure()
+    tm_kind = table_new_string()
+    tm_pay = table_new_string()
+    tm_a = table_new_i64()
+    tm_b = table_new_i64()
+    tm_c = table_new_i64()
+    tm_cells = table_new_i64()
+    tm_ids = table_new_i64()
+    tm_pos = 0
+    if lex(src) < 0 {
+        return -1
+    }
+    var root = parse_expr()
+    if root < 0 {
+        return -1
+    }
+    if tk(tm_pos) != "end" {
+        fail("公式末尾有多余内容")
+        return -1
+    }
+    return root
+}
+
+// 调试：把 token 流拼成 "kind:val|" 形式。
+pub func dump_tokens(src: string) -> string {
+    ensure()
+    tm_tk = table_new_string()
+    tm_tv = table_new_string()
+    tm_tp = table_new_i64()
+    if lex(src) < 0 {
+        return "ERR " + tm_err
+    }
+    var out = ""
+    var i: i64 = 0
+    while i < len(tm_tk) {
+        out = out + tm_tk[i] + ":" + tm_tv[i] + "|"
+        i = i + 1
+    }
+    return out
+}
+
+pub func err() -> string {
+    return tm_err
+}
+
+pub func err_pos() -> i64 {
+    return tm_err_pos
+}
+
+// ==================== 规范化 ====================
+
+func pad2(a: i64, b: i64) -> string {
+    var sa = canon(a)
+    var sb2 = canon(b)
+    return sa + ", " + sb2
+}
+
+// 规范形：全名函数式，保证 diff 稳定。
+pub func canon(id: i64) -> string {
+    if id < 0 {
+        return ""
+    }
+    var k = tm_kind[id]
+    if k == "num" || k == "id" {
+        return tm_pay[id]
+    }
+    if k == "text" {
+        return "text(\"" + tm_pay[id] + "\")"
+    }
+    if k == "sym" {
+        var nm = sym_name_of(tm_pay[id])
+        if str_len(nm) == 0 {
+            return tm_pay[id]
+        }
+        return nm
+    }
+    if k == "add" || k == "subtract" || k == "mul" || k == "div" || k == "slash" || k == "pow" || k == "sub" || k == "root" || k == "set" {
+        var name = k
+        if k == "div" {
+            name = "frac"
+        } else if k == "pow" {
+            name = "sup"
+        } else if k == "subtract" {
+            name = "sub"
+        }
+        return name + "(" + pad2(tm_a[id], tm_b[id]) + ")"
+    }
+    if k == "rel" {
+        return "rel(" + tm_pay[id] + ", " + pad2(tm_a[id], tm_b[id]) + ")"
+    }
+    if k == "neg" {
+        return "neg(" + canon(tm_a[id]) + ")"
+    }
+    if k == "sqrt" || k == "abs" || k == "norm" || k == "diff" {
+        return k + "(" + canon(tm_a[id]) + ")"
+    }
+    if k == "acc" {
+        return tm_pay[id] + "(" + canon(tm_a[id]) + ")"
+    }
+    if k == "delim" {
+        return "delim(" + canon(tm_a[id]) + ")"
+    }
+    if k == "func" {
+        if tm_b[id] >= 0 {
+            return "func(" + tm_pay[id] + ", " + pad2(tm_a[id], tm_b[id]) + ")"
+        }
+        if tm_a[id] >= 0 {
+            return "func(" + tm_pay[id] + ", " + canon(tm_a[id]) + ")"
+        }
+        return "func(" + tm_pay[id] + ")"
+    }
+    if k == "big" {
+        var op = tm_pay[id]
+        var s1 = ""
+        if tm_a[id] >= 0 {
+            s1 = canon(tm_a[id])
+        }
+        var s2 = ""
+        if tm_b[id] >= 0 {
+            s2 = canon(tm_b[id])
+        }
+        if str_len(s1) == 0 && str_len(s2) == 0 {
+            return op + "(" + canon(tm_c[id]) + ")"
+        }
+        var p1 = s1
+        if str_len(p1) == 0 {
+            p1 = "-"
+        }
+        var p2 = s2
+        if str_len(p2) == 0 {
+            p2 = "-"
+        }
+        return op + "(" + p1 + ", " + p2 + ", " + canon(tm_c[id]) + ")"
+    }
+    if k == "mat" {
+        var rows = tm_a[id]
+        var cols = tm_b[id]
+        var start = tm_c[id]
+        var out = "mat("
+        var r: i64 = 0
+        while r < rows {
+            if r > 0 {
+                out = out + ", "
+            }
+            out = out + "["
+            var c: i64 = 0
+            while c < cols {
+                if c > 0 {
+                    out = out + ", "
+                }
+                out = out + canon(tm_cells[start + r * cols + c])
+                c = c + 1
+            }
+            out = out + "]"
+            r = r + 1
+        }
+        return out + ")"
+    }
+    if k == "cases" {
+        var rows3 = tm_a[id]
+        var start2 = tm_c[id]
+        var out2 = "cases("
+        var r2: i64 = 0
+        while r2 < rows3 {
+            if r2 > 0 {
+                out2 = out2 + "; "
+            }
+            out2 = out2 + canon(tm_ids[start2 + r2 * 2]) + ", " + canon(tm_ids[start2 + r2 * 2 + 1])
+            r2 = r2 + 1
+        }
+        return out2 + ")"
+    }
+    return ""
+}
+
+// ==================== 纯文本（PDF 退化用） ====================
+
+func plain_need(id: i64) -> bool {
+    if id < 0 {
+        return false
+    }
+    var k = tm_kind[id]
+    return k == "add" || k == "subtract" || k == "mul" || k == "div" || k == "slash" || k == "rel" || k == "big"
+}
+
+func plain_wrap(id: i64) -> string {
+    if plain_need(id) {
+        return "(" + plain(id) + ")"
+    }
+    return plain(id)
+}
+
+pub func plain(id: i64) -> string {
+    if id < 0 {
+        return ""
+    }
+    var k = tm_kind[id]
+    if k == "num" || k == "id" {
+        return tm_pay[id]
+    }
+    if k == "sym" {
+        return tm_pay[id]
+    }
+    if k == "text" {
+        return tm_pay[id]
+    }
+    if k == "add" {
+        return plain(tm_a[id]) + " + " + plain(tm_b[id])
+    }
+    if k == "subtract" {
+        return plain(tm_a[id]) + " - " + plain(tm_b[id])
+    }
+    if k == "mul" {
+        if tm_b[id] >= 0 && tm_kind[tm_b[id]] == "diff" {
+            return plain(tm_a[id]) + " " + plain(tm_b[id])
+        }
+        return plain_wrap(tm_a[id]) + "·" + plain_wrap(tm_b[id])
+    }
+    if k == "div" {
+        return plain_wrap(tm_a[id]) + "/" + plain_wrap(tm_b[id])
+    }
+    if k == "slash" {
+        return plain(tm_a[id]) + "//" + plain(tm_b[id])
+    }
+    if k == "pow" {
+        return plain_wrap(tm_a[id]) + "^" + plain(tm_b[id])
+    }
+    if k == "sub" {
+        return plain_wrap(tm_a[id]) + "_" + plain(tm_b[id])
+    }
+    if k == "neg" {
+        return "-" + plain(tm_a[id])
+    }
+    if k == "sqrt" {
+        return "√(" + plain(tm_a[id]) + ")"
+    }
+    if k == "root" {
+        return "root(" + plain(tm_a[id]) + ", " + plain(tm_b[id]) + ")"
+    }
+    if k == "abs" {
+        return "|" + plain(tm_a[id]) + "|"
+    }
+    if k == "norm" {
+        return "‖" + plain(tm_a[id]) + "‖"
+    }
+    if k == "rel" {
+        return plain(tm_a[id]) + " " + tm_pay[id] + " " + plain(tm_b[id])
+    }
+    if k == "delim" {
+        return "(" + plain(tm_a[id]) + ")"
+    }
+    if k == "func" {
+        var s = tm_pay[id] + "("
+        if tm_a[id] >= 0 {
+            s = s + plain(tm_a[id])
+        }
+        if tm_b[id] >= 0 {
+            s = s + ", " + plain(tm_b[id])
+        }
+        return s + ")"
+    }
+    if k == "acc" {
+        return tm_pay[id] + "(" + plain(tm_a[id]) + ")"
+    }
+    if k == "diff" {
+        return "d" + plain(tm_a[id])
+    }
+    if k == "big" {
+        var op = op_char(tm_pay[id])
+        var s2 = op
+        if tm_a[id] >= 0 {
+            s2 = s2 + "_" + plain(tm_a[id])
+        }
+        if tm_b[id] >= 0 {
+            s2 = s2 + "^" + plain(tm_b[id])
+        }
+        return s2 + " " + plain(tm_c[id])
+    }
+    if k == "mat" {
+        var rows = tm_a[id]
+        var cols = tm_b[id]
+        var start = tm_c[id]
+        var out = "["
+        var r: i64 = 0
+        while r < rows {
+            if r > 0 {
+                out = out + "; "
+            }
+            var c: i64 = 0
+            while c < cols {
+                if c > 0 {
+                    out = out + ", "
+                }
+                out = out + plain(tm_cells[start + r * cols + c])
+                c = c + 1
+            }
+            r = r + 1
+        }
+        return out + "]"
+    }
+    if k == "cases" {
+        var rows2 = tm_a[id]
+        var start2 = tm_c[id]
+        var out2 = "{"
+        var r2: i64 = 0
+        while r2 < rows2 {
+            if r2 > 0 {
+                out2 = out2 + "; "
+            }
+            out2 = out2 + plain(tm_ids[start2 + r2 * 2]) + ", " + plain(tm_ids[start2 + r2 * 2 + 1])
+            r2 = r2 + 1
+        }
+        return out2 + "}"
+    }
+    return ""
+}
+
+func op_char(name: string) -> string {
+    ensure()
+    var idx = sym_find(name)
+    if idx < 0 {
+        return name
+    }
+    return tm_sv[idx]
+}
+
+// ==================== LaTeX 导出 ====================
+
+func ltx_need(id: i64) -> bool {
+    if id < 0 {
+        return false
+    }
+    var k = tm_kind[id]
+    return k == "add" || k == "subtract" || k == "mul" || k == "rel"
+}
+
+func ltx_wrap(id: i64) -> string {
+    if ltx_need(id) {
+        return "{" + latex(id) + "}"
+    }
+    return latex(id)
+}
+
+pub func latex(id: i64) -> string {
+    if id < 0 {
+        return ""
+    }
+    var k = tm_kind[id]
+    if k == "num" || k == "id" {
+        return tm_pay[id]
+    }
+    if k == "text" {
+        return "\\text{" + tm_pay[id] + "}"
+    }
+    if k == "sym" {
+        var nm = sym_name_of(tm_pay[id])
+        if str_len(nm) == 0 {
+            return tm_pay[id]
+        }
+        var idx = sym_find(nm)
+        if idx >= 0 {
+            return "\\" + tm_sl[idx]
+        }
+        return tm_pay[id]
+    }
+    if k == "add" {
+        return latex(tm_a[id]) + " + " + latex(tm_b[id])
+    }
+    if k == "subtract" {
+        return latex(tm_a[id]) + " - " + latex(tm_b[id])
+    }
+    if k == "mul" {
+        if tm_b[id] >= 0 && tm_kind[tm_b[id]] == "diff" {
+            return latex(tm_a[id]) + " " + latex(tm_b[id])
+        }
+        return ltx_wrap(tm_a[id]) + " \\cdot " + ltx_wrap(tm_b[id])
+    }
+    if k == "div" {
+        return "\\frac{" + latex(tm_a[id]) + "}{" + latex(tm_b[id]) + "}"
+    }
+    if k == "slash" {
+        return latex(tm_a[id]) + "/" + latex(tm_b[id])
+    }
+    if k == "pow" {
+        return ltx_wrap(tm_a[id]) + "^{" + latex(tm_b[id]) + "}"
+    }
+    if k == "sub" {
+        return ltx_wrap(tm_a[id]) + "_{" + latex(tm_b[id]) + "}"
+    }
+    if k == "neg" {
+        return "-" + ltx_wrap(tm_a[id])
+    }
+    if k == "sqrt" {
+        return "\\sqrt{" + latex(tm_a[id]) + "}"
+    }
+    if k == "root" {
+        return "\\sqrt[" + latex(tm_a[id]) + "]{" + latex(tm_b[id]) + "}"
+    }
+    if k == "abs" {
+        return "\\left|" + latex(tm_a[id]) + "\\right|"
+    }
+    if k == "norm" {
+        return "\\left\\|" + latex(tm_a[id]) + "\\right\\|"
+    }
+    if k == "rel" {
+        return latex(tm_a[id]) + " " + rel_latex(tm_pay[id]) + " " + latex(tm_b[id])
+    }
+    if k == "delim" {
+        return "\\left(" + latex(tm_a[id]) + "\\right)"
+    }
+    if k == "diff" {
+        return "\\mathrm{d}" + latex(tm_a[id])
+    }
+    if k == "func" {
+        var s = func_ltx(tm_pay[id])
+        s = s + "("
+        if tm_a[id] >= 0 {
+            s = s + latex(tm_a[id])
+        }
+        if tm_b[id] >= 0 {
+            s = s + ", " + latex(tm_b[id])
+        }
+        return s + ")"
+    }
+    if k == "acc" {
+        var cmd = tm_pay[id]
+        return "\\" + cmd + "{" + latex(tm_a[id]) + "}"
+    }
+    if k == "big" {
+        var opname = tm_pay[id]
+        var s2 = "\\" + opname
+        if tm_a[id] >= 0 {
+            s2 = s2 + "_{" + latex(tm_a[id]) + "}"
+        }
+        if tm_b[id] >= 0 {
+            s2 = s2 + "^{" + latex(tm_b[id]) + "}"
+        }
+        return s2 + " " + latex(tm_c[id])
+    }
+    if k == "mat" {
+        return "\\begin{pmatrix}" + mat_ltx(id) + "\\end{pmatrix}"
+    }
+    if k == "cases" {
+        return "\\begin{cases}" + cases_ltx(id) + "\\end{cases}"
+    }
+    return ""
+}
+
+func rel_latex(op: string) -> string {
+    var nm = sym_name_of(op)
+    if str_len(nm) > 0 {
+        var idx = sym_find(nm)
+        if idx >= 0 {
+            return "\\" + tm_sl[idx]
+        }
+    }
+    return op
+}
+
+func func_ltx(name: string) -> string {
+    if name == "sin" || name == "cos" || name == "tan" || name == "log" || name == "ln" || name == "exp" || name == "lim" || name == "max" || name == "min" {
+        return "\\" + name
+    }
+    return "\\mathrm{" + name + "}"
+}
+
+func mat_ltx(id: i64) -> string {
+    var rows = tm_a[id]
+    var cols = tm_b[id]
+    var start = tm_c[id]
+    var out = ""
+    var r: i64 = 0
+    while r < rows {
+        if r > 0 {
+            out = out + " \\\\ "
+        }
+        var c: i64 = 0
+        while c < cols {
+            if c > 0 {
+                out = out + " & "
+            }
+            out = out + latex(tm_cells[start + r * cols + c])
+            c = c + 1
+        }
+        r = r + 1
+    }
+    return out
+}
+
+func cases_ltx(id: i64) -> string {
+    var rows = tm_a[id]
+    var start = tm_c[id]
+    var out = ""
+    var r: i64 = 0
+    while r < rows {
+        if r > 0 {
+            out = out + " \\\\ "
+        }
+        out = out + latex(tm_ids[start + r * 2]) + " & " + latex(tm_ids[start + r * 2 + 1])
+        r = r + 1
+    }
+    return out
+}
+
+// ==================== OMML 导出 ====================
+
+pub func omml(id: i64) -> string {
+    if id < 0 {
+        return ""
+    }
+    var k = tm_kind[id]
+    if k == "num" || k == "id" || k == "sym" || k == "text" {
+        var txt = tm_pay[id]
+        if k == "text" {
+            return mm.r(txt)
+        }
+        return mm.r(txt)
+    }
+    if k == "add" {
+        return omml(tm_a[id]) + mm.r(" + ") + omml(tm_b[id])
+    }
+    if k == "subtract" {
+        return omml(tm_a[id]) + mm.r(" − ") + omml(tm_b[id])
+    }
+    if k == "mul" {
+        if tm_b[id] >= 0 && tm_kind[tm_b[id]] == "diff" {
+            return omml(tm_a[id]) + mm.r(" ") + omml(tm_b[id])
+        }
+        return omml(tm_a[id]) + mm.r("·") + omml(tm_b[id])
+    }
+    if k == "div" {
+        return mm.frac(omml(tm_a[id]), omml(tm_b[id]))
+    }
+    if k == "slash" {
+        return omml(tm_a[id]) + mm.r("/") + omml(tm_b[id])
+    }
+    if k == "pow" {
+        if tm_kind[tm_a[id]] == "sub" {
+            var base = tm_a[tm_a[id]]
+            var sub = tm_b[tm_a[id]]
+            return mm.ssubsup(omml(base), omml(sub), omml(tm_b[id]))
+        }
+        return mm.ssup(omml(tm_a[id]), omml(tm_b[id]))
+    }
+    if k == "sub" {
+        return mm.ssub(omml(tm_a[id]), omml(tm_b[id]))
+    }
+    if k == "neg" {
+        return mm.r("−") + omml(tm_a[id])
+    }
+    if k == "sqrt" {
+        return mm.sqrt(omml(tm_a[id]))
+    }
+    if k == "root" {
+        return mm.root(omml(tm_a[id]), omml(tm_b[id]))
+    }
+    if k == "abs" {
+        return mm.delimit(omml(tm_a[id]), "|", "|")
+    }
+    if k == "norm" {
+        return mm.delimit(omml(tm_a[id]), "‖", "‖")
+    }
+    if k == "rel" {
+        return omml(tm_a[id]) + mm.r(" " + tm_pay[id] + " ") + omml(tm_b[id])
+    }
+    if k == "delim" {
+        return mm.delimit(omml(tm_a[id]), "(", ")")
+    }
+    if k == "diff" {
+        return mm.r("d") + omml(tm_a[id])
+    }
+    if k == "func" {
+        var s = mm.r(func_plain(tm_pay[id]))
+        var inner = ""
+        if tm_a[id] >= 0 {
+            inner = omml(tm_a[id])
+        }
+        if tm_b[id] >= 0 {
+            inner = inner + mm.r(", ") + omml(tm_b[id])
+        }
+        return s + mm.delimit(inner, "(", ")")
+    }
+    if k == "acc" {
+        return mm.bar(omml(tm_a[id]))
+    }
+    if k == "big" {
+        var op = op_char(tm_pay[id])
+        var s1 = ""
+        if tm_a[id] >= 0 {
+            s1 = omml(tm_a[id])
+        }
+        var s2 = ""
+        if tm_b[id] >= 0 {
+            s2 = omml(tm_b[id])
+        }
+        return mm.nary(op, s1, s2, omml(tm_c[id]))
+    }
+    if k == "mat" {
+        var rows = tm_a[id]
+        var cols = tm_b[id]
+        var start = tm_c[id]
+        var grid: table<table<string>> = []
+        var r: i64 = 0
+        while r < rows {
+            var row: table<string> = table_new_string()
+            var c: i64 = 0
+            while c < cols {
+                table_push(row, omml(tm_cells[start + r * cols + c]))
+                c = c + 1
+            }
+            table_push(grid, row)
+            r = r + 1
+        }
+        return mm.matrix(grid)
+    }
+    if k == "cases" {
+        var rows2 = tm_a[id]
+        var start2 = tm_c[id]
+        var sb2 = "<m:eqArr>"
+        var r2: i64 = 0
+        while r2 < rows2 {
+            sb2 = sb2 + "<m:e>" + omml(tm_ids[start2 + r2 * 2]) + mm.r("  ") + omml(tm_ids[start2 + r2 * 2 + 1]) + "</m:e>"
+            r2 = r2 + 1
+        }
+        sb2 = sb2 + "</m:eqArr>"
+        return mm.delimit(sb2, "{", "")
+    }
+    return ""
+}
+
+func func_plain(name: string) -> string {
+    return name
+}
+
+// ==================== 便捷入口 ====================
+
+// 解析并返回规范形；失败返回 "ERR: 消息 @ 位置"。
+pub func to_canon(src: string) -> string {
+    var id = parse(src)
+    if id < 0 {
+        return "ERR: " + tm_err + " @ " + to_string(tm_err_pos)
+    }
+    return canon(id)
+}
+
+// 解析并导出 OMML；失败返回空串。
+pub func to_omml(src: string) -> string {
+    var id = parse(src)
+    if id < 0 {
+        return ""
+    }
+    return omml(id)
+}
+
+// 解析并导出 LaTeX；失败返回空串。
+pub func to_latex(src: string) -> string {
+    var id = parse(src)
+    if id < 0 {
+        return ""
+    }
+    return latex(id)
+}
+
+// 解析并导出纯文本；失败返回原文。
+pub func to_plain(src: string) -> string {
+    var id = parse(src)
+    if id < 0 {
+        return src
+    }
+    return plain(id)
+}
+
+// 字节切片 [a, b)。
+func tm_sub(s: string, a: i64, b: i64) -> string {
+    var sb = string_builder()
+    var i = a
+    while i < b && i < len(s) {
+        sb_append_byte(sb, str_byte(s, i))
+        i = i + 1
+    }
+    return sb_build(sb)
+}
+
+}   // namespace tmath

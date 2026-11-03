@@ -25,6 +25,7 @@ const BLOCKS = {
     ol: { arity: [2, 2], doc: '有序列表：`["ol", ["第一条", "第二条"]]`。' },
     tbl: { arity: null, doc: '表格：`["tbl", [表头...], [行...], ...]`，各行列数一致。' },
     tblw: { arity: null, doc: '带列宽的表格：`["tblw", [表头...], [行...], ..., [列宽...]]`，列宽单位为 twips（20 twips = 1 pt）。' },
+    math: { arity: [2, 2], doc: '公式：`["math", "sum_(i=1)^n a_i"]`。语法见 tmath：`@a` 短码、`/` 分式、`//` 行内斜线、大运算符只吃乘性项。docx 出 OMML，PDF 暂以纯文本退化。' },
     code: { arity: [3, 3], doc: '代码块：`["code", "tie", "…"]`。here-doc 写法：开引号后换行，内容逐字保留。' },
     link: { arity: [3, 3], doc: '超链接段：`["link", "文本", "https://…"]`。' },
     page: { arity: [1, 1], doc: '分页。' },

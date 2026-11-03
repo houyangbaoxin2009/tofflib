@@ -348,6 +348,14 @@ func load_block(blk: i64, bi: i64, out: ref table<string>) -> string {
         table_push(out, trim_heredoc(arg_str(blk, 2)))
         return ""
     }
+    if kind == "math" {
+        if !arity_is(blk, 2) {
+            return where + "math 需要 2 个元素（公式文本）"
+        }
+        table_push(out, "math")
+        table_push(out, arg_str(blk, 1))
+        return ""
+    }
     if kind == "link" {
         if !arity_is(blk, 3) {
             return where + "link 需要 3 个元素（文本、地址）"
