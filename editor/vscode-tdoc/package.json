@@ -24,10 +24,13 @@
   "activationEvents": [
     "onCommand:tdoc.codeFromSelection",
     "onCommand:tdoc.export",
+    "onCommand:tdoc.importMarkdown",
     "onCommand:tdoc.insertBlock",
     "onCommand:tdoc.newDocument",
+    "onCommand:tdoc.nextCell",
     "onCommand:tdoc.previewPdf",
     "onCommand:tdoc.reindent",
+    "onCommand:tdoc.renumber",
     "onCommand:tdoc.tableFromSelection",
     "onLanguage:tdoc"
   ],
@@ -99,6 +102,21 @@
         "command": "tdoc.reindent",
         "title": "tdoc: 重排缩进",
         "category": "tdoc"
+      },
+      {
+        "command": "tdoc.renumber",
+        "title": "tdoc: 重排章节号",
+        "category": "tdoc"
+      },
+      {
+        "command": "tdoc.nextCell",
+        "title": "tdoc: 跳到下一单元格",
+        "category": "tdoc"
+      },
+      {
+        "command": "tdoc.importMarkdown",
+        "title": "tdoc: 从 Markdown 导入",
+        "category": "tdoc"
       }
     ],
     "menus": {
@@ -167,8 +185,25 @@
           "type": "boolean",
           "default": false,
           "description": "保存 tdoc 时自动渲染预览。"
+        },
+        "tdoc.typing.autoExpand": {
+          "type": "boolean",
+          "default": true,
+          "description": "行首输入 # / ## / - / 1. / > 后跟空格时，自动展开成对应块。"
+        },
+        "tdoc.typing.autoContinue": {
+          "type": "boolean",
+          "default": true,
+          "description": "在段落/提示块行尾回车时自动续一条同类型空块；空块上回车不续。输入 ``` 后回车转代码块。"
         }
       }
-    }
+    },
+    "keybindings": [
+      {
+        "command": "tdoc.nextCell",
+        "key": "tab",
+        "when": "editorTextFocus && editorLangId == tdoc && tdoc.inTable"
+      }
+    ]
   }
 }

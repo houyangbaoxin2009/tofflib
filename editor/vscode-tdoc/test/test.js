@@ -73,6 +73,23 @@ check('缩进不碰代码块内容', () => {
     assert.strictEqual(core.reindent(text), text);
 });
 
+check('Markdown 转换', () => {
+    const md = '# 章\n\n**粗** 与 `码`\n\n- 甲\n\n```tie\nfunc f() {}\n```\n';
+    const r = core.mdToTdoc(md, 't');
+    assert.ok(r.text.includes('["h1", "章"]'), r.text);
+    assert.ok(r.text.includes('["para"'), r.text);
+    assert.ok(r.text.includes('["code", "tie", "'), r.text);
+    assert.ok(core.analyze(r.text).diagnostics.length === 0);
+});
+
+check('重排章节号（含引用）', () => {
+    const text = '[\n  "title": "t",\n  "blocks": [\n    ["h1", "第 1 章  A"],\n    ["h2", "1.1  B"],\n    ["p", "见 3.7"],\n    ["h1", "第 3 章  C"],\n    ["h2", "3.7  D"],\n  ],\n]\n';
+    const r = core.renumber(text);
+    assert.ok(r.text.includes('"第 2 章  C"'), r.text);
+    assert.ok(r.text.includes('"2.1  D"'), r.text);
+    assert.ok(r.text.includes('见 2.1'), r.text);
+});
+
 check('大纲层级', () => {
     const text = '["title": "t", "blocks": [["h1", "A"], ["h2", "B"], ["h1", "C"]]]';
     const r = core.analyze(text);

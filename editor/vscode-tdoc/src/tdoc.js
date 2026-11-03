@@ -484,4 +484,280 @@ function scanInto(line, from, stack, step, startInStr, indent) {
     return inStr;
 }
 
-module.exports = { BLOCKS, KIND_LIST, tokenize, parse, analyze, reindent };
+
+/** 判断某个偏移是否落在字符串里（写代码块的 here-doc 也算）。 */
+function stateAt(text, offset) {
+    const { tokens } = tokenize(text);
+    for (const t of tokens) {
+        if (t.type === 'string' && offset > t.start && offset < t.end) return { inString: true };
+    }
+    return { inString: false };
+}
+
+/**
+ * 重排章节号：只处理已有编号的标题（h1「第 N 章」、h2/h3「N.M…」），
+ * 连同「见 9.2」「参见 5.10」这类引用一起改写。没有编号的标题不动。
+ * @param {string} text
+ * @returns {{text: string, changes: number}}
+ */
+function renumber(text) {
+    const { root } = parse(text);
+    if (!root || root.kind !== 'map') return { text, changes: 0 };
+    const be = root.entries.find((e) => e.key === 'blocks');
+    if (!be || !be.value || be.value.kind !== 'array') return { text, changes: 0 };
+    const blocks = be.value.items;
+    const edits = [];
+    const map = new Map();
+    let h1 = 0;
+    let h2 = 0;
+    let h3 = 0;
+    let hits = 0;
+
+    for (const blk of blocks) {
+        if (!blk || blk.kind !== 'array' || blk.items.length < 2) continue;
+        const k = blk.items[0];
+        const t = blk.items[1];
+        if (!k || k.kind !== 'string' || !t || t.kind !== 'string') continue;
+        if (!/^h[123]$/.test(k.value)) continue;
+        const cur = t.value;
+        let m = null;
+        let target = '';
+        let oldLabel = '';
+        let newLabel = '';
+        if (k.value === 'h1') {
+            m = /^第\s*(\d+)\s*章(\s*)/.exec(cur);
+            h1 += 1; h2 = 0; h3 = 0;
+            if (!m) continue;
+            target = `第 ${h1} 章` + m[2];
+            oldLabel = `第 ${m[1]} 章`;
+            newLabel = `第 ${h1} 章`;
+        } else if (k.value === 'h2') {
+            m = /^(\d+(?:\.\d+)*)(\s+)/.exec(cur);
+            if (!m || h1 === 0) continue;
+            h2 += 1; h3 = 0;
+            target = `${h1}.${h2}` + m[2];
+            oldLabel = m[1];
+            newLabel = `${h1}.${h2}`;
+        } else {
+            m = /^(\d+(?:\.\d+)*)(\s+)/.exec(cur);
+            if (!m || h1 === 0) continue;
+            h3 += 1;
+            target = `${h1}.${h2}.${h3}` + m[2];
+            oldLabel = m[1];
+            newLabel = `${h1}.${h2}.${h3}`;
+        }
+        hits += 1;
+        if (oldLabel !== newLabel) map.set(oldLabel, newLabel);
+        if (target !== m[0]) {
+            edits.push({ start: t.start + 1, end: t.start + 1 + m[0].length, text: target });
+        }
+    }
+    if (!map.size && !edits.length) return { text, changes: 0 };
+
+    // 引用：见 / 参见 + 旧编号
+    const fixRefs = (node) => {
+        if (!node || node.kind !== 'string') return;
+        const v = node.value;
+        const re = /(见|参见)\s*(\d+(?:\.\d+)*)/g;
+        let mm;
+        while ((mm = re.exec(v)) !== null) {
+            const to = map.get(mm[2]);
+            if (to) {
+                const start = node.start + 1 + mm.index + mm[1].length;
+                const end = start + (mm[0].length - mm[1].length);
+                edits.push({ start, end, text: /\s/.test(mm[0].slice(mm[1].length)) ? ` ${to}` : to });
+            }
+        }
+    };
+    for (const blk of blocks) {
+        if (!blk || blk.kind !== 'array' || !blk.items.length) continue;
+        const head = blk.items[0];
+        if (!head || head.kind !== 'string') continue;
+        const kind = head.value;
+        if (/^(p|note|quote|cap)$/.test(kind)) {
+            fixRefs(blk.items[1]);
+        } else if (kind === 'ul' || kind === 'ol') {
+            const arr = blk.items[1];
+            if (arr && arr.kind === 'array') arr.items.forEach(fixRefs);
+        } else if (kind === 'tbl' || kind === 'tblw') {
+            blk.items.slice(1, kind === 'tblw' ? -1 : undefined).forEach((row) => {
+                if (row && row.kind === 'array') row.items.forEach(fixRefs);
+            });
+        }
+    }
+    if (!edits.length) return { text, changes: hits };
+    edits.sort((a, b) => b.start - a.start);
+    let out = text;
+    for (const e of edits) out = out.slice(0, e.start) + e.text + out.slice(e.end);
+    return { text: out, changes: edits.length };
+}
+
+
+/** tdoc 字符串转义（换行只允许出现在代码块里）。 */
+function escapeText(s) {
+    return s.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\r?\n/g, '\\n');
+}
+
+/** 行内标记 → para 的 run 列表；没有标记时返回 null（用 p）。 */
+function inlineRuns(s) {
+    const re = /(\*\*[^*]+\*\*|\*[^*]+\*|`[^`]+`|\[[^\]]+\]\([^)]+\))/g;
+    const runs = [];
+    let last = 0;
+    let m;
+    while ((m = re.exec(s)) !== null) {
+        if (m.index > last) runs.push(s.slice(last, m.index));
+        const t = m[0];
+        if (t.startsWith('**')) runs.push('b|' + t.slice(2, -2));
+        else if (t.startsWith('`')) runs.push('m|' + t.slice(1, -1));
+        else if (t.startsWith('[')) {
+            const mm = /\[([^\]]+)\]\(([^)]+)\)/.exec(t);
+            runs.push('link|' + mm[1] + '|' + mm[2]);
+        } else runs.push('i|' + t.slice(1, -1));
+        last = m.index + t.length;
+    }
+    if (last < s.length) runs.push(s.slice(last));
+    if (runs.length === 1 && !/^[bim]|link\|/.test(runs[0])) return null;
+    return runs;
+}
+
+/**
+ * Markdown → tdoc（单向转换，不引入新格式）。
+ * 覆盖：标题、段落、行内强调/代码/链接、列表、引用、代码围栏、管道表格、图片、分隔线。
+ * @param {string} md
+ * @param {string} [fallbackTitle]
+ * @returns {{title: string, text: string}}
+ */
+function mdToTdoc(md, fallbackTitle) {
+    const src = md.replace(/\r\n/g, '\n');
+    let lines = src.split('\n');
+    // 去掉 YAML front matter
+    if (lines[0] === '---') {
+        const end = lines.indexOf('---', 1);
+        if (end > 0) lines = lines.slice(end + 1);
+    }
+    const blocks = [];
+    let title = '';
+    let i = 0;
+    while (i < lines.length) {
+        const line = lines[i];
+        if (!line.trim()) { i += 1; continue; }
+        // 代码围栏
+        const fence = /^```(\w*)\s*$/.exec(line);
+        if (fence) {
+            const lang = fence[1] || 'tie';
+            i += 1;
+            const buf = [];
+            while (i < lines.length && !/^```\s*$/.test(lines[i])) { buf.push(lines[i]); i += 1; }
+            i += 1;
+            blocks.push({ k: 'code', lang, body: buf.join('\n') });
+            continue;
+        }
+        // 标题
+        const h = /^(#{1,3})\s+(.*)$/.exec(line);
+        if (h) {
+            const lv = h[1].length;
+            const text = h[2].trim();
+            if (lv === 1 && !title) title = text;
+            blocks.push({ k: 'h' + lv, text });
+            i += 1;
+            continue;
+        }
+        // 分隔线
+        if (/^\s*(---+|\*\*\*+|___+)\s*$/.test(line)) { blocks.push({ k: 'hr' }); i += 1; continue; }
+        // 图片（独占一行）
+        const img = /^\s*!\[([^\]]*)\]\(([^)]+)\)\s*$/.exec(line);
+        if (img) { blocks.push({ k: 'img', src: img[2], alt: img[1] }); i += 1; continue; }
+        // 管道表格：表头 + 分隔行
+        if (/^\s*\|.*\|\s*$/.test(line) && i + 1 < lines.length && /^\s*\|[\s:|-]+\|\s*$/.test(lines[i + 1])) {
+            const cells = (l) => l.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map((x) => x.trim());
+            const head = cells(line);
+            i += 2;
+            const rows = [];
+            while (i < lines.length && /^\s*\|.*\|\s*$/.test(lines[i])) { rows.push(cells(lines[i])); i += 1; }
+            blocks.push({ k: 'tblw', head, rows });
+            continue;
+        }
+        // 引用
+        if (/^\s*>\s?/.test(line)) {
+            const buf = [];
+            while (i < lines.length && /^\s*>\s?/.test(lines[i])) {
+                buf.push(lines[i].replace(/^\s*>\s?/, ''));
+                i += 1;
+            }
+            blocks.push({ k: 'quote', text: buf.join(' ') });
+            continue;
+        }
+        // 列表
+        const ul = /^\s*[-*+]\s+(.*)$/.exec(line);
+        const ol = /^\s*\d+\.\s+(.*)$/.exec(line);
+        if (ul || ol) {
+            const items = [];
+            const isUl = Boolean(ul);
+            while (i < lines.length) {
+                const m2 = isUl ? /^\s*[-*+]\s+(.*)$/.exec(lines[i]) : /^\s*\d+\.\s+(.*)$/.exec(lines[i]);
+                if (!m2) break;
+                items.push(m2[1].trim());
+                i += 1;
+            }
+            blocks.push({ k: isUl ? 'ul' : 'ol', items });
+            continue;
+        }
+        // 段落：合并到空行/下一个块
+        const buf = [line.trim()];
+        i += 1;
+        while (i < lines.length) {
+            const l = lines[i];
+            if (!l.trim()) break;
+            if (/^(#{1,3})\s|^```|^\s*[-*+]\s|^\s*\d+\.\s|^\s*>|^\s*\|/.test(l)) break;
+            if (/^\s*!\[/.test(l) || /^\s*(---+|\*\*\*+|___+)\s*$/.test(l)) break;
+            buf.push(l.trim());
+            i += 1;
+        }
+        const text = buf.join(' ');
+        const runs = inlineRuns(text);
+        if (runs) blocks.push({ k: 'para', runs });
+        else blocks.push({ k: 'p', text });
+    }
+
+    const esc = (x) => escapeText(x);
+    const out = [];
+    out.push('// 由 Markdown 转换（单向；改稿请以本文件为准）');
+    out.push('[');
+    out.push(`    "title": "${esc(title || fallbackTitle || '未命名文档')}",`);
+    out.push('    "blocks": [');
+    for (const b of blocks) {
+        if (b.k === 'p' || b.k === 'quote') out.push(`        ["${b.k}", "${esc(b.text)}"],`);
+        else if (/^h[1-3]$/.test(b.k)) out.push(`        ["${b.k}", "${esc(b.text)}"],`);
+        else if (b.k === 'ul' || b.k === 'ol') {
+            out.push(`        ["${b.k}", [` + b.items.map((x) => `"${esc(x)}"`).join(', ') + ']],');
+        } else if (b.k === 'para') {
+            out.push('        ["para", ' + b.runs.map((x) => `"${esc(x)}"`).join(', ') + '],');
+        } else if (b.k === 'code') {
+            out.push(`        ["code", "${b.lang}", "`);
+            out.push(b.body);
+            out.push('"],');
+        } else if (b.k === 'tblw') {
+            const cols = b.head.length;
+            const base = Math.floor(9020 / cols);
+            const widths = new Array(cols).fill(base);
+            widths[cols - 1] = 9020 - base * (cols - 1);
+            out.push('        ["tblw",');
+            out.push('            [' + b.head.map((x) => `"${esc(x)}"`).join(', ') + '],');
+            b.rows.forEach((r) => {
+                const cells = r.slice(0, cols);
+                while (cells.length < cols) cells.push('');
+                out.push('            [' + cells.map((x) => `"${esc(x)}"`).join(', ') + '],');
+            });
+            out.push('            [' + widths.join(', ') + ']],');
+        } else if (b.k === 'img') {
+            out.push(`        ["img", "${esc(b.src)}", 0, "${esc(b.alt)}"],`);
+        } else if (b.k === 'hr') {
+            out.push('        ["hr"],');
+        }
+    }
+    out.push('    ],');
+    out.push(']');
+    return { title: title || fallbackTitle || '未命名文档', text: out.join('\n') + '\n' };
+}
+
+module.exports = { BLOCKS, KIND_LIST, tokenize, parse, analyze, reindent, stateAt, renumber, mdToTdoc };

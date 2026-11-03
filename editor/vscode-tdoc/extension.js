@@ -311,6 +311,188 @@ async function tableFromSelection() {
     await editor.edit((b) => b.replace(sel, block));
 }
 
+
+/** 正在由扩展改文本：避免自己触发 on-type。 */
+let applying = false;
+
+async function replaceWholeLine(doc, lineNo, text, caretCol) {
+    const editor = vscode.window.visibleTextEditors.find((e) => e.document === doc);
+    if (!editor) return;
+    const line = doc.lineAt(lineNo);
+    applying = true;
+    await editor.edit((b) => b.replace(line.range, text));
+    applying = false;
+    const p = new vscode.Position(lineNo, Math.min(caretCol, text.length));
+    editor.selection = new vscode.Selection(p, p);
+}
+
+/** 行首标记 → 块骨架：`# `、`## `、`- `、`1. `、`> `。 */
+async function expandPrefix(doc, pos) {
+    const line = doc.lineAt(pos.line).text;
+    const before = line.slice(0, pos.character);
+    const m = /^(\s*)(#{1,3}|[-*]|\d+\.|>)\s$/.exec(before);
+    if (!m) return;
+    if (core.stateAt(doc.getText(), doc.offsetAt(new vscode.Position(pos.line, 0))).inString) return;
+    const indent = m[1];
+    const mark = m[2];
+    let body = '';
+    let caret = 0;
+    if (mark[0] === '#') {
+        const lv = mark.length;
+        body = `["h${lv}", ""],`;
+        caret = indent.length + `["h${lv}", "`.length;
+    } else if (mark === '-' || mark === '*') {
+        body = '["ul", [""]],';
+        caret = indent.length + '["ul", ["'.length;
+    } else if (mark === '>') {
+        body = '["quote", ""],';
+        caret = indent.length + '["quote", "'.length;
+    } else {
+        body = '["ol", [""]],';
+        caret = indent.length + '["ol", ["'.length;
+    }
+    await replaceWholeLine(doc, pos.line, indent + body, caret);
+}
+
+/** 回车后自动续块：段落续段落；``` 转代码块。 */
+async function continueBlock(doc, pos) {
+    const prevLine = pos.line;
+    if (prevLine < 0) return;
+    const prev = doc.lineAt(prevLine).text;
+    if (core.stateAt(doc.getText(), doc.offsetAt(doc.lineAt(prevLine).range.end)).inString) return;
+    const editor = vscode.window.visibleTextEditors.find((e) => e.document === doc);
+    if (!editor) return;
+
+    const fence = /^(\s*)```(\w*)$/.exec(prev);
+    if (fence) {
+        const lang = fence[2] || 'tie';
+        await replaceWholeLine(doc, prevLine, `${fence[1]}["code", "${lang}", "`, fence[0].length);
+        return;
+    }
+    const blk = /^(\s*)\["(p|note|quote|b|center|right|just)", "(.*)"\],\s*$/.exec(prev);
+    if (blk && blk[3].length > 0) {
+        const text = `${blk[1]}["${blk[2]}", ""],`;
+        const caret = blk[1].length + `["${blk[2]}", "`.length;
+        applying = true;
+        await editor.edit((b) => b.insert(new vscode.Position(prevLine + 1, 0), text));
+        applying = false;
+        const p = new vscode.Position(prevLine + 1, caret);
+        editor.selection = new vscode.Selection(p, p);
+        return;
+    }
+    const item = /^(\s*)"(.*)",\s*$/.exec(prev);
+    if (item && item[2].length > 0) {
+        // 仅当所在块是 ul/ol 时续条目
+        let kind = '';
+        for (let i = prevLine - 1; i >= 0 && i > prevLine - 60; i -= 1) {
+            const m = /^\s*\["(ul|ol)"/.exec(doc.lineAt(i).text);
+            if (m) { kind = m[1]; break; }
+            if (/^\s*\["/.test(doc.lineAt(i).text)) break;
+        }
+        if (!kind) return;
+        const text = `${item[1]}"",`;
+        applying = true;
+        await editor.edit((b) => b.insert(new vscode.Position(prevLine + 1, 0), text));
+        applying = false;
+        const p = new vscode.Position(prevLine + 1, item[1].length + 1);
+        editor.selection = new vscode.Selection(p, p);
+    }
+}
+
+/** on-type 入口：只认单字符插入，避免与撤销/粘贴打架。 */
+function onType(e) {
+    if (applying) return;
+    const ch = e.contentChanges[0];
+    if (!ch || ch.rangeLength !== 0) return;
+    if (e.contentChanges.length !== 1) return;
+    const cfg = vscode.workspace.getConfiguration('tdoc');
+    if (e.document.languageId !== 'tdoc') return;
+    if (ch.text === ' ' && cfg.get('typing.autoExpand') !== false) {
+        void expandPrefix(e.document, ch.range.start);
+    } else if (ch.text === '\n' && cfg.get('typing.autoContinue') !== false) {
+        void continueBlock(e.document, ch.range.start);
+    }
+}
+
+/** 表格内 Tab：跳到同/下一行的下一个字符串。 */
+function nextCell() {
+    const editor = activeTdoc();
+    if (!editor) return;
+    const doc = editor.document;
+    const pos = editor.selection.active;
+    const line = doc.lineAt(pos.line).text;
+    const re = /"(?:\\.|[^"\\])*"/g;
+    let m;
+    while ((m = re.exec(line)) !== null) {
+        if (m.index + 1 > pos.character) {
+            const p = new vscode.Position(pos.line, m.index + 1);
+            editor.selection = new vscode.Selection(p, p);
+            return;
+        }
+    }
+    for (let i = pos.line + 1; i < Math.min(doc.lineCount, pos.line + 40); i += 1) {
+        const t = doc.lineAt(i).text;
+        const mm = /"(?:\\.|[^"\\])*"/.exec(t);
+        if (mm) {
+            const p = new vscode.Position(i, mm.index + 1);
+            editor.selection = new vscode.Selection(p, p);
+            return;
+        }
+    }
+}
+
+/** 重排章节号（含「见 N.M」引用）。 */
+async function renumberDoc() {
+    const editor = activeTdoc();
+    if (!editor) return;
+    const doc = editor.document;
+    const r = core.renumber(doc.getText());
+    if (r.text === doc.getText()) {
+        void vscode.window.showInformationMessage('没有需要重排的章节号（h1 需写成「第 N 章」，h2/h3 写成「N.M …」）。');
+        return;
+    }
+    const full = new vscode.Range(doc.positionAt(0), doc.positionAt(doc.getText().length));
+    applying = true;
+    await editor.edit((b) => b.replace(full, r.text));
+    applying = false;
+    void vscode.window.showInformationMessage(`已重排 ${r.changes} 处编号或引用。`);
+}
+
+/** 维护表格上下文键，供 Tab 键绑定使用。 */
+function updateTableContext(editor) {
+    let on = false;
+    if (editor && editor.document.languageId === 'tdoc') {
+        const line = editor.selection.active.line;
+        for (let i = line; i >= 0 && i > line - 80; i -= 1) {
+            const m = /^\s*\["([a-z0-9_]+)"/.exec(editor.document.lineAt(i).text);
+            if (m) {
+                on = m[1] === 'tbl' || m[1] === 'tblw';
+                break;
+            }
+        }
+    }
+    void vscode.commands.executeCommand('setContext', 'tdoc.inTable', on);
+}
+
+/** 从 Markdown 导入：单向转换为 tdoc（不引入新格式）。 */
+async function importMarkdown() {
+    const picked = await vscode.window.showOpenDialog({
+        canSelectMany: false,
+        filters: { Markdown: ['md', 'markdown'] },
+        openLabel: '转换为 tdoc'
+    });
+    if (!picked || !picked.length) return;
+    const srcPath = picked[0].fsPath;
+    const base = path.basename(srcPath).replace(/\.(md|markdown)$/i, '');
+    const md = fs.readFileSync(srcPath, 'utf8');
+    const r = core.mdToTdoc(md, base);
+    const outPath = path.join(path.dirname(srcPath), base + '.tdoc');
+    fs.writeFileSync(outPath, r.text, 'utf8');
+    const doc = await vscode.workspace.openTextDocument(outPath);
+    await vscode.window.showTextDocument(doc);
+    void vscode.window.showInformationMessage(`已生成 ${path.basename(outPath)}（原文件保留，转换单向）。`);
+}
+
 function readConfig() {
     const cfg = vscode.workspace.getConfiguration('tdoc');
     return {
@@ -434,9 +616,16 @@ function activate(context) {
     context.subscriptions.push(diagnostics, channel, status);
 
     context.subscriptions.push(vscode.workspace.onDidOpenTextDocument(refresh));
-    context.subscriptions.push(vscode.workspace.onDidChangeTextDocument((e) => schedule(e.document)));
+    context.subscriptions.push(vscode.workspace.onDidChangeTextDocument((e) => {
+        schedule(e.document);
+        onType(e);
+    }));
     context.subscriptions.push(vscode.workspace.onDidCloseTextDocument((doc) => diagnostics.delete(doc.uri)));
-    context.subscriptions.push(vscode.window.onDidChangeActiveTextEditor(updateStatus));
+    context.subscriptions.push(vscode.window.onDidChangeActiveTextEditor((e) => {
+        updateStatus();
+        updateTableContext(e);
+    }));
+    context.subscriptions.push(vscode.window.onDidChangeTextEditorSelection((e) => updateTableContext(e.textEditor)));
     context.subscriptions.push(vscode.workspace.onDidSaveTextDocument((doc) => {
         if (doc.languageId !== 'tdoc') return;
         if (readConfig().onSave) void renderDoc('pdf');
@@ -471,6 +660,9 @@ function activate(context) {
         const full = new vscode.Range(editor.document.positionAt(0), editor.document.positionAt(text.length));
         await editor.edit((b) => b.replace(full, next));
     }));
+    context.subscriptions.push(vscode.commands.registerCommand('tdoc.renumber', renumberDoc));
+    context.subscriptions.push(vscode.commands.registerCommand('tdoc.importMarkdown', importMarkdown));
+    context.subscriptions.push(vscode.commands.registerCommand('tdoc.nextCell', nextCell));
     context.subscriptions.push(vscode.commands.registerCommand('tdoc.validate', () => {
         const editor = activeTdoc();
         if (editor) refresh(editor.document);
@@ -478,6 +670,7 @@ function activate(context) {
 
     vscode.workspace.textDocuments.forEach(refresh);
     updateStatus();
+    updateTableContext(vscode.window.activeTextEditor);
 }
 
 function deactivate() {
