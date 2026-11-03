@@ -135,6 +135,7 @@ tl.pdf("target/hello.pdf", d, "C:/Windows/Fonts/NotoSansSC-VF.ttf", "C:/Windows/
 ```tie
 ["math", "sum_(i=1)^n (a_i + b_i)/2 <= @S_(i=1)^n c_i"],
 ["math", "int_a^b f(x) d(x)"],
+["math", "lim_(x→0) f(x)/x"],
 ["math", "mat([a,b],[c,d])"],
 ```
 

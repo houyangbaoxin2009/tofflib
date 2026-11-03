@@ -121,6 +121,7 @@ func ensure() {
     sy("Omega", "Ω", "sym", "Omega")
     // 大运算符
     sy("sum", "∑", "big", "sum")
+    sy("lim", "lim", "big", "lim")
     sy("prod", "∏", "big", "prod")
     sy("int", "∫", "big", "int")
     sy("oint", "∮", "big", "oint")
@@ -1571,6 +1572,14 @@ pub func omml(id: i64) -> string {
     }
     if k == "big" {
         var op = op_char(tm_pay[id])
+        if op == "lim" {
+            var low = ""
+            if tm_a[id] >= 0 {
+                low = mathml(tm_a[id])
+            }
+            var s4 = "<m:limLow><m:e><m:r><m:t>lim</m:t></m:r></m:e><m:lim>" + low + "</m:lim></m:limLow>"
+            return s4 + mathml(tm_c[id])
+        }
         var s1 = ""
         if tm_a[id] >= 0 {
             s1 = omml(tm_a[id])

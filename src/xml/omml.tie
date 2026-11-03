@@ -155,6 +155,17 @@ pub func lim(sub: string, inner: string) -> string {
     return nary("lim", sub, "", inner)
 }
 
+// 下极限：base 下方挂 lower（如 lim_{x→0} 的 base=lim）。
+pub func limlow(base: string, lower: string) -> string {
+    var sb = string_builder()
+    sb_append(sb, "<m:limLow><m:e>")
+    sb_append(sb, base)
+    sb_append(sb, "</m:e><m:lim>")
+    sb_append(sb, lower)
+    sb_append(sb, "</m:lim></m:limLow>")
+    return sb_build(sb)
+}
+
 // 平方根：√inner（度数隐藏）。
 pub func sqrt(inner: string) -> string {
     var sb = string_builder()
