@@ -51,7 +51,7 @@ func xml_esc(t: string) -> string {
 
 func dtext(pg: i64, x: i64, y: i64, size: i64, txt: string) {
     if g_svg == 1 {
-        table_push(g_svgparts, "<text x=\"" + pdf.f2s(x) + "\" y=\"" + pdf.f2s(y) + "\" font-size=\"" + pdf.f2s(size * 100) + "\" font-family=\"serif\">" + xml_esc(txt) + "</text>\n")
+        table_push(g_svgparts, "<text x=\"" + pdf.f2s(x) + "\" y=\"" + pdf.f2s(y * 100) + "\" font-size=\"" + pdf.f2s(size * 100) + "\" font-family=\"serif\">" + xml_esc(txt) + "</text>\n")
         return
     }
     pdf.text_shaped(pg, x / 100, y, size * 100, pdf.shape(SLOT, SLOT, txt))
@@ -60,7 +60,7 @@ func dtext(pg: i64, x: i64, y: i64, size: i64, txt: string) {
 // 数学变量用合成斜体；数字、运算符、函数名保持直立。
 func dtext_i(pg: i64, x: i64, y: i64, size: i64, txt: string) {
     if g_svg == 1 {
-        table_push(g_svgparts, "<text x=\"" + pdf.f2s(x) + "\" y=\"" + pdf.f2s(y) + "\" font-size=\"" + pdf.f2s(size * 100) + "\" font-family=\"serif\" font-style=\"italic\">" + xml_esc(txt) + "</text>\n")
+        table_push(g_svgparts, "<text x=\"" + pdf.f2s(x) + "\" y=\"" + pdf.f2s(y * 100) + "\" font-size=\"" + pdf.f2s(size * 100) + "\" font-family=\"serif\" font-style=\"italic\">" + xml_esc(txt) + "</text>\n")
         return
     }
     pdf.text_shaped_slant(pg, x / 100, y, size * 100, pdf.shape(SLOT, SLOT, txt))
@@ -689,6 +689,7 @@ pub func svg(src: string, size: i64) -> string {
         return ""
     }
     var (w, asc, desc) = measure(id, size)
+    println("DBG svg w=" + to_string(w) + " asc=" + to_string(asc) + " desc=" + to_string(desc))
     var margin: i64 = 600
     var W = w + margin * 2
     var H = (asc + desc) * 100 + margin * 2
