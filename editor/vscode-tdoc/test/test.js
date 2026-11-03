@@ -90,6 +90,21 @@ check('重排章节号（含引用）', () => {
     assert.ok(r.text.includes('见 2.1'), r.text);
 });
 
+check('公式校验：未闭合括号', () => {
+    const r = core.analyze('["title": "t", "blocks": [["math", "a + (b"]]]');
+    assert.ok(r.diagnostics.some((d) => /缺少/.test(d.message)));
+});
+
+check('公式校验：未知短码', () => {
+    const r = core.analyze('["title": "t", "blocks": [["math", "a @zz b"]]]');
+    assert.ok(r.diagnostics.some((d) => /未知符号短码/.test(d.message)));
+});
+
+check('公式校验：正确公式零诊断', () => {
+    const r = core.analyze('["title": "t", "blocks": [["math", "sum_(i=1)^n (a_i + b_i)/2 <= @S_(i=1)^n c_i"]]]');
+    assert.strictEqual(r.diagnostics.length, 0, JSON.stringify(r.diagnostics));
+});
+
 check('大纲层级', () => {
     const text = '["title": "t", "blocks": [["h1", "A"], ["h2", "B"], ["h1", "C"]]]';
     const r = core.analyze(text);

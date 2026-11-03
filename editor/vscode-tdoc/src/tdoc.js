@@ -5,6 +5,114 @@
 // 协议来源：tofflib/src/doc/model.tie 的块流定义与 src/doc/load.tie 的装载规则。
 
 /** 块定义：arity 为 token 个数（含块名），null 表示按内容校验。 */
+
+// ---------- tmath 公式文本的轻量校验（编辑器侧，不做完整解析） ----------
+
+const TMATH_CODES = new Set([
+    "a", "b", "g", "d", "e", "z", "h", "th", "i", "k", "l", "m", "n", "x", "o", "p",
+    "r", "s", "t", "u", "f", "ch", "ps", "w",
+    "A", "B", "G", "D", "TH", "L", "X", "P", "S", "F", "PS", "W",
+    "sum", "prod", "int", "oint", "lim",
+    "le", "ge", "ne", "approx", "equiv", "to", "in", "notin", "subset", "supset",
+    "cup", "cap", "perp", "parallel", "therefore", "because",
+    "oo", "infty", "partial", "nabla", "forall", "exists", "pm", "mp", "times",
+    "cdot", "cdots", "ldots", "emptyset", "angle", "degree", "prime"
+]);
+
+function isTmathOperandStart(c) {
+    return /[0-9a-zA-Z@"]/.test(c) || c.charCodeAt(0) > 127;
+}
+
+const TMATH_BIG = new Set(["sum", "prod", "int", "oint", "lim", "S"]);
+
+function checkMathText(src, base, out) {
+    // 轻量检查只覆盖确定性的错误：括号/绝对值配对、未知 @ 短码、
+    // 公式以运算符开头/结尾。「缺操作数/裸并置」交给 tie 端的 tmath 解析器判定，
+    // 编辑器侧的状态机推断容易误报（大运算符作用体、函数调用都长得像并置）。
+    const n = src.length;
+    const stack = [];
+    let i = 0;
+    let seenOperand = false;
+    let lastWasOp = false;
+    while (i < n) {
+        const c = src[i];
+        if (c === " " || c === "\t" || c === "\n" || c === "\r") { i += 1; continue; }
+        if (c === "/") {
+            if (lastWasOp) out.push(diag("公式以运算符开头", base + i, base + i + (src[i + 1] === "/" ? 2 : 1)));
+            if (src[i + 1] === "/") { i += 2; } else { i += 1; }
+            lastWasOp = true;
+            continue;
+        }
+        if (c === "+" || c === "-" || c === "*" || c === "=" || c === "<" || c === ">" || c === "^" || c === "_" || c === "," || c === ";") {
+            if (!seenOperand) out.push(diag("公式以运算符开头", base + i, base + i + 1));
+            if ((c === "<" || c === ">") && src[i + 1] === "=") i += 1;
+            if (c === "-" && src[i + 1] === ">") i += 1;
+            i += 1;
+            lastWasOp = true;
+            continue;
+        }
+        if (c === "(" || c === "[") {
+            stack.push({ ch: c, at: base + i });
+            i += 1;
+            lastWasOp = false;
+            continue;
+        }
+        if (c === ")" || c === "]") {
+            const want = c === ")" ? "(" : "[";
+            const top = stack.pop();
+            if (!top || top.ch !== want) {
+                out.push(diag(`多余的 ${c}`, base + i, base + i + 1));
+            }
+            i += 1;
+            lastWasOp = false;
+            seenOperand = true;
+            continue;
+        }
+        if (c === "|") {
+            const top = stack[stack.length - 1];
+            if (top && top.ch === "|") {
+                stack.pop();
+                lastWasOp = false;
+                seenOperand = true;
+            } else {
+                stack.push({ ch: "|", at: base + i });
+                lastWasOp = false;
+            }
+            i += 1;
+            continue;
+        }
+        if (c === "@") {
+            let j = i + 1;
+            while (j < n && /[0-9a-zA-Z]/.test(src[j])) j += 1;
+            const code = src.slice(i + 1, j);
+            if (!TMATH_CODES.has(code)) {
+                out.push(diag(`未知符号短码 @${code}`, base + i, base + j));
+            }
+            i = j;
+            seenOperand = true;
+            lastWasOp = false;
+            continue;
+        }
+        if (isTmathOperandStart(c)) {
+            let j = i;
+            while (j < n && isTmathOperandStart(src[j])) j += 1;
+            i = j;
+            seenOperand = true;
+            lastWasOp = false;
+            continue;
+        }
+        out.push(diag(`无法识别的字符 '${c}'`, base + i, base + i + 1));
+        i += 1;
+    }
+    while (stack.length) {
+        const t = stack.pop();
+        out.push(diag(t.ch === "|" ? "绝对值缺少收尾 |" : `缺少 ${t.ch === "(" ? ")" : "]"}`, t.at, t.at + 1));
+    }
+    if (lastWasOp) {
+        out.push(diag("公式以运算符结尾", base + Math.max(0, n - 1), base + n));
+    }
+}
+
 const BLOCKS = {
     doc: { arity: [2, 2], doc: '文档头：`["doc", "标题"]`，必须是首块且只出现一次。' },
     include: { arity: [2, 2], doc: '包含另一个文档片段：`["include", "ch09.tdoc"]`。装载期展开，相对当前文件解析，禁环，最多 16 层；被包含文件是 blocks 数组或含 blocks 的文档表。' },
@@ -381,6 +489,19 @@ function analyze(text) {
     const blocks = blocksEntry.value;
     const seen = Object.create(null);
     checkBlocks(blocks.items, diagnostics, seen);
+
+    // math 块：公式文本做轻量校验
+    blocks.items.forEach((blk) => {
+        if (!blk || blk.kind !== "array" || blk.items.length < 2) return;
+        const head = blk.items[0];
+        const textNode = blk.items[1];
+        if (!head || head.kind !== "string" || head.value !== "math") return;
+        if (!textNode || textNode.kind !== "string") return;
+        const before = textNode.value;
+        const mathDiags = [];
+        checkMathText(before, textNode.start + 1, mathDiags);
+        mathDiags.forEach((d) => diagnostics.push(d));
+    });
 
     // 大纲：h1–h3
     blocks.items.forEach((blk) => {
