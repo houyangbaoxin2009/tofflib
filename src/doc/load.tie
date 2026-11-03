@@ -73,90 +73,48 @@ func push_str_array(arr: i64, out: ref table<string>, what: string) -> string {
     return ""
 }
 
-// 代码块的书写缩进：here-doc 形态（文本以换行开头），正文每行统一带 12 空格前缀，
-// 装载时按**固定 12 列**剥离。固定值而非「最小公共缩进」是刻意的：代码片段本身
-// 可能整段带缩进（例如函数体内的几行），公共缩进法会把它一并吃掉。
-const CODE_INDENT: i64 = 12
-
-func dedent_text(t: string) -> string {
-    if len(t) == 0 || str_byte(t, 0) != 10 {
+// 代码块：内容**逐字保留**，只去掉 here-doc 的边界换行。
+// 约定：开引号后立即换行（该换行丢弃）；收尾引号独占一行时，其前的换行与行首
+// 缩进一并丢弃。内容行不做任何缩进剥离——写什么就是什么，缩进即排版。
+func trim_heredoc(t: string) -> string {
+    var n = len(t)
+    if n == 0 {
         return t
     }
-    var n = len(t)
-    var lines = table_new_string()
-    var cur = string_builder()
-    var i: i64 = 0
-    while i <= n {
-        if i == n || str_byte(t, i) == 10 {
-            table_push(lines, sb_build(cur))
-            cur = string_builder()
-            i = i + 1
-        } else {
-            sb_append_byte(cur, str_byte(t, i))
-            i = i + 1
-        }
+    var st: i64 = 0
+    if str_byte(t, 0) == 10 {
+        st = 1
     }
-    var st: i64 = 1   // 首行为空
-    var en: i64 = len(lines)
-    while en > st && is_blank(lines[en - 1]) {
-        en = en - 1
-    }
-    // 首行内容不足 12 列缩进 ⇒ 不是 here-doc 形态，原样返回
-    var a: i64 = st
-    var found: i64 = 0
-    while a < en {
-        if !is_blank(lines[a]) {
-            if indent_of(lines[a]) < CODE_INDENT {
-                return t
-            }
-            found = 1
+    // 结尾：若从某个换行起到字符串末尾只有空格/制表，则截到该换行处
+    var en = n
+    var i = n - 1
+    var nl: i64 = -1
+    var ws = 1
+    while i >= st {
+        var b = str_byte(t, i)
+        if b == 10 {
+            nl = i
             break
         }
-        a = a + 1
+        if b != 32 && b != 9 {
+            ws = 0
+            break
+        }
+        i = i - 1
     }
-    if found == 0 {
+    if ws == 1 && nl >= 0 {
+        en = nl
+    }
+    if st == 0 && en == n {
         return t
     }
     var out = string_builder()
-    var j: i64 = st
-    while j < en {
-        var ln2 = lines[j]
-        var m2 = len(ln2)
-        var k: i64 = CODE_INDENT
-        if k > m2 {
-            k = m2
-        }
-        while k < m2 {
-            sb_append_byte(out, str_byte(ln2, k))
-            k = k + 1
-        }
-        if j + 1 < en {
-            sb_append_byte(out, 10)
-        }
-        j = j + 1
+    var k = st
+    while k < en {
+        sb_append_byte(out, str_byte(t, k))
+        k = k + 1
     }
     return sb_build(out)
-}
-
-// 行首空格数。
-func indent_of(ln: string) -> i64 {
-    var i: i64 = 0
-    while i < len(ln) && str_byte(ln, i) == 32 {
-        i = i + 1
-    }
-    return i
-}
-
-// 整行只有空格（或为空）→ 不计入公共缩进。
-func is_blank(ln: string) -> bool {
-    var i: i64 = 0
-    while i < len(ln) {
-        if str_byte(ln, i) != 32 {
-            return false
-        }
-        i = i + 1
-    }
-    return true
 }
 
 // 追加一个块的 token；返回错误串（空=成功）。bi 仅用于报错定位。
@@ -374,7 +332,7 @@ func load_block(blk: i64, bi: i64, out: ref table<string>) -> string {
         }
         table_push(out, "code")
         table_push(out, arg_str(blk, 1))
-        table_push(out, dedent_text(arg_str(blk, 2)))
+        table_push(out, trim_heredoc(arg_str(blk, 2)))
         return ""
     }
     if kind == "link" {
