@@ -1783,6 +1783,126 @@ pub func to_mathml(src: string) -> string {
     return "<math xmlns=\"http://www.w3.org/1998/Math/MathML\"><mrow>" + mathml(id) + "</mrow></math>"
 }
 
+
+// ==================== 朗读文本导出（可访问性） ====================
+
+func speech_op(op: string) -> string {
+    if op == "+" { return "加" }
+    if op == "-" { return "减" }
+    if op == "×" || op == "·" { return "乘" }
+    if op == "≤" { return "小于等于" }
+    if op == "≥" { return "大于等于" }
+    if op == "≠" { return "不等于" }
+    if op == "=" { return "等于" }
+    if op == "<" { return "小于" }
+    if op == ">" { return "大于" }
+    if op == "→" { return "趋于" }
+    if op == "∈" { return "属于" }
+    if op == "⊂" { return "包含于" }
+    return op
+}
+
+pub func speech(id: i64) -> string {
+    if id < 0 {
+        return ""
+    }
+    var k = tm_kind[id]
+    if k == "num" || k == "id" || k == "sym" || k == "text" {
+        return tm_pay[id]
+    }
+    if k == "add" {
+        return speech(tm_a[id]) + "加" + speech(tm_b[id])
+    }
+    if k == "subtract" {
+        return speech(tm_a[id]) + "减" + speech(tm_b[id])
+    }
+    if k == "mul" {
+        return speech(tm_a[id]) + "乘" + speech(tm_b[id])
+    }
+    if k == "div" {
+        return "分数：分子" + speech(tm_a[id]) + "，分母" + speech(tm_b[id])
+    }
+    if k == "slash" {
+        return speech(tm_a[id]) + "除以" + speech(tm_b[id])
+    }
+    if k == "pow" {
+        return speech(tm_a[id]) + "的" + speech(tm_b[id]) + "次方"
+    }
+    if k == "sub" {
+        return speech(tm_a[id]) + "下标" + speech(tm_b[id])
+    }
+    if k == "neg" {
+        return "负" + speech(tm_a[id])
+    }
+    if k == "sqrt" {
+        return "根号" + speech(tm_a[id])
+    }
+    if k == "root" {
+        return speech(tm_a[id]) + "次根号下" + speech(tm_b[id])
+    }
+    if k == "abs" {
+        return speech(tm_a[id]) + "的绝对值"
+    }
+    if k == "norm" {
+        return speech(tm_a[id]) + "的范数"
+    }
+    if k == "rel" {
+        return speech(tm_a[id]) + speech_op(tm_pay[id]) + speech(tm_b[id])
+    }
+    if k == "set" {
+        return "集合：元素" + speech(tm_a[id]) + "满足" + speech(tm_b[id])
+    }
+    if k == "cases" {
+        return "分段函数，共" + to_string(tm_a[id]) + "段"
+    }
+    if k == "mat" {
+        return "矩阵，" + to_string(tm_a[id]) + "行" + to_string(tm_b[id]) + "列"
+    }
+    if k == "delim" {
+        return speech(tm_a[id])
+    }
+    if k == "acc" {
+        return speech(tm_a[id]) + "，带" + tm_pay[id] + "符号"
+    }
+    if k == "diff" {
+        return "d" + speech(tm_a[id])
+    }
+    if k == "func" {
+        return tm_pay[id] + "，参数" + speech(tm_a[id])
+    }
+    if k == "big" {
+        var name = tm_pay[id]
+        var what = "求和"
+        if name == "prod" {
+            what = "连乘"
+        } else if name == "int" {
+            what = "积分"
+        } else if name == "oint" {
+            what = "环路积分"
+        } else if name == "lim" {
+            what = "极限"
+        }
+        var s2 = what
+        if tm_a[id] >= 0 {
+            s2 = s2 + "从" + speech(tm_a[id])
+        }
+        if tm_b[id] >= 0 && name != "lim" {
+            s2 = s2 + "到" + speech(tm_b[id])
+        }
+        return s2 + "，" + speech(tm_c[id])
+    }
+    return ""
+}
+
+// 解析并返回朗读文本；失败返回空串。
+pub func to_speech(src: string) -> string {
+    var id = parse(src)
+    if id < 0 {
+        return ""
+    }
+    return speech(id)
+}
+
 // ==================== 便捷入口 ====================
 
 // 解析并返回规范形；失败返回 "ERR: 消息 @ 位置"。
