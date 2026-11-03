@@ -72,7 +72,7 @@ func tw(txt: string, size: i64) -> i64 {
 
 func dline(pg: i64, x1: i64, y: i64, x2: i64, w: i64) {
     if g_svg == 1 {
-        table_push(g_svgparts, "<line x1=\"" + pdf.f2s(x1) + "\" y1=\"" + pdf.f2s(y) + "\" x2=\"" + pdf.f2s(x2) + "\" y2=\"" + pdf.f2s(y) + "\" stroke=\"black\" stroke-width=\"" + pdf.f2s(w) + "\"/>\n")
+        table_push(g_svgparts, "<line x1=\"" + pdf.f2s(x1) + "\" y1=\"" + pdf.f2s(y * 100) + "\" x2=\"" + pdf.f2s(x2) + "\" y2=\"" + pdf.f2s(y * 100) + "\" stroke=\"black\" stroke-width=\"" + pdf.f2s(w) + "\"/>\n")
         return
     }
     pdf.hline(pg, x1 / 100, y, x2 / 100, w)
