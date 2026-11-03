@@ -17,18 +17,65 @@ namespace mathpdf {
 
 const SLOT: i64 = 0;
 
-// 单段文本：基线绘制
+// SVG 输出模式：g_svg=1 时 dtext/dline 写入 SVG 缓冲，且 y 偏移方向翻转
+// （PDF y 向上、SVG y 向下）。measure 与方向无关，两种产物共用同一份盒模型。
+var g_svg: i64 = 0;
+var g_svgparts: table<string>;
+var g_ysign: i64 = 1;
+
+func ysf(dy: i64) -> i64 {
+    if g_svg == 1 {
+        return 0 - dy
+    }
+    return dy
+}
+
+func xml_esc(t: string) -> string {
+    var sb = string_builder()
+    var i: i64 = 0
+    while i < len(t) {
+        var b: i64 = str_byte(t, i)
+        if b == 38 {
+            sb_append(sb, "&amp;")
+        } else if b == 60 {
+            sb_append(sb, "&lt;")
+        } else if b == 62 {
+            sb_append(sb, "&gt;")
+        } else {
+            sb_append_byte(sb, b)
+        }
+        i = i + 1
+    }
+    return sb_build(sb)
+}
+
 func dtext(pg: i64, x: i64, y: i64, size: i64, txt: string) {
+    if g_svg == 1 {
+        table_push(g_svgparts, "<text x=\"" + pdf.f2s(x) + "\" y=\"" + pdf.f2s(y) + "\" font-size=\"" + pdf.f2s(size * 100) + "\" font-family=\"serif\">" + xml_esc(txt) + "</text>\n")
+        return
+    }
     pdf.text_shaped(pg, x / 100, y, size * 100, pdf.shape(SLOT, SLOT, txt))
 }
 
 // 数学变量用合成斜体；数字、运算符、函数名保持直立。
 func dtext_i(pg: i64, x: i64, y: i64, size: i64, txt: string) {
+    if g_svg == 1 {
+        table_push(g_svgparts, "<text x=\"" + pdf.f2s(x) + "\" y=\"" + pdf.f2s(y) + "\" font-size=\"" + pdf.f2s(size * 100) + "\" font-family=\"serif\" font-style=\"italic\">" + xml_esc(txt) + "</text>\n")
+        return
+    }
     pdf.text_shaped_slant(pg, x / 100, y, size * 100, pdf.shape(SLOT, SLOT, txt))
 }
 
 func tw(txt: string, size: i64) -> i64 {
     return pdf.shape_width(pdf.shape(SLOT, SLOT, txt), size)
+}
+
+func dline(pg: i64, x1: i64, y: i64, x2: i64, w: i64) {
+    if g_svg == 1 {
+        table_push(g_svgparts, "<line x1=\"" + pdf.f2s(x1) + "\" y1=\"" + pdf.f2s(y) + "\" x2=\"" + pdf.f2s(x2) + "\" y2=\"" + pdf.f2s(y) + "\" stroke=\"black\" stroke-width=\"" + pdf.f2s(w) + "\"/>\n")
+        return
+    }
+    pdf.hline(pg, x1 / 100, y, x2 / 100, w)
 }
 
 // ---------- 度量 ----------
@@ -316,9 +363,9 @@ pub func draw(pg: i64, id: i64, x: i64, y: i64, size: i64) {
             w = dw
         }
         var cx = x + (w + 500) / 2
-        draw(pg, tmath.kid_a(id), cx - nw / 2, y + 3 + nd, s2)
-        pdf.hline(pg, (x + 100) / 100, y, (x + w + 400) / 100, 50)
-        draw(pg, tmath.kid_b(id), cx - dw / 2, y - 3 - da, s2)
+        draw(pg, tmath.kid_a(id), cx - nw / 2, y + ysf(3 + nd), s2)
+        dline(pg, x + 100, y, x + w + 400, 50)
+        draw(pg, tmath.kid_b(id), cx - dw / 2, y - ysf(3 + da), s2)
         return
     }
     if k == "pow" {
@@ -328,7 +375,7 @@ pub func draw(pg: i64, id: i64, x: i64, y: i64, size: i64) {
         if ss < 6 {
             ss = 6
         }
-        draw(pg, tmath.kid_b(id), x + bw, y + size * 45 / 100, ss)
+        draw(pg, tmath.kid_b(id), x + bw, y + ysf(size * 45 / 100), ss)
         return
     }
     if k == "sub" {
@@ -338,7 +385,7 @@ pub func draw(pg: i64, id: i64, x: i64, y: i64, size: i64) {
         if ss2 < 6 {
             ss2 = 6
         }
-        draw(pg, tmath.kid_b(id), x + bw2, y - size * 25 / 100, ss2)
+        draw(pg, tmath.kid_b(id), x + bw2, y - ysf(size * 25 / 100), ss2)
         return
     }
     if k == "sqrt" {
@@ -346,17 +393,17 @@ pub func draw(pg: i64, id: i64, x: i64, y: i64, size: i64) {
         var sym = tw("√", size + 2)
         var (iw, ia, id2) = measure(tmath.kid_a(id), size)
         draw(pg, tmath.kid_a(id), x + sym, y, size)
-        pdf.hline(pg, (x + sym * 3 / 4) / 100, y + ia + 1, (x + sym + iw) / 100, 45)
+        dline(pg, x + sym - 20, y + ysf(ia + 1), x + sym + iw, 45)
         return
     }
     if k == "root" {
         var sym2 = tw("√", size + 2)
         var (dw2, da2, dd2) = measure(tmath.kid_a(id), 6)
-        dtext(pg, x + 30, y + size + 2, 6, tmath.plain(tmath.kid_a(id)))
+        dtext(pg, x + 30, y + ysf(size + 2), 6, tmath.plain(tmath.kid_a(id)))
         dtext(pg, x, y, size + 2, "√")
         var (iw2, ia2, id3) = measure(tmath.kid_b(id), size)
         draw(pg, tmath.kid_b(id), x + sym2, y, size)
-        pdf.hline(pg, (x + sym2 * 3 / 4) / 100, y + ia2 + 1, (x + sym2 + iw2) / 100, 45)
+        dline(pg, x + sym2 - 20, y + ysf(ia2 + 1), x + sym2 + iw2, 45)
         return
     }
     if k == "abs" || k == "norm" {
@@ -382,7 +429,7 @@ pub func draw(pg: i64, id: i64, x: i64, y: i64, size: i64) {
     if k == "acc" {
         draw(pg, tmath.kid_a(id), x, y, size)
         var (iw5, ia5, id6) = measure(tmath.kid_a(id), size)
-        pdf.hline(pg, x / 100, y + ia5 + 1, (x + iw5) / 100, 40)
+        dline(pg, x, y + ysf(ia5 + 1), x + iw5, 40)
         return
     }
     if k == "diff" {
@@ -435,10 +482,10 @@ pub func draw(pg: i64, id: i64, x: i64, y: i64, size: i64) {
         }
         var cxo = x + opw / 2
         if tmath.kid_b(id) >= 0 {
-            draw(pg, tmath.kid_b(id), cxo - uw / 2, y + size * 95 / 100 + ud, size * 7 / 10)
+            draw(pg, tmath.kid_b(id), cxo - uw / 2, y + ysf(size * 95 / 100 + ud), size * 7 / 10)
         }
         if tmath.kid_a(id) >= 0 {
-            draw(pg, tmath.kid_a(id), cxo - lw / 2, y - size * 62 / 100 - la, size * 7 / 10)
+            draw(pg, tmath.kid_a(id), cxo - lw / 2, y - ysf(size * 62 / 100 + la), size * 7 / 10)
         }
         dtext(pg, cxo - gw / 2, y, size + 4, g)
         draw(pg, tmath.kid_c(id), x + opw + 300, y, size)
@@ -484,18 +531,18 @@ pub func draw(pg: i64, id: i64, x: i64, y: i64, size: i64) {
         var bw1 = tw("(", bh)
         dtext(pg, x, by, bh, "(")
         dtext(pg, x + mw - bw1, by, bh, ")")
-        var top = y + ma
+        var top = y + ysf(ma)
         r4 = 0
         while r4 < rows {
             var cx3 = x + tw("(", (ma + md) * 13 / 10) + 100
             var c5: i64 = 0
             while c5 < cols {
                 var (cw3, ca3, cd3) = measure(tmath.mat_cell(id, r4, c5), size)
-                draw(pg, tmath.mat_cell(id, r4, c5), cx3 + (colw2[c5] - cw3) / 2, top - ca3, size)
+                draw(pg, tmath.mat_cell(id, r4, c5), cx3 + (colw2[c5] - cw3) / 2, top - ysf(ca3), size)
                 cx3 = cx3 + colw2[c5] + 500
                 c5 = c5 + 1
             }
-            top = top - rowh2[r4] - 2
+            top = top - ysf(rowh2[r4] + 2)
             r4 = r4 + 1
         }
         return
@@ -510,15 +557,15 @@ pub func draw(pg: i64, id: i64, x: i64, y: i64, size: i64) {
         if brace > 30 {
             brace = 30
         }
-        dtext(pg, x, y + ha - brace * 3 / 4, brace, "{")
-        var top2 = y + ha
+        dtext(pg, x, y + ysf(ha - brace * 3 / 4), brace, "{")
+        var top2 = y + ysf(ha)
         var r5: i64 = 0
         while r5 < rows5 {
             var (w1, a1, d1) = measure(tmath.case_cell(id, r5, 0), size)
-            var rowy = top2 - a1
+            var rowy = top2 - ysf(a1)
             draw(pg, tmath.case_cell(id, r5, 0), x + 600, rowy, size)
             draw(pg, tmath.case_cell(id, r5, 1), x + 600 + w1 + 600, rowy, size)
-            top2 = top2 - (a1 + d1) - 2
+            top2 = top2 - ysf(a1 + d1 + 2)
             r5 = r5 + 1
         }
         return
@@ -631,6 +678,36 @@ pub func draw_wrapped(pg: i64, id: i64, x: i64, y: i64, size: i64, maxw: i64) {
         first = false
         i = i + 1
     }
+}
+
+
+// 渲染公式为 SVG（预览/调试出口；与 PDF 共用同一份盒模型与度量）。
+// 返回 <svg>…</svg> 文本；解析失败返回空串。
+pub func svg(src: string, size: i64) -> string {
+    var id = tmath.parse(src)
+    if id < 0 {
+        return ""
+    }
+    var (w, asc, desc) = measure(id, size)
+    var margin: i64 = 600
+    var W = w + margin * 2
+    var H = (asc + desc) * 100 + margin * 2
+    g_svgparts = table_new_string()
+    g_svg = 1
+    g_ysign = -1
+    table_push(g_svgparts, "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"" + pdf.f2s(W) + "\" height=\"" + pdf.f2s(H) + "\" viewBox=\"0 0 " + pdf.f2s(W) + " " + pdf.f2s(H) + "\">\n")
+    table_push(g_svgparts, "<rect x=\"0\" y=\"0\" width=\"" + pdf.f2s(W) + "\" height=\"" + pdf.f2s(H) + "\" fill=\"white\"/>\n")
+    draw(0, id, margin, margin / 100 + asc, size)
+    g_svg = 0
+    g_ysign = 1
+    table_push(g_svgparts, "</svg>\n")
+    var out = ""
+    var i: i64 = 0
+    while i < len(g_svgparts) {
+        out = out + g_svgparts[i]
+        i = i + 1
+    }
+    return out
 }
 
 }   // namespace mathpdf
