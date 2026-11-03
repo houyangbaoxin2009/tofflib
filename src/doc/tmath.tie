@@ -49,6 +49,15 @@ var tm_c: table<i64>;
 var tm_src: string = "";
 var tm_cells: table<i64>;
 var tm_ids: table<i64>;
+// 宏注册表与参数作用域（声明式参数化宏：体是预解析的表达式，不是代码）
+var tm_mn: table<string>;
+var tm_mp: table<string>;
+var tm_mb: table<string>;
+var tm_pn: table<string>;
+var tm_pi: table<i64>;
+var tm_pbases: table<i64>;
+var tm_pcur: i64 = 0;
+var tm_mdepth: i64 = 0;
 
 namespace tmath {
 
@@ -672,7 +681,37 @@ func parse_atom_ex(nc: i64) -> i64 {
     if k == "id" {
         var name = tv(tm_pos)
         tm_pos = tm_pos + 1
+        if tm_pcur < len(tm_pn) {
+            var pid0 = plookup(name)
+            if pid0 >= 0 {
+                return nnew("pref", name)
+            }
+        }
         if nc == 0 && tk(tm_pos) == "lpar" {
+            if macro_find(name) >= 0 {
+                tm_pos = tm_pos + 1
+                var margs: table<i64> = table_new_i64()
+                if tk(tm_pos) != "rpar" {
+                    var a0 = parse_expr()
+                    if a0 < 0 {
+                        return -1
+                    }
+                    table_push(margs, a0)
+                    while tk(tm_pos) == "comma" {
+                        tm_pos = tm_pos + 1
+                        var a1 = parse_expr()
+                        if a1 < 0 {
+                            return -1
+                        }
+                        table_push(margs, a1)
+                    }
+                }
+                if tk(tm_pos) != "rpar" {
+                    return fail("宏调用缺少右括号")
+                }
+                tm_pos = tm_pos + 1
+                return expand_macro(name, margs)
+            }
             return parse_call(name)
         }
         return nnew("id", name)
@@ -772,6 +811,176 @@ func desugar_diff(body: i64) -> i64 {
         }
     }
     return body
+}
+
+// ---------- 声明式参数化宏 ----------
+
+func macro_find(name: string) -> i64 {
+    var i: i64 = 0
+    while i < len(tm_mn) {
+        if tm_mn[i] == name {
+            return i
+        }
+        i = i + 1
+    }
+    return -1
+}
+
+func plookup(name: string) -> i64 {
+    var i = len(tm_pn) - 1
+    while i >= tm_pcur {
+        if tm_pn[i] == name {
+            return tm_pi[i]
+        }
+        i = i - 1
+    }
+    return -1
+}
+
+func split_csv(t: string) -> table<string> {
+    var out = table_new_string()
+    var cur = ""
+    var i: i64 = 0
+    while i < len(t) {
+        var c = str_byte(t, i)
+        if c == 44 {
+            table_push(out, cur)
+            cur = ""
+        } else if c != 32 {
+            cur = cur + str_char(t, i)
+        }
+        i = i + 1
+    }
+    table_push(out, cur)
+    return out
+}
+
+func subst_tree(id: i64) {
+    if id < 0 {
+        return
+    }
+    if tm_kind[id] == "pref" {
+        var bid = plookup(tm_pay[id])
+        if bid >= 0 {
+            tm_kind[id] = tm_kind[bid]
+            tm_pay[id] = tm_pay[bid]
+            tm_a[id] = tm_a[bid]
+            tm_b[id] = tm_b[bid]
+            tm_c[id] = tm_c[bid]
+        }
+        return
+    }
+    subst_tree(tm_a[id])
+    subst_tree(tm_b[id])
+    subst_tree(tm_c[id])
+}
+
+func parse_nested(src: string) -> i64 {
+    var sv_tk = tm_tk
+    var sv_tv = tm_tv
+    var sv_tp = tm_tp
+    var sv_pos = tm_pos
+    var r: i64 = -1
+    if lex(src) == 0 {
+        tm_pos = 0
+        r = parse_finish()
+    }
+    tm_tk = sv_tk
+    tm_tv = sv_tv
+    tm_tp = sv_tp
+    tm_pos = sv_pos
+    return r
+}
+
+// 展开宏调用：参数作用域压栈 → 嵌套解析体 → 参数替换 → 弹栈
+func expand_macro(name: string, args: table<i64>) -> i64 {
+    if tm_mdepth >= 16 {
+        fail("宏展开过深（上限 16 层）")
+        return -1
+    }
+    var di = macro_find(name)
+    if di < 0 {
+        fail("未声明的宏 " + name)
+        return -1
+    }
+    var params = split_csv(tm_mp[di])
+    if len(args) != len(params) {
+        fail("宏 " + name + " 需要 " + to_string(len(params)) + " 个参数，实际 " + to_string(len(args)))
+        return -1
+    }
+    table_push(tm_pbases, tm_pcur)
+    var i: i64 = 0
+    while i < len(params) {
+        table_push(tm_pn, params[i])
+        table_push(tm_pi, args[i])
+        i = i + 1
+    }
+    tm_mdepth = tm_mdepth + 1
+    var body = parse_nested(tm_mb[di])
+    tm_mdepth = tm_mdepth - 1
+    if body < 0 {
+        var base = table_pop_i(tm_pbases)
+        table_trunc(tm_pn, base)
+        table_trunc(tm_pi, base)
+        return -1
+    }
+    // 参数替换必须在弹栈之前（plookup 依赖作用域）
+    subst_tree(body)
+    var base = table_pop_i(tm_pbases)
+    table_trunc(tm_pn, base)
+    table_trunc(tm_pi, base)
+    return body
+}
+
+// 声明宏：验证体可解析（参数在作用域内绑定到占位）后注册。重复名与内置名拒绝。
+pub func def_macro(name: string, params: string, body: string) -> string {
+    ensure()
+    tm_mn = table_new_string()
+    tm_mp = table_new_string()
+    tm_mb = table_new_string()
+    tm_pn = table_new_string()
+    tm_pi = table_new_i64()
+    tm_pbases = table_new_i64()
+    tm_pcur = 0
+    if macro_find(name) >= 0 {
+        return "宏 " + name + " 已声明"
+    }
+    if sym_find(name) >= 0 || sym_find_short(name) >= 0 {
+        return "宏名 " + name + " 与内置符号冲突"
+    }
+    table_push(tm_mn, name)
+    table_push(tm_mp, params)
+    table_push(tm_mb, body)
+    var di = macro_find(name)
+    table_push(tm_pbases, tm_pcur)
+    var ps = split_csv(params)
+    var i: i64 = 0
+    while i < len(ps) {
+        var ph = nnew("num", "0")
+        table_push(tm_pn, ps[i])
+        table_push(tm_pi, ph)
+        i = i + 1
+    }
+    tm_pcur = len(tm_pn)
+    var ok = parse_nested(body)
+    var base = table_pop_i(tm_pbases)
+    table_trunc(tm_pn, base)
+    table_trunc(tm_pi, base)
+    tm_pcur = base
+    if ok < 0 {
+        var e = tm_err
+        table_trunc(tm_mn, di)
+        table_trunc(tm_mp, di)
+        table_trunc(tm_mb, di)
+        return "宏 " + name + " 的体不可解析：" + e
+    }
+    return ""
+}
+
+func table_pop_i(t: ref table<i64>) -> i64 {
+    var v = t[len(t) - 1]
+    table_trunc(t, len(t) - 1)
+    return v
 }
 
 func parse_call(name: string) -> i64 {
@@ -966,6 +1175,12 @@ func pack_ids(ids: table<i64>) -> i64 {
 // 解析公式；成功返回根节点 id，失败 -1（tm_err 有消息）。
 pub func parse(src: string) -> i64 {
     ensure()
+    // 参数作用域每次解析重置；宏定义注册表跨解析保留
+    tm_pn = table_new_string()
+    tm_pi = table_new_i64()
+    tm_pbases = table_new_i64()
+    tm_pcur = 0
+    tm_mdepth = 0
     tm_kind = table_new_string()
     tm_pay = table_new_string()
     tm_a = table_new_i64()
@@ -977,6 +1192,10 @@ pub func parse(src: string) -> i64 {
     if lex(src) < 0 {
         return -1
     }
+    return parse_finish()
+}
+
+func parse_finish() -> i64 {
     var root = parse_expr()
     if root < 0 {
         return -1
@@ -1046,10 +1265,17 @@ pub func case_cell(id: i64, r: i64, c: i64) -> i64 {
 
 // 用户声明式扩展：注册新符号（@code 访问；glyph 为字形；latex 为 LaTeX 导出名）。
 // 重复短码忽略（首个生效）。声明是数据，不是宏——语法不可被改写。
-pub func def_sym(cd: string, glyph: string, latex: string) {
+pub func def_sym(cd: string, glyph: string, latex: string) -> string {
     ensure()
-    if sym_find_short(cd) >= 0 || sym_find(cd) >= 0 {
-        return
+    // 用户声明覆盖内置短码（后声明覆盖先声明）；全名段冲突仍拒绝
+    var idx = sym_find_short(cd)
+    if idx >= 0 {
+        tm_sv[idx] = glyph
+        tm_sl[idx] = latex
+        return ""
+    }
+    if sym_find(cd) >= 0 {
+        return "符号名 " + cd + " 与内置全名冲突"
     }
     table_push(tm_sn, cd)
     table_push(tm_sv, glyph)

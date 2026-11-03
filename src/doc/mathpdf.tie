@@ -96,17 +96,17 @@ pub func measure(id: i64, size: i64) -> (w: i64, asc: i64, desc: i64) {
     if k == "add" || k == "subtract" || k == "rel" || k == "mul" || k == "slash" {
         var (aw, aa, ad) = measure(tmath.kid_a(id), size)
         var (bw, ba, bd) = measure(tmath.kid_b(id), size)
-        var op = " + "
+        var op = "+"
         if k == "subtract" {
-            op = " − "
+            op = "−"
         } else if k == "rel" {
-            op = " " + tmath.pay_of(id) + " "
+            op = tmath.pay_of(id)
         } else if k == "mul" {
-            op = " · "
+            op = "·"
         } else if k == "slash" {
             op = "/"
         }
-        var ow = tw(op, size)
+        var ow = tw(op, size) + size * 60 / 100
         var asc = aa
         if ba > asc {
             asc = ba
@@ -349,19 +349,20 @@ pub func draw(pg: i64, id: i64, x: i64, y: i64, size: i64) {
     }
     if k == "add" || k == "subtract" || k == "rel" || k == "mul" || k == "slash" {
         var (aw, aa, ad) = measure(tmath.kid_a(id), size)
-        var op = " + "
+        var op = "+"
         if k == "subtract" {
-            op = " − "
+            op = "−"
         } else if k == "rel" {
-            op = " " + tmath.pay_of(id) + " "
+            op = tmath.pay_of(id)
         } else if k == "mul" {
-            op = " · "
+            op = "·"
         } else if k == "slash" {
             op = "/"
         }
+        var ow = tw(op, size) + size * 60 / 100
         draw(pg, tmath.kid_a(id), x, y, size)
-        dtext(pg, x + aw, y, size, op)
-        draw(pg, tmath.kid_b(id), x + aw + tw(op, size), y, size)
+        dtext(pg, x + aw + size * 30 / 100, y, size, op)
+        draw(pg, tmath.kid_b(id), x + aw + ow, y, size)
         return
     }
     if k == "neg" {
@@ -561,7 +562,7 @@ pub func draw(pg: i64, id: i64, x: i64, y: i64, size: i64) {
         if bh < 10 {
             bh = 10
         }
-        var by = y - md - 1
+        var by = y - ysf(md + 1)
         var bw1 = tw("(", bh)
         dtext(pg, x, by, bh, "(")
         dtext(pg, x + mw - bw1, by, bh, ")")
