@@ -1141,7 +1141,7 @@ pub func end(path: string) -> bool {
 pub func math(src: string) {
     var id = tmath.parse(src)
     if id < 0 {
-        p("[公式解析失败：" + tmath.err() + "]")
+        p("[公式解析失败：" + tmath.err() + " ｜ 原文：" + src + "]")
         return
     }
     var size: i64 = 10

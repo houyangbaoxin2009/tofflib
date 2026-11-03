@@ -197,6 +197,24 @@ func ensure() {
     sy("F", "Φ", "sym", "Phi")
     sy("PS", "Ψ", "sym", "Psi")
     sy("W", "Ω", "sym", "Omega")
+    sy("E", "Ε", "sym", "Epsilon")
+    sy("Z", "Ζ", "sym", "Zeta")
+    sy("H", "Η", "sym", "Eta")
+    sy("I", "Ι", "sym", "Iota")
+    sy("K", "Κ", "sym", "Kappa")
+    sy("M", "Μ", "sym", "Mu")
+    sy("N", "Ν", "sym", "Nu")
+    sy("O", "Ο", "sym", "Omicron")
+    sy("R", "Ρ", "sym", "Rho")
+    sy("T", "Τ", "sym", "Tau")
+    sy("U", "Υ", "sym", "Upsilon")
+    sy("C", "Χ", "sym", "Chi")
+    sy("Y", "Ψ", "sym", "Psi")
+    sy("Q", "Θ", "sym", "Theta")
+    sy("pi", "π", "sym", "pi")
+    sy("mu", "μ", "sym", "mu")
+    sy("rho", "ρ", "sym", "rho")
+    sy("lam", "λ", "sym", "lambda")
     sy("oo", "∞", "sym", "infty")
     ready_mark()
 }
@@ -496,7 +514,15 @@ func fail(msg: string) -> i64 {
 }
 
 func is_rel_op(op: string) -> bool {
-    return op == "=" || op == "<" || op == ">" || op == "≤" || op == "≥" || op == "≠" || op == "→"
+    if op == "=" || op == "<" || op == ">" || op == "≤" || op == "≥" || op == "≠" || op == "→" {
+        return true
+    }
+    // 其余关系符（∈ ∪ ∩ ⊂ …）查符号表
+    var idx = sym_find_full_glyph(op)
+    if idx >= 0 {
+        return tm_sk[idx] == "rel"
+    }
+    return false
 }
 
 func parse_expr() -> i64 {
