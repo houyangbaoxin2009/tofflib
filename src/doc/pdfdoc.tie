@@ -1153,6 +1153,20 @@ pub func math(src: string) {
         asc = a2
         desc = d2
     }
+    if w > DP_COLW * 100 {
+        // 缩到下限仍超宽：按顶层 rel/add 链断行
+        var (w3, a3, d3) = mathpdf.measure_wrapped(id, size, DP_COLW * 100)
+        if get_env("TDOC_MATH_DEBUG") == "1" {
+            println("math wrapped size=" + to_string(size) + " w=" + to_string(w3) +
+                " asc=" + to_string(a3) + " desc=" + to_string(d3))
+        }
+        var h3 = a3 + d3
+        need(h3 + 8)
+        var y3 = dp_y - a3
+        mathpdf.draw_wrapped(dp_page, id, (DP_ML + 6) * 100, y3, size, DP_COLW * 100)
+        dp_y = dp_y - h3 - 10
+        return
+    }
     if get_env("TDOC_MATH_DEBUG") == "1" {
         println("math size=" + to_string(size) + " w=" + to_string(w) +
             " asc=" + to_string(asc) + " desc=" + to_string(desc))

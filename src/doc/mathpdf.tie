@@ -526,4 +526,111 @@ pub func draw(pg: i64, id: i64, x: i64, y: i64, size: i64) {
     dtext(pg, x, y, size, tmath.plain(id))
 }
 
+
+// ---------- 长公式自动断行（只按顶层 rel/add 链切分） ----------
+
+var mp_item: table<i64>;
+var mp_opt: table<string>;
+var mp_isop: table<i64>;
+
+func mp_reset() {
+    table_trunc(mp_item, 0)
+    table_trunc(mp_opt, 0)
+    table_trunc(mp_isop, 0)
+}
+
+func mp_push(id: i64, opt: string, isop: i64) {
+    table_push(mp_item, id)
+    table_push(mp_opt, opt)
+    table_push(mp_isop, isop)
+}
+
+func flatten_chain(cur: i64) {
+    var k = tmath.kind_of(cur)
+    if k == "rel" || k == "add" || k == "subtract" {
+        flatten_chain(tmath.kid_a(cur))
+        mp_push(-1, tmath.pay_of(cur), 1)
+        flatten_chain(tmath.kid_b(cur))
+    } else {
+        mp_push(cur, "", 0)
+    }
+}
+
+func mp_item_metrics(idx: i64, size: i64) -> (w: i64, asc: i64, desc: i64) {
+    if mp_isop[idx] == 1 {
+        return (tw(mp_opt[idx], size), size * 72 / 100, size * 22 / 100)
+    }
+    return measure(mp_item[idx], size)
+}
+
+pub func measure_wrapped(id: i64, size: i64, maxw: i64) -> (w: i64, asc: i64, desc: i64) {
+    mp_reset()
+    flatten_chain(id)
+    var n = len(mp_item)
+    if n == 0 {
+        return measure(id, size)
+    }
+    var lines = 1
+    var curw: i64 = 0
+    var i: i64 = 0
+    var firstasc: i64 = 0
+    var firstdesc: i64 = 0
+    var lastdesc: i64 = 0
+    var maxw2: i64 = 0
+    while i < n {
+        var (iw, ia, id2) = mp_item_metrics(i, size)
+        if curw + iw > maxw && curw > 0 {
+            lines = lines + 1
+            if maxw2 < curw {
+                maxw2 = curw
+            }
+            curw = 0
+        }
+        if lines == 1 {
+            firstasc = ia
+            firstdesc = id2
+        }
+        lastdesc = id2
+        curw = curw + iw
+        i = i + 1
+    }
+    if maxw2 < curw {
+        maxw2 = curw
+    }
+    var asc = firstasc
+    if lines > 1 {
+        asc = firstasc + (lines - 1) * (firstasc + firstdesc + 6)
+    }
+    var desc = firstdesc
+    if lines > 1 {
+        desc = lastdesc
+    }
+    return (maxw2, asc, desc)
+}
+
+pub func draw_wrapped(pg: i64, id: i64, x: i64, y: i64, size: i64, maxw: i64) {
+    mp_reset()
+    flatten_chain(id)
+    var n = len(mp_item)
+    var cx = x
+    var ybase = y
+    var first = true
+    var i: i64 = 0
+    while i < n {
+        var (iw, ia, id2) = mp_item_metrics(i, size)
+        if cx + iw - x > maxw && !first && mp_isop[i] == 1 {
+            cx = x
+            ybase = ybase - (size * 72 / 100 + size * 22 / 100 + 6)
+        }
+        if mp_isop[i] == 1 {
+            dtext(pg, cx, ybase, size, mp_opt[i])
+        } else {
+            draw(pg, mp_item[i], cx, ybase, size)
+        }
+        cx = cx + iw
+        first = false
+        i = i + 1
+    }
+}
+
 }   // namespace mathpdf
