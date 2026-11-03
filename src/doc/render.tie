@@ -802,7 +802,7 @@ func pdf_one(t: table<string>, i: i64, collect: i64) -> i64 {
         return i + 2
     }
     if k == "math" {
-        // PDF 暂以纯文本退化呈现（原生排版在后续阶段接入）
+        // PDF 暂以纯文本退化（原生排版仍在验证中，见 tmath 路线图）
         pdoc.p("  " + tmath.to_plain(t[i + 1]))
         g_pdf_wrote = 1
         return i + 2

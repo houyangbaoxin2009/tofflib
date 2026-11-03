@@ -138,7 +138,7 @@ tl.pdf("target/hello.pdf", d, "C:/Windows/Fonts/NotoSansSC-VF.ttf", "C:/Windows/
 ["math", "mat([a,b],[c,d])"],
 ```
 
-实现见 `src/doc/tmath.tie`：词法 → Pratt 解析 → AST → 规范化 / LaTeX / 纯文本 / OMML 四种导出。
+实现见 `src/doc/tmath.tie`：词法 → Pratt 解析 → AST → 规范化 / LaTeX / MathML / 纯文本 / OMML 五种导出。
 docx 后端输出真 OMML（Word 可编辑公式）；PDF 暂以纯文本退化，原生排版在后续阶段接入。
 不做 LaTeX 导入（避免宏语义污染），只提供 LaTeX 导出用于投稿。
 

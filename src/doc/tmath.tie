@@ -948,6 +948,83 @@ pub func dump_tokens(src: string) -> string {
     return out
 }
 
+pub func mat_rows(id: i64) -> i64 {
+    if id < 0 {
+        return 0
+    }
+    return tm_a[id]
+}
+
+pub func mat_cols(id: i64) -> i64 {
+    if id < 0 {
+        return 0
+    }
+    return tm_b[id]
+}
+
+pub func mat_cell(id: i64, r: i64, c: i64) -> i64 {
+    if id < 0 {
+        return -1
+    }
+    var cols = tm_b[id]
+    var start = tm_c[id]
+    return tm_cells[start + r * cols + c]
+}
+
+pub func case_rows(id: i64) -> i64 {
+    if id < 0 {
+        return 0
+    }
+    return tm_a[id]
+}
+
+pub func case_cell(id: i64, r: i64, c: i64) -> i64 {
+    if id < 0 {
+        return -1
+    }
+    var start = tm_c[id]
+    return tm_ids[start + r * 2 + c]
+}
+
+pub func glyph(name: string) -> string {
+    return op_char(name)
+}
+
+pub func kind_of(id: i64) -> string {
+    if id < 0 {
+        return ""
+    }
+    return tm_kind[id]
+}
+
+pub func pay_of(id: i64) -> string {
+    if id < 0 {
+        return ""
+    }
+    return tm_pay[id]
+}
+
+pub func kid_a(id: i64) -> i64 {
+    if id < 0 {
+        return -1
+    }
+    return tm_a[id]
+}
+
+pub func kid_b(id: i64) -> i64 {
+    if id < 0 {
+        return -1
+    }
+    return tm_b[id]
+}
+
+pub func kid_c(id: i64) -> i64 {
+    if id < 0 {
+        return -1
+    }
+    return tm_c[id]
+}
+
 pub func err() -> string {
     return tm_err
 }
@@ -1539,6 +1616,162 @@ pub func omml(id: i64) -> string {
 
 func func_plain(name: string) -> string {
     return name
+}
+
+
+// ==================== MathML 导出 ====================
+
+func xml_esc(t: string) -> string {
+    var out = ""
+    var i: i64 = 0
+    while i < str_len(t) {
+        var c = str_char(t, i)
+        if c == "&" {
+            out = out + "&amp;"
+        } else if c == "<" {
+            out = out + "&lt;"
+        } else if c == ">" {
+            out = out + "&gt;"
+        } else {
+            out = out + c
+        }
+        i = i + 1
+    }
+    return out
+}
+
+pub func mathml(id: i64) -> string {
+    if id < 0 {
+        return ""
+    }
+    var k = tm_kind[id]
+    if k == "num" {
+        return "<mn>" + xml_esc(tm_pay[id]) + "</mn>"
+    }
+    if k == "id" || k == "sym" {
+        return "<mi>" + xml_esc(tm_pay[id]) + "</mi>"
+    }
+    if k == "text" {
+        return "<mtext>" + xml_esc(tm_pay[id]) + "</mtext>"
+    }
+    if k == "add" {
+        return "<mrow>" + mathml(tm_a[id]) + "<mo>+</mo>" + mathml(tm_b[id]) + "</mrow>"
+    }
+    if k == "subtract" {
+        return "<mrow>" + mathml(tm_a[id]) + "<mo>−</mo>" + mathml(tm_b[id]) + "</mrow>"
+    }
+    if k == "mul" {
+        return "<mrow>" + mathml(tm_a[id]) + "<mo>·</mo>" + mathml(tm_b[id]) + "</mrow>"
+    }
+    if k == "div" {
+        return "<mfrac>" + mathml(tm_a[id]) + mathml(tm_b[id]) + "</mfrac>"
+    }
+    if k == "slash" {
+        return "<mrow>" + mathml(tm_a[id]) + "<mo>/</mo>" + mathml(tm_b[id]) + "</mrow>"
+    }
+    if k == "pow" {
+        return "<msup>" + mathml(tm_a[id]) + mathml(tm_b[id]) + "</msup>"
+    }
+    if k == "sub" {
+        return "<msub>" + mathml(tm_a[id]) + mathml(tm_b[id]) + "</msub>"
+    }
+    if k == "neg" {
+        return "<mrow><mo>−</mo>" + mathml(tm_a[id]) + "</mrow>"
+    }
+    if k == "sqrt" {
+        return "<msqrt>" + mathml(tm_a[id]) + "</msqrt>"
+    }
+    if k == "root" {
+        return "<mroot>" + mathml(tm_b[id]) + mathml(tm_a[id]) + "</mroot>"
+    }
+    if k == "abs" {
+        return "<mrow><mo>|</mo>" + mathml(tm_a[id]) + "<mo>|</mo></mrow>"
+    }
+    if k == "norm" {
+        return "<mrow><mo>‖</mo>" + mathml(tm_a[id]) + "<mo>‖</mo></mrow>"
+    }
+    if k == "rel" {
+        return "<mrow>" + mathml(tm_a[id]) + "<mo>" + xml_esc(tm_pay[id]) + "</mo>" + mathml(tm_b[id]) + "</mrow>"
+    }
+    if k == "delim" {
+        return "<mrow><mo>(</mo>" + mathml(tm_a[id]) + "<mo>)</mo></mrow>"
+    }
+    if k == "diff" {
+        return "<mrow><mi>d</mi>" + mathml(tm_a[id]) + "</mrow>"
+    }
+    if k == "func" {
+        var s = "<mi>" + xml_esc(tm_pay[id]) + "</mi><mo>(</mo>"
+        if tm_a[id] >= 0 {
+            s = s + mathml(tm_a[id])
+        }
+        if tm_b[id] >= 0 {
+            s = s + "<mo>,</mo>" + mathml(tm_b[id])
+        }
+        return "<mrow>" + s + "<mo>)</mo></mrow>"
+    }
+    if k == "acc" {
+        return "<mover>" + mathml(tm_a[id]) + "<mo>" + xml_esc(tm_pay[id]) + "</mo></mover>"
+    }
+    if k == "big" {
+        var op = op_char(tm_pay[id])
+        var sub = ""
+        if tm_a[id] >= 0 {
+            sub = mathml(tm_a[id])
+        }
+        var sup = ""
+        if tm_b[id] >= 0 {
+            sup = mathml(tm_b[id])
+        }
+        if str_len(sub) > 0 && str_len(sup) > 0 {
+            return "<mrow><munderover><mo>" + op + "</mo><mrow>" + sub + "</mrow><mrow>" + sup + "</mrow></munderover>" + mathml(tm_c[id]) + "</mrow>"
+        }
+        if str_len(sub) > 0 {
+            return "<mrow><munder><mo>" + op + "</mo><mrow>" + sub + "</mrow></munder>" + mathml(tm_c[id]) + "</mrow>"
+        }
+        if str_len(sup) > 0 {
+            return "<mrow><mover><mo>" + op + "</mo><mrow>" + sup + "</mrow></mover>" + mathml(tm_c[id]) + "</mrow>"
+        }
+        return "<mrow><mo>" + op + "</mo>" + mathml(tm_c[id]) + "</mrow>"
+    }
+    if k == "mat" {
+        var rows = tm_a[id]
+        var cols = tm_b[id]
+        var start = tm_c[id]
+        var s2 = "<mtable>"
+        var r: i64 = 0
+        while r < rows {
+            s2 = s2 + "<mtr>"
+            var c: i64 = 0
+            while c < cols {
+                s2 = s2 + "<mtd>" + mathml(tm_cells[start + r * cols + c]) + "</mtd>"
+                c = c + 1
+            }
+            s2 = s2 + "</mtr>"
+            r = r + 1
+        }
+        return s2 + "</mtable>"
+    }
+    if k == "cases" {
+        var rows2 = tm_a[id]
+        var start2 = tm_c[id]
+        var s3 = "<mrow><mo>{</mo><mtable>"
+        var r2: i64 = 0
+        while r2 < rows2 {
+            s3 = s3 + "<mtr><mtd>" + mathml(tm_ids[start2 + r2 * 2]) + "</mtd><mtd>" + mathml(tm_ids[start2 + r2 * 2 + 1]) + "</mtd></mtr>"
+            r2 = r2 + 1
+        }
+        return s3 + "</mtable></mrow>"
+    }
+    return ""
+}
+
+// 解析并返回完整 MathML 文档（失败返回空串）。
+pub func to_mathml(src: string) -> string {
+    var id = parse(src)
+    if id < 0 {
+        return ""
+    }
+    return "<math xmlns=\"http://www.w3.org/1998/Math/MathML\"><mrow>" + mathml(id) + "</mrow></math>"
 }
 
 // ==================== 便捷入口 ====================
