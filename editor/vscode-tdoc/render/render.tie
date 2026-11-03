@@ -9,6 +9,7 @@ type tie<logic>
 //   TDOC_OUT   输出 .pdf 路径
 //   TDOC_FONT  正文字体（TrueType 轮廓）
 //   TDOC_MONO  代码字体（空则回退正文字体）
+//   TDOC_BACKEND  pdf（默认）/ docx / pptx / xlsx
 import "../src/tofflib.tie" as tl
 
 func main() -> i64 {
@@ -28,8 +29,21 @@ func main() -> i64 {
         println("load = " + err)
         return 1
     }
-    var ok = tl.pdf(out, doc, get_env("TDOC_FONT"), mono)
-    println("pdf = " + to_string(ok))
+    var backend = get_env("TDOC_BACKEND")
+    if str_len(backend) == 0 {
+        backend = "pdf"
+    }
+    var ok = false
+    if backend == "docx" {
+        ok = tl.docx(out, doc)
+    } else if backend == "pptx" {
+        ok = tl.pptx(out, doc)
+    } else if backend == "xlsx" {
+        ok = tl.xlsx(out, doc)
+    } else {
+        ok = tl.pdf(out, doc, get_env("TDOC_FONT"), mono)
+    }
+    println(backend + " = " + to_string(ok))
     if ok {
         return 0
     }

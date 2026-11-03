@@ -302,11 +302,18 @@ function checkBlockShape(kind, blk, out) {
             if (widths.items.length !== cols) {
                 out.push(diag(`列宽有 ${widths.items.length} 项，应等于列数 ${cols}`, widths.start, widths.end));
             }
+            let total = 0;
             widths.items.forEach((w) => {
                 if (w.kind !== 'number' || !Number.isFinite(w.value) || w.value < 0) {
                     out.push(diag('列宽必须是非负整数（twips）', w.start, w.end));
+                } else {
+                    total += w.value;
                 }
             });
+            if (total > 9020) {
+                out.push(diag(`列宽合计 ${total} twips 超过版心（451pt = 9020 twips），表格会被截断`,
+                    widths.start, widths.end, 'warning'));
+            }
         }
         return;
     }
@@ -356,18 +363,18 @@ function analyze(text) {
     const folds = [];
 
     if (!root) {
-        return { diagnostics, symbols, folds };
+        return { diagnostics, symbols, folds, blocks: 0 };
     }
     if (root.kind !== 'map') {
         diagnostics.push(diag('文档根必须是表：`["title": …, "blocks": [ … ]]`', root.start, root.end));
-        return { diagnostics, symbols, folds };
+        return { diagnostics, symbols, folds, blocks: 0 };
     }
     const title = root.entries.find((e) => e.key === 'title');
     const blocksEntry = root.entries.find((e) => e.key === 'blocks');
     if (!title) diagnostics.push(diag('缺少 "title": "文档标题"', root.start, root.end, 'warning'));
     if (!blocksEntry || !blocksEntry.value || blocksEntry.value.kind !== 'array') {
         diagnostics.push(diag('缺少 "blocks": [ … ] 数组', root.start, root.end));
-        return { diagnostics, symbols, folds };
+        return { diagnostics, symbols, folds, blocks: 0 };
     }
     const blocks = blocksEntry.value;
     const seen = Object.create(null);
@@ -400,7 +407,81 @@ function analyze(text) {
             kids.forEach((k) => { if (k && (k.kind === 'array' || k.kind === 'map')) stack.push({ node: k }); });
         }
     }
-    return { diagnostics, symbols, folds };
+    return { diagnostics, symbols, folds, blocks: blocks.items.length };
 }
 
-module.exports = { BLOCKS, KIND_LIST, tokenize, parse, analyze };
+/**
+ * 只重排缩进：按「开括号所在行的缩进 + 4」对齐，字符串内部（含代码块）逐字保留。
+ * 这样 `["ul", [` 这种把两个括号写在一行的写法也只多缩一级，符合现有文档的风格。
+ * @param {string} text
+ * @param {number} [unit]
+ * @returns {string}
+ */
+function reindent(text, unit) {
+    const step = unit || 4;
+    const lines = text.split('\n');
+    const stack = [];
+    const out = [];
+    let inStr = false;
+    for (const line of lines) {
+        if (inStr) {
+            out.push(line);
+            inStr = scanInto(line, 0, stack, step, true);
+            continue;
+        }
+        const trimmed = line.trim();
+        if (!trimmed) {
+            out.push('');
+            continue;
+        }
+        let lead = 0;
+        while (lead < trimmed.length && (trimmed[lead] === ']' || trimmed[lead] === '}')) {
+            lead += 1;
+            stack.pop();
+        }
+        const indent = stack.length ? stack[stack.length - 1] + step : 0;
+        out.push(' '.repeat(indent) + trimmed);
+        inStr = scanInto(trimmed, lead, stack, step, false, indent);
+    }
+    return out.join('\n');
+}
+
+/**
+ * 扫描一行里剩余部分：开括号入栈（记录本行缩进），闭括号出栈；返回行末是否在字符串内。
+ * @param {string} line
+ * @param {number} from
+ * @param {number[]} stack
+ * @param {number} step
+ * @param {boolean} startInStr
+ * @param {number} [indent]
+ */
+function scanInto(line, from, stack, step, startInStr, indent) {
+    let inStr = startInStr;
+    const myIndent = indent === undefined ? (stack.length ? stack[stack.length - 1] + step : 0) : indent;
+    for (let i = from; i < line.length; i += 1) {
+        const c = line[i];
+        if (inStr) {
+            if (c === '\\') {
+                const e = line[i + 1];
+                if (e === undefined) break;      // 字符串延续到下一行
+                i += 1;
+                continue;
+            }
+            if (c === '"') inStr = false;
+            continue;
+        }
+        if (c === '/' && line[i + 1] === '/') break;
+        if (c === '"') {
+            inStr = true;
+            continue;
+        }
+        if (c === '[' || c === '{') {
+            stack.push(myIndent);
+        } else if (c === ']' || c === '}') {
+            stack.pop();
+        }
+    }
+    return inStr;
+}
+
+module.exports = { BLOCKS, KIND_LIST, tokenize, parse, analyze, reindent };

@@ -1,5 +1,6 @@
 'use strict';
-// tdoc 文档源支持：诊断、补全、大纲、折叠、悬停、插入块、新建文档、PDF 预览。
+// tdoc 文档源支持：诊断、补全、大纲、折叠、悬停、格式化、插入块、选区转块、
+// 新建文档、PDF 预览与多后端导出。
 // 语言服务逻辑在 src/tdoc.js（纯函数，可单测）；本文件只做 VS Code 接线。
 
 const vscode = require('vscode');
@@ -9,18 +10,20 @@ const os = require('os');
 const cp = require('child_process');
 const core = require('./src/tdoc.js');
 
-/** 诊断集合（整个工作区共用，按文档 URI 覆盖）。 */
+/** 诊断集合（按文档 URI 覆盖）。 */
 let diagnostics;
 /** 输出通道：编译/渲染日志。 */
 let channel;
+/** 状态栏：块数与问题数。 */
+let status;
 /** 变更防抖：每个文档一个定时器。 */
 const timers = new Map();
 
-/** 块补全项的骨架（用于插入完整块）。 */
+/** 块骨架（插入完整块时用）。 */
 const SNIPPETS = {
     h1: '["h1", "${1:标题}"]',
-    h2: '["h2", "${1:标题}"]',
-    h3: '["h3", "${1:标题}"]',
+    h2: '["h2", "${1:小节}"]',
+    h3: '["h3", "${1:小节}"]',
     p: '["p", "${1:正文}"]',
     note: '["note", "${1:提示}"]',
     ul: '["ul", [\n    "${1:条目一}",\n    "${2:条目二}"\n]]',
@@ -47,7 +50,15 @@ const SNIPPETS = {
     note_ref: '["note_ref", "${1:脚注}"]'
 };
 
-/** 偏移 → 位置（按文档行起点表）。 */
+/** 行内混排的 run 前缀。 */
+const RUN_PREFIXES = [
+    { label: 'b|', detail: '加粗' },
+    { label: 'i|', detail: '斜体' },
+    { label: 'm|', detail: '等宽' },
+    { label: 'link|', detail: '链接（link|文本|URL）' },
+    { label: 'fn|', detail: '脚注' }
+];
+
 function offsetToPosition(lineStarts, offset) {
     let lo = 0;
     let hi = lineStarts.length - 1;
@@ -71,7 +82,6 @@ function severityOf(s) {
     return s === 'warning' ? vscode.DiagnosticSeverity.Warning : vscode.DiagnosticSeverity.Error;
 }
 
-/** 重新分析并刷新诊断。 */
 function refresh(document) {
     if (!diagnostics || document.languageId !== 'tdoc') return;
     const text = document.getText();
@@ -84,6 +94,7 @@ function refresh(document) {
         return item;
     });
     diagnostics.set(document.uri, items);
+    updateStatus();
 }
 
 function schedule(document) {
@@ -96,7 +107,27 @@ function schedule(document) {
     }, 220));
 }
 
-/** 大纲：h1/h2/h3 按层级嵌套。 */
+function activeTdoc() {
+    const editor = vscode.window.activeTextEditor;
+    if (!editor || editor.document.languageId !== 'tdoc') return undefined;
+    return editor;
+}
+
+/** 状态栏：块数 / 问题数；点击预览。 */
+function updateStatus() {
+    if (!status) return;
+    const editor = activeTdoc();
+    if (!editor) {
+        status.hide();
+        return;
+    }
+    const r = core.analyze(editor.document.getText());
+    status.text = `tdoc · ${r.blocks} 块 · ${r.diagnostics.length} 问题`;
+    status.tooltip = '点击预览 PDF';
+    status.command = 'tdoc.previewPdf';
+    status.show();
+}
+
 function buildSymbols(document) {
     const text = document.getText();
     const result = core.analyze(text);
@@ -116,10 +147,10 @@ function buildSymbols(document) {
     return roots;
 }
 
-/** 折叠：跨行的数组/表。 */
 function buildFolds(document) {
-    const result = core.analyze(document.getText());
-    const starts = lineStartsOf(document.getText());
+    const text = document.getText();
+    const result = core.analyze(text);
+    const starts = lineStartsOf(text);
     const folds = [];
     for (const f of result.folds) {
         const a = offsetToPosition(starts, f.start).line;
@@ -129,10 +160,31 @@ function buildFolds(document) {
     return folds;
 }
 
-/** 补全：块名与骨架。 */
+/** 补全：块名、骨架，以及参数位置的取值。 */
 function provideCompletion(document, position) {
     const line = document.lineAt(position.line).text;
     const before = line.slice(0, position.character);
+
+    if (/\[\s*"toc"\s*,\s*"?\d*$/.test(before)) {
+        return new vscode.CompletionList([1, 2, 3].map((d) => {
+            const item = new vscode.CompletionItem(String(d), vscode.CompletionItemKind.Value);
+            item.detail = `目录深度 ${d}`;
+            return item;
+        }), false);
+    }
+    if (/\[\s*"code"\s*,\s*"?[a-z]*$/.test(before)) {
+        const item = new vscode.CompletionItem('tie', vscode.CompletionItemKind.Value);
+        item.detail = '代码块语言';
+        return new vscode.CompletionList([item], false);
+    }
+    if (/\[\s*"para".*"[^"]*$/.test(before)) {
+        return new vscode.CompletionList(RUN_PREFIXES.map((p) => {
+            const item = new vscode.CompletionItem(p.label, vscode.CompletionItemKind.Snippet);
+            item.detail = p.detail;
+            return item;
+        }), false);
+    }
+
     const insideKind = /\[\s*"[a-z0-9_]*$/.test(before);
     const items = core.KIND_LIST.map((kind) => {
         const def = core.BLOCKS[kind];
@@ -150,7 +202,6 @@ function provideCompletion(document, position) {
     return new vscode.CompletionList(items, false);
 }
 
-/** 悬停：块名说明。 */
 function provideHover(document, position) {
     const line = document.lineAt(position.line).text;
     const m = /\[\s*"([a-z0-9_]+)"/.exec(line);
@@ -163,10 +214,18 @@ function provideHover(document, position) {
     return new vscode.Hover(new vscode.MarkdownString(`**${m[1]}**\n\n${def.doc}`));
 }
 
-/** 插入块：快速选择 → 插入骨架。 */
+/** 格式化：只重排缩进，内容逐字保留。 */
+function provideFormatting(document) {
+    const text = document.getText();
+    const next = core.reindent(text);
+    if (next === text) return [];
+    const full = new vscode.Range(document.positionAt(0), document.positionAt(text.length));
+    return [vscode.TextEdit.replace(full, next)];
+}
+
 async function insertBlock() {
-    const editor = vscode.window.activeTextEditor;
-    if (!editor || editor.document.languageId !== 'tdoc') {
+    const editor = activeTdoc();
+    if (!editor) {
         void vscode.window.showInformationMessage('请在 tdoc 文档中使用「插入块」。');
         return;
     }
@@ -181,7 +240,6 @@ async function insertBlock() {
     await editor.insertSnippet(snippet);
 }
 
-/** 新建文档：最小可渲染骨架。 */
 async function newDocument() {
     const doc = await vscode.workspace.openTextDocument({
         language: 'tdoc',
@@ -201,7 +259,58 @@ async function newDocument() {
     await vscode.window.showTextDocument(doc);
 }
 
-/** 读取配置并提供默认值。 */
+/** 选区 → 代码块：自动转义，按 here-doc 形态包裹，保留原有缩进。 */
+async function codeFromSelection() {
+    const editor = activeTdoc();
+    if (!editor) return;
+    const sel = editor.selection;
+    const text = editor.document.getText(sel);
+    if (!text.trim()) {
+        void vscode.window.showInformationMessage('先选中一段代码或文本。');
+        return;
+    }
+    const indent = ' '.repeat(editor.document.lineAt(sel.start.line).firstNonWhitespaceCharacterIndex);
+    const body = text.replace(/\r\n/g, '\n').replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+    const block = `["code", "tie", "\n${body}\n"],`;
+    await editor.edit((b) => b.replace(sel, block));
+}
+
+/** 选区 → 带列宽表格：按制表符（没有则逗号）切分，第一行作表头。 */
+async function tableFromSelection() {
+    const editor = activeTdoc();
+    if (!editor) return;
+    const sel = editor.selection;
+    const text = editor.document.getText(sel);
+    const lines = text.split(/\r?\n/).filter((l) => l.trim().length > 0);
+    if (lines.length < 1) {
+        void vscode.window.showInformationMessage('先选中若干行，用制表符或逗号分列。');
+        return;
+    }
+    const delim = lines[0].includes('\t') ? '\t' : ',';
+    const rows = lines.map((l) => l.split(delim).map((c) => c.trim()));
+    const cols = Math.max.apply(null, rows.map((r) => r.length));
+    if (cols < 2) {
+        void vscode.window.showInformationMessage('至少需要两列。');
+        return;
+    }
+    const norm = rows.map((r) => {
+        const out = r.slice();
+        while (out.length < cols) out.push('');
+        return out;
+    });
+    const base = Math.floor(9020 / cols);
+    const widths = new Array(cols).fill(base);
+    widths[cols - 1] = 9020 - base * (cols - 1);
+    const esc = (s) => s.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+    const pad = ' '.repeat(editor.document.lineAt(sel.start.line).firstNonWhitespaceCharacterIndex);
+    const linesOut = ['["tblw",'];
+    norm.forEach((r) => linesOut.push('    [' + r.map((c) => `"${esc(c)}"`).join(', ') + '],'));
+    linesOut.push('    [' + widths.join(', ') + ']');
+    linesOut.push('],');
+    const block = linesOut.join('\n').replace(/\n/g, '\n' + pad);
+    await editor.edit((b) => b.replace(sel, block));
+}
+
 function readConfig() {
     const cfg = vscode.workspace.getConfiguration('tdoc');
     return {
@@ -265,11 +374,11 @@ async function ensureRenderer(cfg) {
     return exe;
 }
 
-/** 预览：渲染当前文档为 PDF 并打开。 */
-async function preview() {
-    const editor = vscode.window.activeTextEditor;
-    if (!editor || editor.document.languageId !== 'tdoc') {
-        void vscode.window.showInformationMessage('请在 tdoc 文档中使用「预览 PDF」。');
+/** 渲染当前文档并打开产物。 */
+async function renderDoc(backend) {
+    const editor = activeTdoc();
+    if (!editor) {
+        void vscode.window.showInformationMessage('请在 tdoc 文档中执行。');
         return;
     }
     const cfg = readConfig();
@@ -282,11 +391,13 @@ async function preview() {
     await editor.document.save();
     try {
         const exe = await ensureRenderer(cfg);
-        const out = path.join(os.tmpdir(), 'tdoc-preview', `${path.basename(editor.document.fileName, '.tdoc')}.pdf`);
+        const out = path.join(os.tmpdir(), 'tdoc-preview',
+            `${path.basename(editor.document.fileName, '.tdoc')}.${backend}`);
         fs.mkdirSync(path.dirname(out), { recursive: true });
         const env = Object.assign({}, process.env, {
             TDOC_IN: editor.document.uri.fsPath,
             TDOC_OUT: out,
+            TDOC_BACKEND: backend,
             TDOC_FONT: cfg.bodyFont,
             TDOC_MONO: cfg.monoFont
         });
@@ -305,17 +416,30 @@ async function preview() {
     }
 }
 
+async function exportDoc() {
+    const picked = await vscode.window.showQuickPick([
+        { label: 'pdf', description: '打印用排版（默认）' },
+        { label: 'docx', description: 'Word 文档' },
+        { label: 'pptx', description: '演示稿' },
+        { label: 'xlsx', description: '表格' }
+    ], { placeHolder: '导出为哪种格式' });
+    if (!picked) return;
+    await renderDoc(picked.label);
+}
+
 function activate(context) {
     diagnostics = vscode.languages.createDiagnosticCollection('tdoc');
     channel = vscode.window.createOutputChannel('tdoc');
-    context.subscriptions.push(diagnostics, channel);
+    status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
+    context.subscriptions.push(diagnostics, channel, status);
 
     context.subscriptions.push(vscode.workspace.onDidOpenTextDocument(refresh));
     context.subscriptions.push(vscode.workspace.onDidChangeTextDocument((e) => schedule(e.document)));
     context.subscriptions.push(vscode.workspace.onDidCloseTextDocument((doc) => diagnostics.delete(doc.uri)));
+    context.subscriptions.push(vscode.window.onDidChangeActiveTextEditor(updateStatus));
     context.subscriptions.push(vscode.workspace.onDidSaveTextDocument((doc) => {
         if (doc.languageId !== 'tdoc') return;
-        if (readConfig().onSave) void preview();
+        if (readConfig().onSave) void renderDoc('pdf');
     }));
 
     context.subscriptions.push(vscode.languages.registerDocumentSymbolProvider(
@@ -326,21 +450,40 @@ function activate(context) {
         { language: 'tdoc' }, { provideCompletionItems: provideCompletion }, '[', '"', ','));
     context.subscriptions.push(vscode.languages.registerHoverProvider(
         { language: 'tdoc' }, { provideHover }));
+    context.subscriptions.push(vscode.languages.registerDocumentFormattingEditProvider(
+        { language: 'tdoc' }, { provideDocumentFormattingEdits: provideFormatting }));
 
     context.subscriptions.push(vscode.commands.registerCommand('tdoc.insertBlock', insertBlock));
     context.subscriptions.push(vscode.commands.registerCommand('tdoc.newDocument', newDocument));
-    context.subscriptions.push(vscode.commands.registerCommand('tdoc.previewPdf', preview));
+    context.subscriptions.push(vscode.commands.registerCommand('tdoc.previewPdf', () => renderDoc('pdf')));
+    context.subscriptions.push(vscode.commands.registerCommand('tdoc.export', exportDoc));
+    context.subscriptions.push(vscode.commands.registerCommand('tdoc.codeFromSelection', codeFromSelection));
+    context.subscriptions.push(vscode.commands.registerCommand('tdoc.tableFromSelection', tableFromSelection));
+    context.subscriptions.push(vscode.commands.registerCommand('tdoc.reindent', async () => {
+        const editor = activeTdoc();
+        if (!editor) return;
+        const text = editor.document.getText();
+        const next = core.reindent(text);
+        if (next === text) {
+            void vscode.window.showInformationMessage('缩进已经规范。');
+            return;
+        }
+        const full = new vscode.Range(editor.document.positionAt(0), editor.document.positionAt(text.length));
+        await editor.edit((b) => b.replace(full, next));
+    }));
     context.subscriptions.push(vscode.commands.registerCommand('tdoc.validate', () => {
-        const doc = vscode.window.activeTextEditor && vscode.window.activeTextEditor.document;
-        if (doc && doc.languageId === 'tdoc') refresh(doc);
+        const editor = activeTdoc();
+        if (editor) refresh(editor.document);
     }));
 
     vscode.workspace.textDocuments.forEach(refresh);
+    updateStatus();
 }
 
 function deactivate() {
     if (diagnostics) diagnostics.dispose();
     if (channel) channel.dispose();
+    if (status) status.dispose();
 }
 
 module.exports = { activate, deactivate };

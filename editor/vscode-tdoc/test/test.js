@@ -56,6 +56,23 @@ check('here-doc 代码块保留缩进', () => {
     assert.strictEqual(r.diagnostics.length, 0, JSON.stringify(r.diagnostics));
 });
 
+check('列宽合计超版心', () => {
+    const r = core.analyze('["title": "t", "blocks": [["tblw", ["a", "b"], ["1", "2"], [9000, 9000]]]]');
+    assert.ok(r.diagnostics.some((d) => /版心/.test(d.message)));
+});
+
+check('重排缩进幂等', () => {
+    const text = '[\n "title": "t",\n "blocks": [\n ["h1", "A"],\n ["ul", [\n "x",\n "y",\n ]],\n ],\n]\n';
+    const once = core.reindent(text);
+    assert.strictEqual(core.reindent(once), once);
+    assert.ok(once.includes('        ["h1", "A"],'));
+});
+
+check('缩进不碰代码块内容', () => {
+    const text = '[\n    "title": "t",\n    "blocks": [\n        ["code", "tie", "\nfunc f() {\n    return 1\n}\n"],\n    ],\n]\n';
+    assert.strictEqual(core.reindent(text), text);
+});
+
 check('大纲层级', () => {
     const text = '["title": "t", "blocks": [["h1", "A"], ["h2", "B"], ["h1", "C"]]]';
     const r = core.analyze(text);

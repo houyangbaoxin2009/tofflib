@@ -22,10 +22,14 @@
     "tie.vscode-tie"
   ],
   "activationEvents": [
-    "onLanguage:tdoc",
+    "onCommand:tdoc.codeFromSelection",
+    "onCommand:tdoc.export",
     "onCommand:tdoc.insertBlock",
     "onCommand:tdoc.newDocument",
-    "onCommand:tdoc.previewPdf"
+    "onCommand:tdoc.previewPdf",
+    "onCommand:tdoc.reindent",
+    "onCommand:tdoc.tableFromSelection",
+    "onLanguage:tdoc"
   ],
   "main": "./extension.js",
   "contributes": {
@@ -75,6 +79,26 @@
         "command": "tdoc.validate",
         "title": "tdoc: 重新校验",
         "category": "tdoc"
+      },
+      {
+        "command": "tdoc.export",
+        "title": "tdoc: 导出（PDF / docx / pptx / xlsx）",
+        "category": "tdoc"
+      },
+      {
+        "command": "tdoc.codeFromSelection",
+        "title": "tdoc: 选区转为代码块",
+        "category": "tdoc"
+      },
+      {
+        "command": "tdoc.tableFromSelection",
+        "title": "tdoc: 选区转为表格",
+        "category": "tdoc"
+      },
+      {
+        "command": "tdoc.reindent",
+        "title": "tdoc: 重排缩进",
+        "category": "tdoc"
       }
     ],
     "menus": {
@@ -88,6 +112,21 @@
           "command": "tdoc.previewPdf",
           "when": "editorLangId == tdoc",
           "group": "navigation@2"
+        },
+        {
+          "command": "tdoc.codeFromSelection",
+          "when": "editorLangId == tdoc && editorHasSelection",
+          "group": "navigation@3"
+        },
+        {
+          "command": "tdoc.tableFromSelection",
+          "when": "editorLangId == tdoc && editorHasSelection",
+          "group": "navigation@4"
+        },
+        {
+          "command": "tdoc.reindent",
+          "when": "editorLangId == tdoc",
+          "group": "navigation@5"
         }
       ]
     },
