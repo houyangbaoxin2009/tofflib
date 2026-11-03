@@ -52,6 +52,8 @@ pub func is_block_kind(k: string) -> bool {
     if k == "header" || k == "footer" || k == "note_ref" { return true }
     if k == "img" { return true }
     if k == "math" { return true }
+    if k == "mathsym" { return true }
+    if k == "mathfn" { return true }
     return false
 }
 
@@ -435,6 +437,16 @@ pub func validate(b: table<string>) -> string {
         } else if k == "math" {
             if i + 1 >= n {
                 return to_string(i) + ": math 缺公式文本"
+            }
+            i = i + 2
+        } else if k == "mathsym" {
+            if i + 3 >= n {
+                return to_string(i) + ": mathsym 缺参数"
+            }
+            i = i + 4
+        } else if k == "mathfn" {
+            if i + 1 >= n {
+                return to_string(i) + ": mathfn 缺函数名"
             }
             i = i + 2
         } else if k == "link" {

@@ -172,6 +172,18 @@ function buildFolds(document) {
 }
 
 /** 补全：块名、骨架，以及参数位置的取值。 */
+/** 文档内 mathsym 声明的符号：code → {glyph, name}。 */
+function currentDeclared(document) {
+    const out = {};
+    const text = document.getText();
+    const re = /\["mathsym",\s*"([^"]+)",\s*"([^"]+)",\s*"([^"]+)"\]/g;
+    let m;
+    while ((m = re.exec(text)) !== null) {
+        out[m[1]] = { glyph: m[2], name: m[3] };
+    }
+    return out;
+}
+
 function provideCompletion(document, position) {
     const line = document.lineAt(position.line).text;
     const before = line.slice(0, position.character);
@@ -198,8 +210,9 @@ function provideCompletion(document, position) {
 
     const atMatch = /@([0-9a-zA-Z]*)$/.exec(before);
     if (atMatch) {
-        const items = Object.keys(core.TMATH_SYMBOLS).map((code) => {
-            const info = core.TMATH_SYMBOLS[code];
+        const declaredCodes = currentDeclared(document);
+        const items = Object.keys(core.TMATH_SYMBOLS).concat(Object.keys(declaredCodes)).map((code) => {
+            const info = core.TMATH_SYMBOLS[code] || declaredCodes[code];
             const item = new vscode.CompletionItem(code, vscode.CompletionItemKind.Constant);
             item.detail = info[1];
             item.label = { label: code, description: info[0] };

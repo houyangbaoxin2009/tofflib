@@ -54,7 +54,7 @@ function isTmathOperandStart(c) {
 
 const TMATH_BIG = new Set(["sum", "prod", "int", "oint", "lim", "S"]);
 
-function checkMathText(src, base, out) {
+function checkMathText(src, base, out, knownCodes) {
     // 轻量检查只覆盖确定性的错误：括号/绝对值配对、未知 @ 短码、
     // 公式以运算符开头/结尾。「缺操作数/裸并置」交给 tie 端的 tmath 解析器判定，
     // 编辑器侧的状态机推断容易误报（大运算符作用体、函数调用都长得像并置）。
@@ -114,7 +114,7 @@ function checkMathText(src, base, out) {
             let j = i + 1;
             while (j < n && /[0-9a-zA-Z]/.test(src[j])) j += 1;
             const code = src.slice(i + 1, j);
-            if (!TMATH_CODES.has(code)) {
+            if (!TMATH_CODES.has(code) && !(knownCodes && knownCodes[code])) {
                 out.push(diag(`未知符号短码 @${code}`, base + i, base + j));
             }
             i = j;
@@ -162,6 +162,8 @@ const BLOCKS = {
     ol: { arity: [2, 2], doc: '有序列表：`["ol", ["第一条", "第二条"]]`。' },
     tbl: { arity: null, doc: '表格：`["tbl", [表头...], [行...], ...]`，各行列数一致。' },
     tblw: { arity: null, doc: '带列宽的表格：`["tblw", [表头...], [行...], ..., [列宽...]]`，列宽单位为 twips（20 twips = 1 pt）。' },
+    mathsym: { arity: [4, 4], doc: '声明公式符号：`["mathsym", "R", "ℝ", "mathbb{R}"]`（短码、字形、LaTeX 名）。声明后 @R 在全文可用。' },
+    mathfn: { arity: [2, 2], doc: '声明直立函数名：`["mathfn", "erf"]`。声明后 erf(x) 按已知函数排版，不再视为未知。' },
     math: { arity: [2, 2], doc: '公式：`["math", "sum_(i=1)^n a_i"]`。语法见 tmath：`@a` 短码、`/` 分式、`//` 行内斜线、大运算符只吃乘性项。docx 出 OMML，PDF 暂以纯文本退化。' },
     code: { arity: [3, 3], doc: '代码块：`["code", "tie", "…"]`。here-doc 写法：开引号后换行，内容逐字保留。' },
     link: { arity: [3, 3], doc: '超链接段：`["link", "文本", "https://…"]`。' },
@@ -519,6 +521,18 @@ function analyze(text) {
     const seen = Object.create(null);
     checkBlocks(blocks.items, diagnostics, seen);
 
+    // mathsym/mathfn：收集声明（编辑器侧符号表扩展）
+    const declared = {};
+    blocks.items.forEach((blk) => {
+        if (!blk || blk.kind !== "array" || blk.items.length < 2) return;
+        const head = blk.items[0];
+        if (!head || head.kind !== "string") return;
+        if (head.value === "mathsym" && blk.items.length >= 2) {
+            const cd = blk.items[1];
+            if (cd && cd.kind === "string") declared[cd.value] = true;
+        }
+    });
+
     // math 块：公式文本做轻量校验
     blocks.items.forEach((blk) => {
         if (!blk || blk.kind !== "array" || blk.items.length < 2) return;
@@ -528,7 +542,7 @@ function analyze(text) {
         if (!textNode || textNode.kind !== "string") return;
         const before = textNode.value;
         const mathDiags = [];
-        checkMathText(before, textNode.start + 1, mathDiags);
+        checkMathText(before, textNode.start + 1, mathDiags, declared);
         mathDiags.forEach((d) => diagnostics.push(d));
     });
 
@@ -559,7 +573,7 @@ function analyze(text) {
             kids.forEach((k) => { if (k && (k.kind === 'array' || k.kind === 'map')) stack.push({ node: k }); });
         }
     }
-    return { diagnostics, symbols, folds, blocks: blocks.items.length, imgs: imgPaths(blocks.items) };
+    return { diagnostics, symbols, folds, blocks: blocks.items.length, imgs: imgPaths(blocks.items), declared };
 }
 
 /**

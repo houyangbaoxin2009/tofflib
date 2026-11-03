@@ -1044,6 +1044,51 @@ pub func case_cell(id: i64, r: i64, c: i64) -> i64 {
     return tm_ids[start + r * 2 + c]
 }
 
+// 用户声明式扩展：注册新符号（@code 访问；glyph 为字形；latex 为 LaTeX 导出名）。
+// 重复短码忽略（首个生效）。声明是数据，不是宏——语法不可被改写。
+pub func def_sym(cd: string, glyph: string, latex: string) {
+    ensure()
+    if sym_find_short(cd) >= 0 || sym_find(cd) >= 0 {
+        return
+    }
+    table_push(tm_sn, cd)
+    table_push(tm_sv, glyph)
+    table_push(tm_sk, "sym")
+    table_push(tm_sl, latex)
+}
+
+// 用户声明的直立函数名（编辑器补全/消警告用；渲染本身无需注册）。
+var tm_user_fn: table<string>;
+
+pub func def_fn(name: string) {
+    ensure()
+    if len(tm_user_fn) == 0 {
+        tm_user_fn = table_new_string()
+    }
+    var i: i64 = 0
+    while i < len(tm_user_fn) {
+        if tm_user_fn[i] == name {
+            return
+        }
+        i = i + 1
+    }
+    table_push(tm_user_fn, name)
+}
+
+pub func is_user_fn(name: string) -> bool {
+    if len(tm_user_fn) == 0 {
+        return false
+    }
+    var i: i64 = 0
+    while i < len(tm_user_fn) {
+        if tm_user_fn[i] == name {
+            return true
+        }
+        i = i + 1
+    }
+    return false
+}
+
 pub func glyph(name: string) -> string {
     return op_char(name)
 }
