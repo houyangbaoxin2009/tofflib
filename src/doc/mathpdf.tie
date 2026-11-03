@@ -1,0 +1,506 @@
+type tie<class>
+// ============================================================================
+// doc/mathpdf.tie —— tmath AST 的 PDF 排版（盒模型）
+//
+// 坐标约定：
+//   * 横向 x 用 1/100 pt（与 pdf.shape_width 一致），纵向 y 用 pt；
+//   * 每个节点的 y 是**基线**；measure 返回 (width, ascent, descent)，
+//     ascent/descent 都是相对基线的 pt 数。
+//   * 只依赖 pdf 原语（shape/text_shaped/hline），不碰 pdfdoc 的页面状态；
+//     页面推进由调用方（pdfdoc.math）负责。
+// ============================================================================
+
+import "../pdf/pdf.tie" as pdf
+import "./tmath.tie" as tmath
+
+namespace mathpdf {
+
+const SLOT: i64 = 0;
+
+// 单段文本：基线绘制
+func dtext(pg: i64, x: i64, y: i64, size: i64, txt: string) {
+    pdf.text_shaped(pg, x / 100, y, size * 100, pdf.shape(SLOT, SLOT, txt))
+}
+
+func tw(txt: string, size: i64) -> i64 {
+    return pdf.shape_width(pdf.shape(SLOT, SLOT, txt), size)
+}
+
+// ---------- 度量 ----------
+
+pub func measure(id: i64, size: i64) -> (w: i64, asc: i64, desc: i64) {
+    var k = tmath.kind_of(id)
+    if k == "num" || k == "id" || k == "sym" || k == "text" {
+        return (tw(tmath.pay_of(id), size), size * 72 / 100, size * 22 / 100)
+    }
+    if k == "add" || k == "subtract" || k == "rel" || k == "mul" || k == "slash" {
+        var (aw, aa, ad) = measure(tmath.kid_a(id), size)
+        var (bw, ba, bd) = measure(tmath.kid_b(id), size)
+        var op = " + "
+        if k == "subtract" {
+            op = " − "
+        } else if k == "rel" {
+            op = " " + tmath.pay_of(id) + " "
+        } else if k == "mul" {
+            op = " · "
+        } else if k == "slash" {
+            op = "/"
+        }
+        var ow = tw(op, size)
+        var asc = aa
+        if ba > asc {
+            asc = ba
+        }
+        var desc = ad
+        if bd > desc {
+            desc = bd
+        }
+        return (aw + ow + bw, asc, desc)
+    }
+    if k == "neg" {
+        var (nw, na, nd) = measure(tmath.kid_a(id), size)
+        return (nw + tw("−", size), na, nd)
+    }
+    if k == "div" {
+        var s2 = size - 1
+        if s2 < 6 {
+            s2 = 6
+        }
+        var (nw, na, nd) = measure(tmath.kid_a(id), s2)
+        var (dw, da, dd) = measure(tmath.kid_b(id), s2)
+        var w = nw
+        if dw > w {
+            w = dw
+        }
+        return (w + 500, 3 + nd + na, 3 + da + dd)
+    }
+    if k == "pow" {
+        var (bw2, ba2, bd2) = measure(tmath.kid_a(id), size)
+        var ss = size * 7 / 10
+        if ss < 6 {
+            ss = 6
+        }
+        var (sw, sa, sd) = measure(tmath.kid_b(id), ss)
+        var asc = ba2
+        var up = size * 45 / 100 + sa
+        if up > asc {
+            asc = up
+        }
+        return (bw2 + sw, asc, bd2)
+    }
+    if k == "sub" {
+        var (bw3, ba3, bd3) = measure(tmath.kid_a(id), size)
+        var ss2 = size * 7 / 10
+        if ss2 < 6 {
+            ss2 = 6
+        }
+        var (sw2, sa2, sd2) = measure(tmath.kid_b(id), ss2)
+        var desc = bd3
+        var dn = size * 25 / 100 + sd2
+        if dn > desc {
+            desc = dn
+        }
+        return (bw3 + sw2, ba3, desc)
+    }
+    if k == "sqrt" {
+        var (iw, ia, id2) = measure(tmath.kid_a(id), size)
+        return (iw + tw("√", size + 2) + 100, ia + 2, id2)
+    }
+    if k == "root" {
+        var (iw2, ia2, id3) = measure(tmath.kid_b(id), size)
+        var (dw2, da2, dd2) = measure(tmath.kid_a(id), 6)
+        return (iw2 + tw("√", size + 2) + 100 + dw2 / 2, ia2 + 3, id3)
+    }
+    if k == "abs" || k == "norm" {
+        var (iw3, ia3, id4) = measure(tmath.kid_a(id), size)
+        var bar = "|"
+        if k == "norm" {
+            bar = "‖"
+        }
+        return (iw3 + tw(bar, size) * 2, ia3, id4)
+    }
+    if k == "delim" {
+        var (iw4, ia4, id5) = measure(tmath.kid_a(id), size)
+        return (iw4 + tw("(", size) * 2, ia4, id5)
+    }
+    if k == "acc" {
+        return measure(tmath.kid_a(id), size)
+    }
+    if k == "diff" {
+        var (iw5, ia5, id6) = measure(tmath.kid_a(id), size)
+        return (iw5 + tw("d", size), ia5, id6)
+    }
+    if k == "func" {
+        var (aw, aa, ad) = measure(tmath.kid_a(id), size)
+        var fw = tw(tmath.pay_of(id) + "(", size)
+        var w = fw + aw + tw(")", size)
+        var asc = aa
+        var desc = ad
+        if tmath.kid_b(id) >= 0 {
+            var (bw, ba, bd) = measure(tmath.kid_b(id), size)
+            w = w + tw(", ", size) + bw
+            if ba > asc {
+                asc = ba
+            }
+            if bd > desc {
+                desc = bd
+            }
+        }
+        return (w, asc, desc)
+    }
+    if k == "big" {
+        var g = tmath.glyph(tmath.pay_of(id))
+        var gw = tw(g, size + 4)
+        var lw = 0
+        var la = 0
+        var ld = 0
+        var uw = 0
+        var ua = 0
+        var ud = 0
+        if tmath.kid_a(id) >= 0 {
+            var (lw0, la0, ld0) = measure(tmath.kid_a(id), size * 65 / 100)
+            lw = lw0
+            la = la0
+            ld = ld0
+        }
+        if tmath.kid_b(id) >= 0 {
+            var (uw0, ua0, ud0) = measure(tmath.kid_b(id), size * 65 / 100)
+            uw = uw0
+            ua = ua0
+            ud = ud0
+        }
+        var opw = gw
+        if lw > opw {
+            opw = lw
+        }
+        if uw > opw {
+            opw = uw
+        }
+        var (bw2, ba2, bd2) = measure(tmath.kid_c(id), size)
+        var asc2 = size * 100 / 100 + ua + ud
+        if ba2 > asc2 {
+            asc2 = ba2
+        }
+        var desc2 = size * 80 / 100 + la + ld
+        if bd2 > desc2 {
+            desc2 = bd2
+        }
+        return (opw + 300 + bw2, asc2, desc2)
+    }
+    if k == "mat" {
+        var rows = tmath.mat_rows(id)
+        var cols = tmath.mat_cols(id)
+        var colw: table<i64> = table_new_i64()
+        var rowh: table<i64> = table_new_i64()
+        var i: i64 = 0
+        while i < cols {
+            table_push(colw, 0)
+            i = i + 1
+        }
+        var r: i64 = 0
+        while r < rows {
+            table_push(rowh, size)
+            r = r + 1
+        }
+        r = 0
+        while r < rows {
+            var c: i64 = 0
+            while c < cols {
+                var (cw, ca, cd) = measure(tmath.mat_cell(id, r, c), size)
+                if cw > colw[c] {
+                    colw[c] = cw
+                }
+                if ca + cd > rowh[r] {
+                    rowh[r] = ca + cd
+                }
+                c = c + 1
+            }
+            r = r + 1
+        }
+        var w2: i64 = 400
+        var c2: i64 = 0
+        while c2 < cols {
+            w2 = w2 + colw[c2] + 500
+            c2 = c2 + 1
+        }
+        var h: i64 = 0
+        var r2: i64 = 0
+        while r2 < rows {
+            h = h + rowh[r2] + 2
+            r2 = r2 + 1
+        }
+        return (w2, h / 2, h / 2)
+    }
+    if k == "cases" {
+        var rows3 = tmath.case_rows(id)
+        var w1: i64 = 0
+        var w2: i64 = 0
+        var rh: i64 = 0
+        var r3: i64 = 0
+        while r3 < rows3 {
+            var (a1, aa1, ad1) = measure(tmath.case_cell(id, r3, 0), size)
+            var (a2, aa2, ad2) = measure(tmath.case_cell(id, r3, 1), size)
+            if a1 > w1 {
+                w1 = a1
+            }
+            if a2 > w2 {
+                w2 = a2
+            }
+            if aa1 + ad1 > rh {
+                rh = aa1 + ad1
+            }
+            if aa2 + ad2 > rh {
+                rh = aa2 + ad2
+            }
+            r3 = r3 + 1
+        }
+        var hh = rows3 * (rh + 2)
+        return (600 + w1 + 600 + w2 + 200, hh / 2, hh / 2)
+    }
+    return (tw(tmath.plain(id), size), size * 72 / 100, size * 22 / 100)
+}
+
+// ---------- 绘制 ----------
+
+pub func draw(pg: i64, id: i64, x: i64, y: i64, size: i64) {
+    var k = tmath.kind_of(id)
+    if k == "num" || k == "id" || k == "sym" || k == "text" {
+        dtext(pg, x, y, size, tmath.pay_of(id))
+        return
+    }
+    if k == "add" || k == "subtract" || k == "rel" || k == "mul" || k == "slash" {
+        var (aw, aa, ad) = measure(tmath.kid_a(id), size)
+        var op = " + "
+        if k == "subtract" {
+            op = " − "
+        } else if k == "rel" {
+            op = " " + tmath.pay_of(id) + " "
+        } else if k == "mul" {
+            op = " · "
+        } else if k == "slash" {
+            op = "/"
+        }
+        draw(pg, tmath.kid_a(id), x, y, size)
+        dtext(pg, x + aw, y, size, op)
+        draw(pg, tmath.kid_b(id), x + aw + tw(op, size), y, size)
+        return
+    }
+    if k == "neg" {
+        dtext(pg, x, y, size, "−")
+        draw(pg, tmath.kid_a(id), x + tw("−", size), y, size)
+        return
+    }
+    if k == "div" {
+        var s2 = size - 1
+        if s2 < 6 {
+            s2 = 6
+        }
+        var (nw, na, nd) = measure(tmath.kid_a(id), s2)
+        var (dw, da, dd) = measure(tmath.kid_b(id), s2)
+        var w = nw
+        if dw > w {
+            w = dw
+        }
+        var cx = x + (w + 500) / 2
+        draw(pg, tmath.kid_a(id), cx - nw / 2, y + 3 + nd, s2)
+        pdf.hline(pg, (x + 100) / 100, y, (x + w + 400) / 100, 50)
+        draw(pg, tmath.kid_b(id), cx - dw / 2, y - 3 - da, s2)
+        return
+    }
+    if k == "pow" {
+        var (bw, ba, bd) = measure(tmath.kid_a(id), size)
+        draw(pg, tmath.kid_a(id), x, y, size)
+        var ss = size * 7 / 10
+        if ss < 6 {
+            ss = 6
+        }
+        draw(pg, tmath.kid_b(id), x + bw, y + size * 45 / 100, ss)
+        return
+    }
+    if k == "sub" {
+        var (bw2, ba2, bd2) = measure(tmath.kid_a(id), size)
+        draw(pg, tmath.kid_a(id), x, y, size)
+        var ss2 = size * 7 / 10
+        if ss2 < 6 {
+            ss2 = 6
+        }
+        draw(pg, tmath.kid_b(id), x + bw2, y - size * 25 / 100, ss2)
+        return
+    }
+    if k == "sqrt" {
+        dtext(pg, x, y, size + 2, "√")
+        var sym = tw("√", size + 2)
+        var (iw, ia, id2) = measure(tmath.kid_a(id), size)
+        draw(pg, tmath.kid_a(id), x + sym, y, size)
+        pdf.hline(pg, (x + sym - 20) / 100, y + ia + 1, (x + sym + iw) / 100, 45)
+        return
+    }
+    if k == "root" {
+        var sym2 = tw("√", size + 2)
+        var (dw2, da2, dd2) = measure(tmath.kid_a(id), 6)
+        dtext(pg, x + 30, y + size + 2, 6, tmath.plain(tmath.kid_a(id)))
+        dtext(pg, x, y, size + 2, "√")
+        var (iw2, ia2, id3) = measure(tmath.kid_b(id), size)
+        draw(pg, tmath.kid_b(id), x + sym2, y, size)
+        pdf.hline(pg, (x + sym2 - 20) / 100, y + ia2 + 1, (x + sym2 + iw2) / 100, 45)
+        return
+    }
+    if k == "abs" || k == "norm" {
+        var bar = "|"
+        if k == "norm" {
+            bar = "‖"
+        }
+        var bw3 = tw(bar, size)
+        dtext(pg, x, y, size, bar)
+        draw(pg, tmath.kid_a(id), x + bw3, y, size)
+        var (iw3, ia3, id4) = measure(tmath.kid_a(id), size)
+        dtext(pg, x + bw3 + iw3, y, size, bar)
+        return
+    }
+    if k == "delim" {
+        var pw = tw("(", size)
+        dtext(pg, x, y, size, "(")
+        draw(pg, tmath.kid_a(id), x + pw, y, size)
+        var (iw4, ia4, id5) = measure(tmath.kid_a(id), size)
+        dtext(pg, x + pw + iw4, y, size, ")")
+        return
+    }
+    if k == "acc" {
+        draw(pg, tmath.kid_a(id), x, y, size)
+        var (iw5, ia5, id6) = measure(tmath.kid_a(id), size)
+        pdf.hline(pg, x / 100, y + ia5 + 1, (x + iw5) / 100, 40)
+        return
+    }
+    if k == "diff" {
+        dtext(pg, x, y, size, "d")
+        draw(pg, tmath.kid_a(id), x + tw("d", size), y, size)
+        return
+    }
+    if k == "func" {
+        dtext(pg, x, y, size, tmath.pay_of(id) + "(")
+        var fw = tw(tmath.pay_of(id) + "(", size)
+        var (aw2, aa2, ad2) = measure(tmath.kid_a(id), size)
+        draw(pg, tmath.kid_a(id), x + fw, y, size)
+        var cx2 = x + fw + aw2
+        if tmath.kid_b(id) >= 0 {
+            dtext(pg, cx2, y, size, ", ")
+            var cw = tw(", ", size)
+            draw(pg, tmath.kid_b(id), cx2 + cw, y, size)
+            cx2 = cx2 + cw + measure(tmath.kid_b(id), size).w
+        }
+        dtext(pg, cx2, y, size, ")")
+        return
+    }
+    if k == "big" {
+        var g = tmath.glyph(tmath.pay_of(id))
+        var gw = tw(g, size + 4)
+        var lw = 0
+        var la = 0
+        var ld = 0
+        var uw = 0
+        var ua = 0
+        var ud = 0
+        if tmath.kid_a(id) >= 0 {
+            var (lw0, la0, ld0) = measure(tmath.kid_a(id), size * 65 / 100)
+            lw = lw0
+            la = la0
+            ld = ld0
+        }
+        if tmath.kid_b(id) >= 0 {
+            var (uw0, ua0, ud0) = measure(tmath.kid_b(id), size * 65 / 100)
+            uw = uw0
+            ua = ua0
+            ud = ud0
+        }
+        var opw = gw
+        if lw > opw {
+            opw = lw
+        }
+        if uw > opw {
+            opw = uw
+        }
+        var cxo = x + opw / 2
+        if tmath.kid_b(id) >= 0 {
+            draw(pg, tmath.kid_b(id), cxo - uw / 2, y + size * 95 / 100 + ud, size * 65 / 100)
+        }
+        if tmath.kid_a(id) >= 0 {
+            draw(pg, tmath.kid_a(id), cxo - lw / 2, y - size * 75 / 100 - la, size * 65 / 100)
+        }
+        dtext(pg, cxo - gw / 2, y, size + 4, g)
+        draw(pg, tmath.kid_c(id), x + opw + 300, y, size)
+        return
+    }
+    if k == "mat" {
+        var (mw, ma, md) = measure(id, size)
+        var rows = tmath.mat_rows(id)
+        var cols = tmath.mat_cols(id)
+        var colw2: table<i64> = table_new_i64()
+        var rowh2: table<i64> = table_new_i64()
+        var i2: i64 = 0
+        while i2 < cols {
+            table_push(colw2, 0)
+            i2 = i2 + 1
+        }
+        var r4: i64 = 0
+        while r4 < rows {
+            table_push(rowh2, size)
+            r4 = r4 + 1
+        }
+        r4 = 0
+        while r4 < rows {
+            var c4: i64 = 0
+            while c4 < cols {
+                var (cw2, ca2, cd2) = measure(tmath.mat_cell(id, r4, c4), size)
+                if cw2 > colw2[c4] {
+                    colw2[c4] = cw2
+                }
+                if ca2 + cd2 > rowh2[r4] {
+                    rowh2[r4] = ca2 + cd2
+                }
+                c4 = c4 + 1
+            }
+            r4 = r4 + 1
+        }
+        var top = y + ma
+        r4 = 0
+        while r4 < rows {
+            var cx3 = x + 200
+            var c5: i64 = 0
+            while c5 < cols {
+                var (cw3, ca3, cd3) = measure(tmath.mat_cell(id, r4, c5), size)
+                draw(pg, tmath.mat_cell(id, r4, c5), cx3 + (colw2[c5] - cw3) / 2, top - ca3, size)
+                cx3 = cx3 + colw2[c5] + 500
+                c5 = c5 + 1
+            }
+            top = top - rowh2[r4] - 2
+            r4 = r4 + 1
+        }
+        return
+    }
+    if k == "cases" {
+        var (hw, ha, hd) = measure(id, size)
+        var rows5 = tmath.case_rows(id)
+        var brace = ha + hd
+        if brace < 10 {
+            brace = 10
+        }
+        if brace > 30 {
+            brace = 30
+        }
+        dtext(pg, x, y + ha - brace * 3 / 4, brace, "{")
+        var top2 = y + ha
+        var r5: i64 = 0
+        while r5 < rows5 {
+            var (w1, a1, d1) = measure(tmath.case_cell(id, r5, 0), size)
+            var rowy = top2 - a1
+            draw(pg, tmath.case_cell(id, r5, 0), x + 600, rowy, size)
+            draw(pg, tmath.case_cell(id, r5, 1), x + 600 + w1 + 600, rowy, size)
+            top2 = top2 - (a1 + d1) - 2
+            r5 = r5 + 1
+        }
+        return
+    }
+    dtext(pg, x, y, size, tmath.plain(id))
+}
+
+}   // namespace mathpdf

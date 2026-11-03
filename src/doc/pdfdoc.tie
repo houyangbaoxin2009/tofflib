@@ -18,6 +18,8 @@ type tie<logic>
 
 import "../pdf/pdf.tie"
 import "../img/imgmeta.tie" as imgmeta
+import "./tmath.tie" as tmath
+import "./mathpdf.tie" as mathpdf
 
 // ---------- 版面常量 ----------
 const DP_W: i64 = 595;
@@ -1134,6 +1136,33 @@ pub func notes_section(notes: table<string>) {
 pub func end(path: string) -> bool {
     return pdf.save(path)
 }
+
+// 公式块：交给 mathpdf 的盒模型；超宽时逐级缩字号（下限 6pt）。
+pub func math(src: string) {
+    var id = tmath.parse(src)
+    if id < 0 {
+        p("[公式解析失败：" + tmath.err() + "]")
+        return
+    }
+    var size: i64 = 10
+    var (w, asc, desc) = mathpdf.measure(id, size)
+    while w > DP_COLW * 100 && size > 6 {
+        size = size - 1
+        var (w2, a2, d2) = mathpdf.measure(id, size)
+        w = w2
+        asc = a2
+        desc = d2
+    }
+    if get_env("TDOC_MATH_DEBUG") == "1" {
+        println("math size=" + to_string(size) + " w=" + to_string(w) +
+            " asc=" + to_string(asc) + " desc=" + to_string(desc))
+    }
+    need(asc + desc + 8)
+    var y = dp_y - asc
+    mathpdf.draw(dp_page, id, (DP_ML + 6) * 100, y, size)
+    dp_y = dp_y - asc - desc - 14
+}
+
 
 }
 
