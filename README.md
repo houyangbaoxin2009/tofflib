@@ -127,6 +127,13 @@ var err = tl.load_file("examples/hello.tdoc", d)   // 空串 = 成功
 tl.pdf("target/hello.pdf", d, "C:/Windows/Fonts/NotoSansSC-VF.ttf", "C:/Windows/Fonts/consola.ttf")
 ```
 
+### 编辑器支持（tdoc）
+
+`editor/vscode-tdoc/` 是面向 tdoc 的 VS Code 扩展：块补全、26 个块片段、结构诊断
+（未闭合 / 未知块 / 参数个数 / 表格列数 / 列宽个数）、大纲、折叠、悬停，以及一键
+PDF 预览（调 `tiec` 编译内置渲染器）。它依赖 tie 语言扩展 `tie.vscode-tie`，
+td 的底层语法由后者提供。安装与配置见该目录的 README。
+
 ## 稳定性边界
 
 `tofflib` 命名空间（`src/tofflib.tie`）是对外稳定契约。`doc/*` 与各模块命名空间

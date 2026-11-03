@@ -1,0 +1,135 @@
+{
+  "name": "vscode-tdoc",
+  "displayName": "tdoc 文档源支持",
+  "description": "tofflib 的文档源（tdoc）支持：块补全、片段、结构诊断、大纲、折叠与 PDF 预览。依赖 tie 语言扩展。",
+  "version": "0.1.0",
+  "publisher": "tofflib",
+  "license": "TPL-2.3",
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Other"
+  ],
+  "keywords": [
+    "tdoc",
+    "tofflib",
+    "tie",
+    "document"
+  ],
+  "extensionDependencies": [
+    "tie.vscode-tie"
+  ],
+  "activationEvents": [
+    "onLanguage:tdoc",
+    "onCommand:tdoc.insertBlock",
+    "onCommand:tdoc.newDocument",
+    "onCommand:tdoc.previewPdf"
+  ],
+  "main": "./extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "tdoc",
+        "aliases": [
+          "tdoc",
+          "tdoc document"
+        ],
+        "extensions": [
+          ".tdoc"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "tdoc",
+        "scopeName": "source.tdoc",
+        "path": "./syntaxes/tdoc.tmLanguage.json"
+      }
+    ],
+    "snippets": [
+      {
+        "language": "tdoc",
+        "path": "./snippets/tdoc.code-snippets"
+      }
+    ],
+    "commands": [
+      {
+        "command": "tdoc.insertBlock",
+        "title": "tdoc: 插入块",
+        "category": "tdoc"
+      },
+      {
+        "command": "tdoc.newDocument",
+        "title": "tdoc: 新建文档",
+        "category": "tdoc"
+      },
+      {
+        "command": "tdoc.previewPdf",
+        "title": "tdoc: 预览 PDF",
+        "category": "tdoc"
+      },
+      {
+        "command": "tdoc.validate",
+        "title": "tdoc: 重新校验",
+        "category": "tdoc"
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "tdoc.insertBlock",
+          "when": "editorLangId == tdoc",
+          "group": "navigation@1"
+        },
+        {
+          "command": "tdoc.previewPdf",
+          "when": "editorLangId == tdoc",
+          "group": "navigation@2"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "tdoc",
+      "properties": {
+        "tdoc.compile.tiec": {
+          "type": "string",
+          "default": "",
+          "description": "tiec 可执行文件路径（编译渲染器用）。"
+        },
+        "tdoc.compile.trm": {
+          "type": "string",
+          "default": "",
+          "description": "trm_lite.a 路径；编译渲染器时作为 TIE_TRM_LITE_LIB 传入。使用表容器的文档需要它。"
+        },
+        "tdoc.tofflib.root": {
+          "type": "string",
+          "default": "",
+          "description": "tofflib 源码根目录（含 src/tofflib.tie）。预览渲染器会写到 <root>/.vscode-tdoc/。"
+        },
+        "tdoc.render.bodyFont": {
+          "type": "string",
+          "default": "C:/Windows/Fonts/NotoSansSC-VF.ttf",
+          "description": "PDF 正文字体（TrueType 轮廓，需含中文）。"
+        },
+        "tdoc.render.monoFont": {
+          "type": "string",
+          "default": "",
+          "description": "PDF 代码字体。留空时使用正文字体。"
+        },
+        "tdoc.preview.openExternal": {
+          "type": "boolean",
+          "default": true,
+          "description": "预览用系统默认阅读器打开（关闭则尝试在编辑器内打开）。"
+        },
+        "tdoc.preview.onSave": {
+          "type": "boolean",
+          "default": false,
+          "description": "保存 tdoc 时自动渲染预览。"
+        }
+      }
+    }
+  }
+}

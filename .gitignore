@@ -14,3 +14,5 @@
 # tpkg 规范
 target/
 _local_only/
+# 编辑器扩展的预览渲染器（运行时生成）
+.vscode-tdoc/

@@ -1,0 +1,73 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "tdoc",
+  "scopeName": "source.tdoc",
+  "comment": "tdoc = tie:data + 块协议。字符串内容逐字保留（可跨行），空白与缩进不参与语法。",
+  "patterns": [
+    { "include": "#comment" },
+    { "include": "#heading" },
+    { "include": "#block" },
+    { "include": "#key" },
+    { "include": "#string" },
+    { "include": "#number" },
+    { "include": "#literal" },
+    { "include": "#punctuation" }
+  ],
+  "repository": {
+    "comment": {
+      "match": "//.*$",
+      "name": "comment.line.double-slash.tdoc"
+    },
+    "heading": {
+      "comment": "标题块：块名高亮为关键字，标题文本按 heading 着色",
+      "match": "(\\[)(\\s*)(\"h[1-9]\")(\\s*,\\s*)(\"(?:\\\\.|[^\"\\\\])*\")",
+      "captures": {
+        "1": { "name": "punctuation.section.array.begin.tdoc" },
+        "3": { "name": "keyword.other.block.tdoc" },
+        "4": { "name": "punctuation.separator.tdoc" },
+        "5": { "name": "markup.heading.tdoc" }
+      }
+    },
+    "block": {
+      "comment": "块名：数组首元素且其后紧跟逗号或右括号",
+      "match": "(\\[)(\\s*)(\"[a-z0-9_]+\")(?=\\s*[,\\]])",
+      "captures": {
+        "1": { "name": "punctuation.section.array.begin.tdoc" },
+        "3": { "name": "keyword.other.block.tdoc" }
+      }
+    },
+    "key": {
+      "match": "(\"(?:\\\\.|[^\"\\\\])*\")(\\s*)(:)",
+      "captures": {
+        "1": { "name": "support.type.property-name.tdoc" },
+        "3": { "name": "punctuation.separator.key-value.tdoc" }
+      }
+    },
+    "string": {
+      "begin": "\"",
+      "end": "\"",
+      "name": "string.quoted.double.tdoc",
+      "patterns": [
+        { "match": "\\\\(?:[\"\\\\/nrt]|$)", "name": "constant.character.escape.tdoc" }
+      ],
+      "beginCaptures": {
+        "0": { "name": "punctuation.definition.string.begin.tdoc" }
+      },
+      "endCaptures": {
+        "0": { "name": "punctuation.definition.string.end.tdoc" }
+      }
+    },
+    "number": {
+      "match": "-?\\b\\d+(?:\\.\\d+)?(?:[eE][+-]?\\d+)?\\b",
+      "name": "constant.numeric.tdoc"
+    },
+    "literal": {
+      "match": "\\b(?:true|false|null)\\b",
+      "name": "constant.language.tdoc"
+    },
+    "punctuation": {
+      "match": "[\\[\\]{},:]",
+      "name": "punctuation.separator.tdoc"
+    }
+  }
+}

@@ -1,0 +1,37 @@
+type tie<logic>
+// render.tie —— tdoc → PDF 渲染器
+// ============================================================
+// 由 vscode-tdoc 扩展生成到 <tofflib 根>/.vscode-tdoc/ 并编译；不要手工修改，
+// 扩展会在下次预览时覆盖。
+//
+// 输入（环境变量）：
+//   TDOC_IN    .tdoc 路径
+//   TDOC_OUT   输出 .pdf 路径
+//   TDOC_FONT  正文字体（TrueType 轮廓）
+//   TDOC_MONO  代码字体（空则回退正文字体）
+import "../src/tofflib.tie" as tl
+
+func main() -> i64 {
+    var src = get_env("TDOC_IN")
+    var out = get_env("TDOC_OUT")
+    if str_len(src) == 0 || str_len(out) == 0 {
+        println("need TDOC_IN / TDOC_OUT")
+        return 2
+    }
+    var mono = get_env("TDOC_MONO")
+    if str_len(mono) == 0 {
+        mono = get_env("TDOC_FONT")
+    }
+    var doc: table<string> = table_new_string()
+    var err = tl.load_file(src, doc)
+    if str_len(err) > 0 {
+        println("load = " + err)
+        return 1
+    }
+    var ok = tl.pdf(out, doc, get_env("TDOC_FONT"), mono)
+    println("pdf = " + to_string(ok))
+    if ok {
+        return 0
+    }
+    return 1
+}
