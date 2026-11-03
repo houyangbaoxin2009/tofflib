@@ -7,6 +7,7 @@
 /** 块定义：arity 为 token 个数（含块名），null 表示按内容校验。 */
 const BLOCKS = {
     doc: { arity: [2, 2], doc: '文档头：`["doc", "标题"]`，必须是首块且只出现一次。' },
+    include: { arity: [2, 2], doc: '包含另一个文档片段：`["include", "ch09.tdoc"]`。装载期展开，相对当前文件解析，禁环，最多 16 层；被包含文件是 blocks 数组或含 blocks 的文档表。' },
     h1: { arity: [2, 2], doc: '一级标题（进入目录）。' },
     h2: { arity: [2, 2], doc: '二级标题（进入目录）。' },
     h3: { arity: [2, 2], doc: '三级标题（不进入目录，仅作层级）。' },

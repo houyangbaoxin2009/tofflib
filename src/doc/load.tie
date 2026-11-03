@@ -132,6 +132,19 @@ func load_block(blk: i64, bi: i64, out: ref table<string>) -> string {
         return where + "块类型必须是字符串"
     }
     var kind: string = td.str_val(k)
+    // include：先写占位标记，整文件装载完成后统一展开（td 解析器有全局状态，
+    // 不能在遍历父文件 AST 的同时再解析子文件）。
+    if kind == "include" {
+        if !arity_is(blk, 2) {
+            return where + "include 需要 2 个元素（路径）"
+        }
+        if str_len(arg_str(blk, 1)) == 0 {
+            return where + "include 路径不能为空"
+        }
+        table_push(out, "__include")
+        table_push(out, arg_str(blk, 1))
+        return ""
+    }
     if str_len(kind) == 2 && str_byte(kind, 0) == 104 {
         var d: i64 = str_byte(kind, 1)
         if d >= 49 && d <= 57 {
@@ -384,7 +397,7 @@ func load_block(blk: i64, bi: i64, out: ref table<string>) -> string {
 }
 
 // td 根节点 → 块流；返回错误串（空=成功）。out 须由调用方 table_new_string() 创建。
-func load_td(root: i64, out: ref table<string>) -> string {
+func load_td(root: i64, out: ref table<string>, base: string, seen: ref table<string>, depth: i64) -> string {
     if td.type_of(root) != 6 {
         return "文档根节点必须是表（[ ... ]）"
     }
@@ -407,6 +420,10 @@ func load_td(root: i64, out: ref table<string>) -> string {
         }
         i = i + 1
     }
+    var ierr: string = expand_includes(out, base, seen, depth)
+    if str_len(ierr) > 0 {
+        return "include 展开失败: " + ierr
+    }
     var verr: string = doc.validate(out)
     if str_len(verr) > 0 {
         return "块流校验失败: " + verr
@@ -420,8 +437,142 @@ pub func load_file(path: string, out: ref table<string>) -> string {
     if root < 0 {
         return "td 解析失败: " + td.err_msg()
     }
-    return load_td(root, out)
+    var seen: table<string> = table_new_string()
+    table_push(seen, path)
+    return load_td(root, out, dir_of(path), seen, 0)
 }
+
+// ---------- include 支持 ----------
+
+// 目录部分（不含末尾分隔符）。
+func dir_of(p: string) -> string {
+    var i: i64 = len(p) - 1
+    while i >= 0 {
+        var b = str_byte(p, i)
+        if b == 47 || b == 92 {
+            return sub_str(p, 0, i)
+        }
+        i = i - 1
+    }
+    return ""
+}
+
+// 拼接路径：a 为空返回 b；a 末尾已有分隔符则直接接。
+func join_path(a: string, b: string) -> string {
+    if str_len(a) == 0 {
+        return b
+    }
+    var last = str_byte(a, len(a) - 1)
+    if last == 47 || last == 92 {
+        return a + b
+    }
+    return a + "/" + b
+}
+
+// 绝对路径：盘符（C:）或以分隔符开头。
+func is_abs_path(p: string) -> bool {
+    var n = len(p)
+    if n >= 2 && str_byte(p, 1) == 58 {
+        return true
+    }
+    if n >= 1 && (str_byte(p, 0) == 47 || str_byte(p, 0) == 92) {
+        return true
+    }
+    return false
+}
+
+// 字节切片 [a, b)。
+func sub_str(s: string, a: i64, b: i64) -> string {
+    var sb = string_builder()
+    var i = a
+    while i < b && i < len(s) {
+        sb_append_byte(sb, str_byte(s, i))
+        i = i + 1
+    }
+    return sb_build(sb)
+}
+
+// 展开一个 include：目标可以是 blocks 数组，或含 blocks 的文档表。
+// 子文件先完整装载成 token（含嵌套占位），再递归展开，避免嵌套解析。
+func load_include(p: string, out: ref table<string>, seen: ref table<string>, depth: i64) -> string {
+    if depth >= 16 {
+        return "include 嵌套过深（上限 16 层）：" + p
+    }
+    var i: i64 = 0
+    while i < len(seen) {
+        if seen[i] == p {
+            return "include 成环：" + p
+        }
+        i = i + 1
+    }
+    table_push(seen, p)
+    var root: i64 = td.parse_data(p)
+    if root < 0 {
+        return "include 解析失败（" + p + "）：" + td.err_msg()
+    }
+    var blocks: i64 = -1
+    if td.type_of(root) == 6 {
+        blocks = td.map_get(root, "blocks")
+    } else if td.type_of(root) == 5 {
+        blocks = root
+    }
+    if blocks < 0 || td.type_of(blocks) != 5 {
+        return "include 目标必须是 blocks 数组，或含 blocks 的文档表：" + p
+    }
+    var tmp: table<string> = table_new_string()
+    var n = td.arr_len(blocks)
+    var j: i64 = 0
+    while j < n {
+        var err = load_block(td.arr_at(blocks, j), j, tmp)
+        if str_len(err) > 0 {
+            return p + ": " + err
+        }
+        j = j + 1
+    }
+    var e2 = expand_includes(tmp, dir_of(p), seen, depth + 1)
+    if str_len(e2) > 0 {
+        return p + ": " + e2
+    }
+    var k: i64 = 0
+    while k < len(tmp) {
+        table_push(out, tmp[k])
+        k = k + 1
+    }
+    return ""
+}
+
+// 把 token 流里的 "__include"+路径 就地替换为子文件展开后的 token。
+func expand_includes(items: ref table<string>, base: string, seen: ref table<string>, depth: i64) -> string {
+    var out2: table<string> = table_new_string()
+    var i: i64 = 0
+    while i < len(items) {
+        if items[i] == "__include" {
+            if i + 1 >= len(items) {
+                return "include 缺少路径"
+            }
+            var p = items[i + 1]
+            if !is_abs_path(p) {
+                p = join_path(base, p)
+            }
+            var err = load_include(p, out2, seen, depth)
+            if str_len(err) > 0 {
+                return err
+            }
+            i = i + 2
+        } else {
+            table_push(out2, items[i])
+            i = i + 1
+        }
+    }
+    table_trunc(items, 0)
+    var j: i64 = 0
+    while j < len(out2) {
+        table_push(items, out2[j])
+        j = j + 1
+    }
+    return ""
+}
+
 // td 解析入口（文档源为 td 数据；实现见 td.tie，对外只经 doc 命名空间）。
 func parse(s: string) -> i64 {
     return td.parse(s)
