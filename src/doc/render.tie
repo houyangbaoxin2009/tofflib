@@ -872,7 +872,9 @@ func pdf_one(t: table<string>, i: i64, collect: i64) -> i64 {
         var widths = table_new_i64()
         var wj: i64 = 0
         while wj < cols {
-            table_push(widths, to_i(t[i + 3 + wj]))
+            // tdoc 的列宽是 twips（与 docx 的 dxa 同单位），排版层用 pt：
+            // 20 twips = 1 pt。
+            table_push(widths, to_i(t[i + 3 + wj]) / 20)
             wj = wj + 1
         }
         var hdr = table_new_string()

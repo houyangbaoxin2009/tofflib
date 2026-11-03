@@ -304,6 +304,13 @@ pub func tbl_w(b: ref table<string>, header: table<string>, widths: table<string
         table_push(b, widths[i])
         i = i + 1
     }
+    // 表头紧随列宽：与 tbl 块的「列数 + 行数 + 表头 + 行主序单元格」同构，
+    // 校验与四个后端都按这个顺序读取（缺表头会让后续 token 全部错位）。
+    var h: i64 = 0
+    while h < cols {
+        table_push(b, header[h])
+        h = h + 1
+    }
     var j: i64 = 0
     while j < len(rows) {
         table_push(b, rows[j])
