@@ -70,6 +70,14 @@ func tw(txt: string, size: i64) -> i64 {
     return pdf.shape_width(pdf.shape(SLOT, SLOT, txt), size)
 }
 
+func dseg(pg: i64, x1: i64, y1: i64, x2: i64, y2: i64, w: i64) {
+    if g_svg == 1 {
+        table_push(g_svgparts, "<line x1=\"" + pdf.f2s(x1) + "\" y1=\"" + pdf.f2s(y1 * 100) + "\" x2=\"" + pdf.f2s(x2) + "\" y2=\"" + pdf.f2s(y2 * 100) + "\" stroke=\"black\" stroke-width=\"" + pdf.f2s(w) + "\"/>\n")
+        return
+    }
+    pdf.seg(pg, x1 / 100, y1, x2 / 100, y2, w)
+}
+
 func dline(pg: i64, x1: i64, y: i64, x2: i64, w: i64) {
     if g_svg == 1 {
         table_push(g_svgparts, "<line x1=\"" + pdf.f2s(x1) + "\" y1=\"" + pdf.f2s(y * 100) + "\" x2=\"" + pdf.f2s(x2) + "\" y2=\"" + pdf.f2s(y * 100) + "\" stroke=\"black\" stroke-width=\"" + pdf.f2s(w) + "\"/>\n")
@@ -170,7 +178,7 @@ pub func measure(id: i64, size: i64) -> (w: i64, asc: i64, desc: i64) {
         if id3 > d0b {
             d0b = id3
         }
-        return (dw2 + iw2 + size * 95 / 100 + 100, ia2 + 9, d0b)
+        return (dw2 + iw2 + size * 135 / 100 + 200, ia2 + 9, d0b)
     }
 
     if k == "abs" || k == "norm" {
@@ -407,8 +415,8 @@ pub func draw(pg: i64, id: i64, x: i64, y: i64, size: i64) {
         var w1 = size * 30
         var w2 = size * 45
         var hgt = ia + 3
-        dline(pg, x, y, x + w1, 60)
-        dline(pg, x + w1, y - ysf(d0), x + w1 + w2, 60)
+        dseg(pg, x, y, x + w1, y - ysf(d0), 60)
+        dseg(pg, x + w1, y - ysf(d0), x + w1 + w2, y + ysf(hgt), 60)
         dline(pg, x + w1 + w2, y + ysf(hgt), x + w1 + w2 + iw + 100, 45)
         draw(pg, tmath.kid_a(id), x + w1 + w2 + 100, y, size)
         return
@@ -425,8 +433,8 @@ pub func draw(pg: i64, id: i64, x: i64, y: i64, size: i64) {
         var w2 = size * 45
         var hgt = ia2 + 3
         dtext(pg, x, y + ysf(hgt + 6), 6, tmath.plain(tmath.kid_a(id)))
-        dline(pg, x + dw2, y, x + dw2 + w1, 60)
-        dline(pg, x + dw2 + w1, y - ysf(d0b), x + dw2 + w1 + w2, 60)
+        dseg(pg, x + dw2, y, x + dw2 + w1, y - ysf(d0b), 60)
+        dseg(pg, x + dw2 + w1, y - ysf(d0b), x + dw2 + w1 + w2, y + ysf(hgt), 60)
         dline(pg, x + dw2 + w1 + w2, y + ysf(hgt), x + dw2 + w1 + w2 + iw2 + 100, 45)
         draw(pg, tmath.kid_b(id), x + dw2 + w1 + w2 + 100, y, size)
         return

@@ -313,6 +313,11 @@ func gidgroups(slot: i64, gids: table<i64>) -> table<i64> {
 
 // 画一条水平线。线宽 w 以 **1/100 pt** 传入（如 80 = 0.8pt）——
 // 与 f2s 的尺度一致；直接写 pt 整数会得到 "1.00" 与 "0.00"，后者线宽为零不可见。
+// 通用线段（斜线可用，如根号折线）：端点 pt，线宽百分之一 pt。
+pub func seg(page: i64, x1: i64, y1: i64, x2: i64, y2: i64, w: i64) {
+    raw(page, f2s(w) + " w " + i2s(x1) + " " + i2s(y1) + " m " + i2s(x2) + " " + i2s(y2) + " l S\n")
+}
+
 pub func hline(page: i64, x1: i64, y: i64, x2: i64, w: i64) {
     raw(page, f2s(w) + " w " + i2s(x1) + " " + i2s(y) + " m " + i2s(x2) + " " + i2s(y) + " l S\n")
 }
