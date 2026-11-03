@@ -231,6 +231,19 @@ func sym_find_short(cd: string) -> i64 {
     return -1
 }
 
+// 字形 → 符号表下标（全名段）；未命中 -1。
+func sym_find_full_glyph(val: string) -> i64 {
+    ensure()
+    var i: i64 = 0
+    while i < tm_short_from {
+        if tm_sv[i] == val {
+            return i
+        }
+        i = i + 1
+    }
+    return -1
+}
+
 // 字形 → 符号名（规范化用）；未命中返回空串。
 func sym_name_of(val: string) -> string {
     ensure()
@@ -398,10 +411,28 @@ func lex(src: string) -> i64 {
             tok("op", tm_sub(src, i, i + 1), i)
             i = i + 1
         } else {
-            // Unicode 直写：按单个码点收为符号
-            var cp = str_char(src, i)
-            tok("sym", cp, i)
-            i = i + str_len(cp)
+            // Unicode 直写：查符号表按类别分类（关系符/大运算符/普通符号）
+            var fb = str_byte(src, i)
+            var bl: i64 = 1
+            if fb >= 240 {
+                bl = 4
+            } else if fb >= 224 {
+                bl = 3
+            } else if fb >= 192 {
+                bl = 2
+            }
+            var cp = tm_sub(src, i, i + bl)
+            var sidx = sym_find_full_glyph(cp)
+            if sidx < 0 {
+                tok("sym", cp, i)
+            } else if tm_sk[sidx] == "big" {
+                tok("big", tm_sl[sidx], i)
+            } else if tm_sk[sidx] == "rel" {
+                tok("op", tm_sv[sidx], i)
+            } else {
+                tok("sym", tm_sv[sidx], i)
+            }
+            i = i + bl
         }
     }
     tok("end", "", n)
@@ -991,6 +1022,25 @@ pub func glyph(name: string) -> string {
     return op_char(name)
 }
 
+pub func dump(id: i64, ind: string) -> string {
+    if id < 0 {
+        return ind + "-1"
+    }
+    var out = ind + tm_kind[id] + "(" + tm_pay[id] + ")\n"
+    var kids: table<i64> = table_new_i64()
+    table_push(kids, tm_a[id])
+    table_push(kids, tm_b[id])
+    table_push(kids, tm_c[id])
+    var i: i64 = 0
+    while i < 3 {
+        if kids[i] >= 0 {
+            out = out + dump(kids[i], ind + "  ")
+        }
+        i = i + 1
+    }
+    return out
+}
+
 pub func kind_of(id: i64) -> string {
     if id < 0 {
         return ""
@@ -1026,6 +1076,31 @@ pub func kid_c(id: i64) -> i64 {
     return tm_c[id]
 }
 
+// 出错位置附近的文本（调试用）。
+pub func near(src: string, pos: i64) -> string {
+    var a = pos - 12
+    if a < 0 {
+        a = 0
+    }
+    var b = pos + 12
+    if b > len(src) {
+        b = len(src)
+    }
+    var sb = string_builder()
+    var i = a
+    while i < b {
+        if i == pos {
+            sb_append(sb, "[>")
+        }
+        sb_append_byte(sb, str_byte(src, i))
+        i = i + 1
+    }
+    if pos <= len(src) {
+        sb_append(sb, "]")
+    }
+    return sb_build(sb)
+}
+
 pub func err() -> string {
     return tm_err
 }
@@ -1036,13 +1111,44 @@ pub func err_pos() -> i64 {
 
 // ==================== 规范化 ====================
 
-func pad2(a: i64, b: i64) -> string {
-    var sa = canon(a)
-    var sb2 = canon(b)
-    return sa + ", " + sb2
+// ---------- 规范形（可解析的糖 + 全名） ----------
+// 规范形必须是「解析后仍得到同一棵 AST」的文本：运算符用中缀（必要时加圆括号），
+// 构造用全名函数式（frac/root/sum/int/lim/mat/cases/set/vec…），符号用全名。
+
+func atomish(k: string) -> bool {
+    return k == "num" || k == "id" || k == "sym" || k == "text" || k == "diff" || k == "delim" || k == "func" || k == "mat" || k == "cases" || k == "set" || k == "abs" || k == "norm" || k == "acc" || k == "sqrt" || k == "root" || k == "pow" || k == "sub"
 }
 
-// 规范形：全名函数式，保证 diff 稳定。
+// 二级（加减/关系）层级的子项需要括号
+func lvl2(id: i64) -> string {
+    if !atomish(tm_kind[id]) {
+        return "(" + canon(id) + ")"
+    }
+    return canon(id)
+}
+
+// 三级（乘除）层级：加减与关系都要括号
+func lvl3(id: i64) -> string {
+    var k = tm_kind[id]
+    if k == "add" || k == "subtract" || k == "rel" || !atomish(k) {
+        return "(" + canon(id) + ")"
+    }
+    return canon(id)
+}
+
+func pad2(a: i64, b: i64) -> string {
+    return canon(a) + ", " + canon(b)
+}
+
+// 上下标的子项：原子直写，其余加圆括号
+func script_wrap(id: i64) -> string {
+    if atomish(tm_kind[id]) && tm_kind[id] != "diff" {
+        return canon(id)
+    }
+    return "(" + canon(id) + ")"
+}
+
+// 规范形：可解析（解析后得到同一棵 AST），diff 稳定。
 pub func canon(id: i64) -> string {
     if id < 0 {
         return ""
@@ -1052,7 +1158,7 @@ pub func canon(id: i64) -> string {
         return tm_pay[id]
     }
     if k == "text" {
-        return "text(\"" + tm_pay[id] + "\")"
+        return "\"" + tm_pay[id] + "\""
     }
     if k == "sym" {
         var nm = sym_name_of(tm_pay[id])
@@ -1061,63 +1167,92 @@ pub func canon(id: i64) -> string {
         }
         return nm
     }
-    if k == "add" || k == "subtract" || k == "mul" || k == "div" || k == "slash" || k == "pow" || k == "sub" || k == "root" || k == "set" {
-        var name = k
-        if k == "div" {
-            name = "frac"
-        } else if k == "pow" {
-            name = "sup"
-        } else if k == "subtract" {
-            name = "sub"
+    if k == "add" {
+        return lvl2(tm_a[id]) + " + " + lvl2(tm_b[id])
+    }
+    if k == "subtract" {
+        return lvl2(tm_a[id]) + " - " + lvl2(tm_b[id])
+    }
+    if k == "mul" {
+        return lvl3(tm_a[id]) + " * " + lvl3(tm_b[id])
+    }
+    if k == "slash" {
+        return lvl3(tm_a[id]) + " // " + lvl3(tm_b[id])
+    }
+    if k == "div" {
+        return "frac(" + pad2(tm_a[id], tm_b[id]) + ")"
+    }
+    if k == "pow" {
+        var base = ""
+        if tm_kind[tm_a[id]] == "sub" {
+            base = canon(tm_a[id])
+            if !atomish("sub") {
+                base = base
+            }
+        } else if atomish(tm_kind[tm_a[id]]) {
+            base = canon(tm_a[id])
+        } else {
+            base = "(" + canon(tm_a[id]) + ")"
         }
-        return name + "(" + pad2(tm_a[id], tm_b[id]) + ")"
+        return base + "^" + script_wrap(tm_b[id])
+    }
+    if k == "sub" {
+        var base2 = canon(tm_a[id])
+        if !atomish(tm_kind[tm_a[id]]) && tm_kind[tm_a[id]] != "sub" {
+            base2 = "(" + base2 + ")"
+        }
+        return base2 + "_" + script_wrap(tm_b[id])
     }
     if k == "rel" {
-        return "rel(" + tm_pay[id] + ", " + pad2(tm_a[id], tm_b[id]) + ")"
+        var op = tm_pay[id]
+        return lvl2(tm_a[id]) + " " + op + " " + lvl2(tm_b[id])
     }
     if k == "neg" {
-        return "neg(" + canon(tm_a[id]) + ")"
+        return "-" + lvl3(tm_a[id])
     }
-    if k == "sqrt" || k == "abs" || k == "norm" || k == "diff" {
-        return k + "(" + canon(tm_a[id]) + ")"
+    if k == "sqrt" {
+        return "sqrt(" + canon(tm_a[id]) + ")"
+    }
+    if k == "root" {
+        return "root(" + pad2(tm_a[id], tm_b[id]) + ")"
+    }
+    if k == "abs" {
+        return "abs(" + canon(tm_a[id]) + ")"
+    }
+    if k == "norm" {
+        return "norm(" + canon(tm_a[id]) + ")"
+    }
+    if k == "set" {
+        return "set(" + pad2(tm_a[id], tm_b[id]) + ")"
+    }
+    if k == "delim" {
+        return "(" + canon(tm_a[id]) + ")"
     }
     if k == "acc" {
         return tm_pay[id] + "(" + canon(tm_a[id]) + ")"
     }
-    if k == "delim" {
-        return "delim(" + canon(tm_a[id]) + ")"
+    if k == "diff" {
+        return "d(" + canon(tm_a[id]) + ")"
     }
     if k == "func" {
         if tm_b[id] >= 0 {
-            return "func(" + tm_pay[id] + ", " + pad2(tm_a[id], tm_b[id]) + ")"
+            return tm_pay[id] + "(" + canon(tm_a[id]) + ", " + canon(tm_b[id]) + ")"
         }
         if tm_a[id] >= 0 {
-            return "func(" + tm_pay[id] + ", " + canon(tm_a[id]) + ")"
+            return tm_pay[id] + "(" + canon(tm_a[id]) + ")"
         }
-        return "func(" + tm_pay[id] + ")"
+        return tm_pay[id] + "()"
     }
     if k == "big" {
-        var op = tm_pay[id]
-        var s1 = ""
+        var name = tm_pay[id]
+        var s2 = name
         if tm_a[id] >= 0 {
-            s1 = canon(tm_a[id])
+            s2 = s2 + "_" + script_wrap(tm_a[id])
         }
-        var s2 = ""
         if tm_b[id] >= 0 {
-            s2 = canon(tm_b[id])
+            s2 = s2 + "^" + script_wrap(tm_b[id])
         }
-        if str_len(s1) == 0 && str_len(s2) == 0 {
-            return op + "(" + canon(tm_c[id]) + ")"
-        }
-        var p1 = s1
-        if str_len(p1) == 0 {
-            p1 = "-"
-        }
-        var p2 = s2
-        if str_len(p2) == 0 {
-            p2 = "-"
-        }
-        return op + "(" + p1 + ", " + p2 + ", " + canon(tm_c[id]) + ")"
+        return s2 + " " + canon(tm_c[id])
     }
     if k == "mat" {
         var rows = tm_a[id]
@@ -1229,6 +1364,9 @@ pub func plain(id: i64) -> string {
     }
     if k == "norm" {
         return "‖" + plain(tm_a[id]) + "‖"
+    }
+    if k == "set" {
+        return "{" + plain(tm_a[id]) + " | " + plain(tm_b[id]) + "}"
     }
     if k == "rel" {
         return plain(tm_a[id]) + " " + tm_pay[id] + " " + plain(tm_b[id])
@@ -1409,6 +1547,9 @@ pub func latex(id: i64) -> string {
         }
         return s + ")"
     }
+    if k == "set" {
+        return "\\left\\{" + latex(tm_a[id]) + " \\mid " + latex(tm_b[id]) + "\\right\\}"
+    }
     if k == "acc" {
         var cmd = tm_pay[id]
         return "\\" + cmd + "{" + latex(tm_a[id]) + "}"
@@ -1567,6 +1708,9 @@ pub func omml(id: i64) -> string {
         }
         return s + mm.delimit(inner, "(", ")")
     }
+    if k == "set" {
+        return mm.delimit(omml(tm_a[id]) + mm.r(" | ") + omml(tm_b[id]), "{", "}")
+    }
     if k == "acc" {
         return mm.bar(omml(tm_a[id]))
     }
@@ -1717,6 +1861,9 @@ pub func mathml(id: i64) -> string {
             s = s + "<mo>,</mo>" + mathml(tm_b[id])
         }
         return "<mrow>" + s + "<mo>)</mo></mrow>"
+    }
+    if k == "set" {
+        return "<mrow><mo>{</mo>" + mathml(tm_a[id]) + "<mo>|</mo>" + mathml(tm_b[id]) + "<mo>}</mo></mrow>"
     }
     if k == "acc" {
         return "<mover>" + mathml(tm_a[id]) + "<mo>" + xml_esc(tm_pay[id]) + "</mo></mover>"
