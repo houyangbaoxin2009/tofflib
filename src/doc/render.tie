@@ -66,6 +66,40 @@ func run_parts(r: string) -> table<string> {
     return out
 }
 
+func has_prefix(s: string, p: string) -> bool {
+    if str_len(s) < str_len(p) {
+        return false
+    }
+    return sub_str2(s, 0, str_len(p)) == p
+}
+
+func sub_str2(s: string, a: i64, b: i64) -> string {
+    var sb = string_builder()
+    var i = a
+    while i < b && i < len(s) {
+        sb_append_byte(sb, str_byte(s, i))
+        i = i + 1
+    }
+    return sb_build(sb)
+}
+
+// 行内公式 run：math|公式文本
+func is_math_run(r: string) -> bool {
+    return has_prefix(r, "math|")
+}
+
+func math_run_src(r: string) -> string {
+    return sub_str2(r, 5, len(r))
+}
+
+func math_run_omml(r: string) -> string {
+    var f = tmath.to_omml(math_run_src(r))
+    if str_len(f) == 0 {
+        return dx.run("[公式错误]")
+    }
+    return "<m:oMath>" + f + "</m:oMath>"
+}
+
 func is_run_tag(t: string) -> bool {
     return t == "b" || t == "i" || t == "m" || t == "link"
 }
@@ -224,6 +258,8 @@ pub func docx(path: string, t: table<string>) -> bool {
                     table_push(notes, fn_body(t[i]))
                     table_push(kids2, dx.run("[" + to_string(fn_no) + "]"))
                     table_push(kids2, dx.footnote_ref(fn_no))
+                } else if is_math_run(t[i]) {
+                    table_push(kids2, math_run_omml(t[i]))
                 } else {
                     table_push(kids2, docx_run(t[i]))
                 }
@@ -857,6 +893,8 @@ func pdf_one(t: table<string>, i: i64, collect: i64) -> i64 {
             if doc.is_fn_token(t[pj]) {
                 g_fn_no = g_fn_no + 1
                 ptxt = ptxt + "[" + to_string(g_fn_no) + "]"
+            } else if is_math_run(t[pj]) {
+                ptxt = ptxt + tmath.to_plain(math_run_src(t[pj]))
             } else {
                 ptxt = ptxt + run_text(t[pj])
             }
